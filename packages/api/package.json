@@ -11,9 +11,11 @@
   },
   "scripts": {},
   "dependencies": {
+    "@money/analytics": "workspace:*",
     "@money/auth": "workspace:*",
     "@money/db": "workspace:*",
     "@money/env": "workspace:*",
+    "@money/shared": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
