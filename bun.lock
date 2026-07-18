@@ -89,6 +89,7 @@
       },
       "devDependencies": {
         "@money/config": "workspace:*",
+        "@types/bun": "catalog:",
         "typescript": "catalog:",
       },
     },
