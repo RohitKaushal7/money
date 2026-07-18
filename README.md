@@ -1,132 +1,80 @@
 # money
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, ORPC, and more.
+A **self-hosted personal money-management app** (single user; INR; Indian financial year, 1 Apr – 31 Mar).
+It replaces a per-financial-year Excel workbook whose Power Query categorisation broke on Linux, and it
+removes the one-workbook-per-year friction by spanning all years in one data model.
 
-## Features
+**North-star KPI:** what fraction of monthly expenses is covered by **passive income**, and is that ratio
+**trending up**. Everything else is instrumentation for that one number.
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Hono** - Lightweight, performant server framework
-- **oRPC** - End-to-end type-safe APIs with OpenAPI integration
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **SQLite/Turso** - Database engine
-- **Authentication** - Better-Auth
-- **Biome** - Linting and formatting
-- **PWA** - Progressive Web App support
-- **Turborepo** - Optimized monorepo build system
+> **Status: bootstrapped (Phase 0).** Architecture, boundaries, and docs are in place. The **domain/business
+> schema is intentionally not designed yet** — it gets a dedicated feature-brainstorming → schema session
+> first (see `docs/roadmap.md`). There is no ingest parser or feature UI yet.
 
-## Getting Started
+## Architecture
 
-First, install the dependencies:
+Two data stores, split by workload (ADR-0001):
+
+- **DuckDB** (`data/analytics.duckdb`) — analytical, read-heavy, **rebuildable** derived state. Rebuilt
+  from immutable raw exports; never migrated in place.
+- **SQLite** (`local.db`, Drizzle) — durable app state (auth, keys, overrides, saved configs). Migrated
+  with `drizzle-kit`.
+
+Hard boundary (ADR-0003): the **API opens DuckDB read-only**; a **separate ingest script owns the sole
+read-write connection**. All DuckDB code is isolated in `@money/analytics` (ADR-0009). See `CLAUDE.md` for
+the full rule set and `docs/decisions/` for the *why*.
+
+## Project structure
+
+```
+apps/
+  web/                React + TanStack Router SPA + PWA
+  server/             Hono + oRPC (RPC /rpc, OpenAPI /api-reference, auth /api/auth/*)
+packages/
+  api/       @money/api        oRPC procedures / routers / context
+  auth/      @money/auth       Better-Auth (email+password; single owner)
+  db/        @money/db         Drizzle + libSQL (SQLite app state)
+  analytics/ @money/analytics  ALL DuckDB code — read-only + /ingest read-write (boundary skeleton)
+  shared/    @money/shared     framework-agnostic domain helpers/types (FY helpers so far)
+  env/       @money/env        t3-env (/server, /web)
+  ui/        @money/ui         shadcn primitives
+  config/    @money/config     shared tsconfig base
+scripts/ingest.ts    sole read-write DuckDB owner (stub)
+data/raw/            immutable raw statement exports (gitignored)
+docs/                decisions/ (ADRs), roadmap.md, superpowers/specs/
+```
+
+## Getting started
 
 ```bash
 bun install
+bun run dev            # web on :3001, server on :3000
 ```
 
-## Database Setup
-
-This project uses SQLite with Drizzle ORM.
-
-1. Start the local SQLite database (optional):
+App-state DB (SQLite):
 
 ```bash
-bun run db:local
+bun run db:local       # optional local libSQL server
+bun run db:push        # apply schema
 ```
 
-2. Update your `.env` file in the `apps/server` directory with the appropriate connection details if needed.
+Common scripts: `bun run check-types`, `bun run check` (Biome), `bun run ingest` (stub until the
+data-layer phase), `bun run docker:up`. Full list in the root `package.json` and `CLAUDE.md`.
 
-3. Apply the schema to your database:
+## Documentation
 
-```bash
-bun run db:push
-```
+- **`CLAUDE.md`** — working agreement + the hard rules (read this before touching data).
+- **`docs/decisions/`** — architecture decision records (ADR-0001 … 0010).
+- **`docs/roadmap.md`** — phasing (data layer + ingest + dashboards → tax → calculators).
+- **`docs/superpowers/specs/2026-07-18-money-bootstrap-design.md`** — this session's design spec.
+- **`.claude/skills/money-analytics/SKILL.md`** — how to answer analytics questions from DuckDB.
 
-Then, run the development server:
+## Open questions (need input before the relevant phase)
 
-```bash
-bun run dev
-```
+Real SBI export format · external API consumers/shapes · live-data sources (market NAV, tax slabs) ·
+deploy specifics (homelab, tailnet) · secrets inventory · PWA offline scope. See `docs/roadmap.md`.
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+---
 
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
-
-```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
-```
-
-Import shared components like this:
-
-```tsx
-import { Button } from "@money/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Deployment
-
-### Docker Compose
-
-- Target: server
-- Config: `docker-compose.yml` (app Dockerfiles live in `apps/*/Dockerfile`)
-- Build images: bun run docker:build
-- Start: bun run docker:up
-- Logs: bun run docker:logs
-- Stop: bun run docker:down
-
-Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-For more details, see the guide on [Deploying with Docker Compose](https://www.better-t-stack.dev/docs/guides/docker).
-
-## Git Hooks and Formatting
-
-- Run checks: `bun run check`
-
-## Project Structure
-
-```
-money/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   └── server/      # Backend API (Hono, ORPC)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run db:local`: Start the local SQLite database
-- `bun run check`: Run Biome formatting and linting
-- `cd apps/web && bun run generate-pwa-assets`: Generate PWA assets
-- `bun run docker:build`: Build the Docker Compose images
-- `bun run docker:up`: Build and start the Docker Compose stack
-- `bun run docker:logs`: Tail logs from the Docker Compose stack
-- `bun run docker:down`: Stop the Docker Compose stack
+Scaffolded with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack)
+(TanStack Router · Hono · oRPC · Drizzle · Better-Auth · Bun · Turborepo · Biome · PWA).

@@ -15,6 +15,17 @@ apps/web/src/routeTree.gen.ts
 .env
 .env*.local
 
+# Money app data — NEVER commit real financial data (ADR-0002)
+data/raw/*
+!data/raw/.gitkeep
+*.duckdb
+local.db
+local.db-*
+
+# Pre-existing personal-finance knowledge base (real account/card/portfolio data).
+# Untracked and kept that way; move out of the repo or confirm before ever tracking it.
+packages/info/
+
 # IDEs and editors
 .vscode/*
 !.vscode/settings.json
