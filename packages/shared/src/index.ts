@@ -1,7 +1,13 @@
 /**
  * `@money/shared` — framework-agnostic domain helpers and types (ADR-0007).
  *
- * This session it carries only the Indian-FY calendar helpers. Domain types and the category taxonomy
- * are deferred to the feature/schema brainstorming session (ADR-0010 / D5).
+ * - `fy` — Indian financial-year calendar helpers.
+ * - `kinds` — the split `Kind` + `CashflowType` axes (ADR-0012).
+ * - `categories` — the seed category taxonomy.
+ * - `types` — domain & API response types.
  */
+
+export * from "./categories";
 export * from "./fy";
+export * from "./kinds";
+export * from "./types";
