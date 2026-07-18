@@ -15,6 +15,10 @@ supersede rather than edit once accepted.
 | [0008](0008-migrations.md) | Migrations: Drizzle for SQLite; rebuildable transforms for DuckDB |
 | [0009](0009-duckdb-node-api-isolated.md) | `@duckdb/node-api` is the client, isolated in `@money/analytics` |
 | [0010](0010-single-user-and-naming.md) | Single-user for now; scaffold naming reconciliation; deferrals (D4/D5) |
+| [0011](0011-kpi-coverage-ratio.md) | KPI: passive-income coverage ratio (cash yield + switchable imputed drawdown) |
+| [0012](0012-transaction-kinds-and-splits.md) | Ledger model: transaction kinds, splits, orthogonal investment-linkage |
+| [0013](0013-idempotent-ingest-and-ui-import.md) | Idempotent ingest (deterministic txn_id); UI import via the ingest runner |
 
-See also `docs/superpowers/specs/2026-07-18-money-bootstrap-design.md` for the bootstrap session spec and
-`docs/roadmap.md` for phasing.
+See also the session specs in `docs/superpowers/specs/` — `2026-07-18-money-bootstrap-design.md`
+(architecture) and `2026-07-18-money-schema-design.md` (feature & schema design) — and `docs/roadmap.md`
+for phasing.

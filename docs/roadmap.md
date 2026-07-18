@@ -14,14 +14,12 @@ Architecture, boundaries, and docs only (this session):
 
 ## Phase 1 — Data layer + ingest + core dashboards
 
-**1a. Feature brainstorming → domain/schema design** _(gate for everything below)_
-- Brainstorm the features the owner actually wants, then agree a scalable schema.
-- Design DuckDB business tables/views + persisted `networth_snapshots`; Drizzle `transaction_overrides`
-  + `saved_configs`; domain types + category taxonomy in `@money/shared`.
-- **Existing domain input:** `packages/info/` (gitignored, real data) already holds the owner's accounts,
-  cards, portfolio, spending profile, subscriptions, and strategy notes — a strong starting point for the
-  category taxonomy, reward mapping, holdings, and recurring-outgoings modelling.
-- **Blocked on:** a real SBI statement export (exact columns/order) — `init.md` §6.
+**1a. Feature brainstorming → domain/schema design** ✅ (2026-07-18)
+- Agreed the broader-v1 feature set + a scalable schema across ledger, investments/XIRR, net worth,
+  reward mapping, and tax. Captured in `docs/superpowers/specs/2026-07-18-money-schema-design.md` with
+  ADRs 0011 (KPI), 0012 (kinds+splits), 0013 (idempotent ingest + UI import).
+- Real SBI statement obtained; format understood (quoted multi-line `Details`; `Date,Details,Ref,Debit,
+  Credit,Balance`). `packages/info/` cards to be imported into app-owned SQLite tables.
 
 **1b. Wire the analytical layer**
 - `bun add @duckdb/node-api` in `@money/analytics`; implement `openReadOnly()` / `openReadWrite()`.
