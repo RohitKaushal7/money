@@ -20,6 +20,7 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
-		"@duckdb/node-api": "^1.5.4-r.1"
+		"@duckdb/node-api": "^1.5.4-r.1",
+		"@money/shared": "workspace:*"
 	}
 }

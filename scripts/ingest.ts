@@ -2,48 +2,57 @@
 /**
  * scripts/ingest.ts — the SOLE read-write owner of the analytical DuckDB (ADR-0003).
  *
- * This is the only place allowed to import `@money/analytics/ingest` / open DuckDB read-write. Run it
- * monthly or on demand (`bun run ingest`). The API never writes to DuckDB.
- *
- * Status: **stub**. The schema and the SBI parser are designed in later sessions (D2/D5). Running this
- * today prints the intended pipeline and then exits, because `@duckdb/node-api` is not wired yet.
+ * The only place allowed to import `@money/analytics/ingest` / open DuckDB read-write. Run monthly or on
+ * demand (`bun run ingest`). Reads immutable raw statement exports from `data/raw/` and rebuilds the
+ * analytical DB (ADR-0002). The API never writes DuckDB.
  */
 
-import {
-	DUCKDB_RELATIVE_PATH,
-	RAW_DIR_RELATIVE_PATH,
-	SQLITE_RELATIVE_PATH,
-} from "@money/analytics";
+import { readdirSync } from "node:fs";
+import { DUCKDB_RELATIVE_PATH, RAW_DIR_RELATIVE_PATH } from "@money/analytics";
 import { openReadWrite } from "@money/analytics/ingest";
+import { rebuild } from "@money/analytics/rebuild";
 
 async function main(): Promise<void> {
-	console.log("[ingest] money analytical rebuild");
-	console.log(
-		"[ingest] planned pipeline (data-layer phase — see docs/roadmap.md):",
-	);
-	console.log(
-		`  1. read immutable raw statement exports from ${RAW_DIR_RELATIVE_PATH}/`,
-	);
-	console.log(
-		`  2. open the SOLE read-write DuckDB connection at ${DUCKDB_RELATIVE_PATH}`,
-	);
-	console.log(
-		"  3. drop & recreate derived tables from @money/analytics/sql/schema.sql",
-	);
-	console.log(
-		`  4. ATTACH ${SQLITE_RELATIVE_PATH} and apply transaction overrides (ADR-0004)`,
-	);
-	console.log(
-		"  5. append point-in-time facts to persisted tables (sql/persist/*)",
-	);
+	const files = readdirSync(RAW_DIR_RELATIVE_PATH)
+		.filter((name) => name.toLowerCase().endsWith(".csv"))
+		.sort()
+		.map((name) => ({ path: `${RAW_DIR_RELATIVE_PATH}/${name}`, name }));
 
-	// Establishes the read-write boundary in code. Throws NOT_WIRED until the data-layer phase.
+	if (files.length === 0) {
+		console.log(
+			`[ingest] no .csv files in ${RAW_DIR_RELATIVE_PATH}/ — drop your SBI statement export(s) there first.`,
+		);
+		return;
+	}
+
+	console.log(
+		`[ingest] rebuilding ${DUCKDB_RELATIVE_PATH} from ${files.length} raw file(s)…`,
+	);
 	const writer = await openReadWrite({ dbPath: DUCKDB_RELATIVE_PATH });
-	await writer.close();
+	try {
+		const reports = await rebuild(writer, { files });
+		for (const r of reports) {
+			console.log(
+				`[ingest] ${r.sourceFile}: ${r.rowsNew} new, ${r.rowsDuplicate} duplicate (${r.rowsTotal} rows)`,
+			);
+		}
+		const [row] = await writer.query<{ n: number }>(
+			"SELECT count(*) AS n FROM transactions",
+		);
+		const [uncat] = await writer.query<{ n: number }>(
+			"SELECT count(*) AS n FROM transaction_splits WHERE category_key = 'uncategorized'",
+		);
+		console.log(
+			`[ingest] done — ${row?.n ?? 0} transactions (${uncat?.n ?? 0} splits need categorising).`,
+		);
+	} finally {
+		await writer.close();
+	}
 }
 
 main().catch((error: unknown) => {
-	const message = error instanceof Error ? error.message : String(error);
-	console.error(`[ingest] not run: ${message}`);
+	console.error(
+		`[ingest] failed: ${error instanceof Error ? error.message : String(error)}`,
+	);
 	process.exit(1);
 });
