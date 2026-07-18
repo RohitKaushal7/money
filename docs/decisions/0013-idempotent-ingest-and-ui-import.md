@@ -12,10 +12,16 @@ must not write DuckDB directly.
 
 ## Decision
 
-- **Deterministic identity:** `txn_id = hash(account_id, txn_date, signed_amount, running_balance)`.
-  Running balance is cumulative, making the tuple a naturally-unique fingerprint per posting. **Narration
-  is excluded** from the key so a re-worded description doesn't forge a phantom row. Ingest **idempotent-
-  upserts** by `txn_id`; overrides and manual splits (keyed on `txn_id`) survive re-import.
+- **Deterministic identity:** `txn_id = hash(account_id, txn_date, signed_amount, running_balance,
+  occurrence_index)`. Running balance is cumulative, making `(account, date, amount, balance)` a near-unique
+  fingerprint per posting. **Narration is excluded** so a re-worded description doesn't forge a phantom
+  row. Ingest **idempotent-upserts** by `txn_id`; overrides and manual splits (keyed on `txn_id`) survive
+  re-import.
+  - **`occurrence_index`** is a 0-based counter within each `(date, amount, balance)` group. Real data has
+    genuinely-identical postings that even share a balance — e.g. several same-day ₹10,000 SIP debits with
+    sweep-ins resetting the balance between them (verified: 5 identical Groww SIPs on one day). Without the
+    index they'd collapse to one and silently lose rows; narration doesn't disambiguate them (also
+    identical). Singleton groups get index 0 (key unchanged); only true collisions get 1, 2, ….
 - **UI import path:** paste → API validates and **persists the CSV as an immutable raw file** under
   `data/raw/` (ADR-0002) → invokes the **ingest runner** (`scripts/ingest.ts`, the sole RW owner,
   ADR-0003) → idempotent upsert → rebuild → returns an import report. A **dry-run** preview returns
@@ -41,3 +47,5 @@ must not write DuckDB directly.
 - The dry-run preview is a first-class ingest mode, not an afterthought.
 - If the identity scheme ever changes, `txn_id`s change and overrides would need remapping — treat the
   key as stable.
+- `occurrence_index` is stable across re-imports of the same file. It can drift only if an overlapping
+  export splits an identical-posting cluster across its boundary (rare); accepted and documented.
