@@ -17,5 +17,8 @@
 	"devDependencies": {
 		"@money/config": "workspace:*",
 		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"@duckdb/node-api": "^1.5.4-r.1"
 	}
 }
