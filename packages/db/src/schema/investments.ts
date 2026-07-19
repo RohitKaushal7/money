@@ -30,6 +30,8 @@ export const investments = sqliteTable("investments", {
 	platform: text("platform"),
 	/** rollup bucket: holdings sharing a group nest under one header with a weighted-avg XIRR (e.g. "SustVest", "Wint", "FDs") */
 	group: text("group"),
+	/** ISIN — the security's canonical identifier (bonds/NCDs/equities). Join key for coupons, ratings, tax. */
+	isin: text("isin"),
 	/** invested amount / cost basis (INR rupees) */
 	principal: real("principal"),
 	/** expected annual interest rate as a fraction, e.g. 0.11 (income investments) */
