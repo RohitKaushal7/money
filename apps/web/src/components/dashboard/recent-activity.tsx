@@ -1,5 +1,6 @@
 import { CATEGORY_BY_KEY } from "@money/shared";
-import { formatDay, formatINR } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
+import { formatDay } from "@/lib/format";
 import { SectionHead } from "./trend-chart";
 
 interface TransactionRow {
@@ -25,6 +26,7 @@ interface RecentActivityProps {
 }
 
 export function RecentActivity({ rows }: RecentActivityProps) {
+	const m = useMoney();
 	const items = rows.slice(0, 12);
 	return (
 		<section className="flex flex-col gap-5">
@@ -66,7 +68,7 @@ export function RecentActivity({ rows }: RecentActivityProps) {
 								}}
 							>
 								{credit ? "+" : "−"}
-								{formatINR(Math.abs(t.amount))}
+								{m.fmt(Math.abs(t.amount))}
 							</span>
 						</li>
 					);

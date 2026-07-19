@@ -1,6 +1,7 @@
 import {
 	CATEGORIES,
 	CATEGORY_BY_KEY,
+	convert,
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
@@ -13,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { formatINR } from "@/lib/format";
+import { MoneyNative, useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/plan")({ component: PlanPage });
@@ -42,12 +43,14 @@ interface InvestmentDraft {
 	annualRate?: number;
 	expectedMonthlyInterest?: number;
 	maturityDate?: string;
+	currency?: string;
 }
 interface RecurringDraft {
 	name: string;
 	amount: number;
 	cadence: ExpenseCadence;
 	category?: string;
+	currency?: string;
 }
 
 // mirrors @money/shared HoldingRollup (kept local to avoid importing server-only shapes)
@@ -109,16 +112,20 @@ function PlanPage() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 
+	const money = useMoney();
 	const ladder = useQuery(orpc.plan.ladder.queryOptions());
 	const wealth = useQuery(orpc.plan.wealth.queryOptions());
 	const recurring = useQuery(orpc.plan.recurring.queryOptions());
 
+	// recurring amounts can be foreign; compare/rank in INR so a €/$ sub isn't mis-sized
+	const monthlyInr = (e: RecurringExpense) =>
+		convert(monthlyAmount(e), e.currency ?? "INR", "INR", money.rates);
 	const rollups = (wealth.data?.rollups ?? []) as Rollup[];
 	const recs = [...(recurring.data ?? [])].sort(
-		(a, b) => monthlyAmount(b) - monthlyAmount(a),
+		(a, b) => monthlyInr(b) - monthlyInr(a),
 	);
 	const maxIn = Math.max(1, ...rollups.map((r) => r.monthly));
-	const maxOut = Math.max(1, ...recs.map(monthlyAmount));
+	const maxOut = Math.max(1, ...recs.map(monthlyInr));
 
 	return (
 		<main className="h-full overflow-y-auto">
@@ -146,6 +153,7 @@ function PlanPage() {
 
 // ── coverage ladder ───────────────────────────────────────────────────────────────────────────────────
 function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
+	const { fmt } = useMoney();
 	const total = ladder?.total.ratio ?? null;
 	const free = total != null && total >= 1;
 	const accent = free ? IN : OUT;
@@ -173,7 +181,7 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 						className="tnum font-display font-medium text-xl"
 						style={{ color: OUT }}
 					>
-						{formatINR(ladder?.expenses ?? 0)}
+						{fmt(ladder?.expenses ?? 0)}
 					</p>
 					<p className="text-muted-foreground text-xs">recurring / mo</p>
 				</div>
@@ -204,7 +212,7 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 								{ratioStr(t?.ratio ?? null)}
 							</span>
 							<span className="tnum w-20 shrink-0 text-right text-muted-foreground text-xs">
-								{formatINR(t?.income ?? 0)}
+								{fmt(t?.income ?? 0)}
 							</span>
 						</div>
 					);
@@ -393,6 +401,7 @@ function GroupRow({
 }
 
 function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
+	const { fmt } = useMoney();
 	const monthly =
 		inv.expectedMonthlyInterest ??
 		((inv.currentValue ?? 0) * (inv.annualRate ?? 0)) / 12;
@@ -401,13 +410,13 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 			<div className="min-w-0 flex-1">
 				<p className="truncate text-sm">{inv.name}</p>
 				<p className="text-muted-foreground text-xs">
-					{formatINR(inv.currentValue ?? 0)}
+					{fmt(inv.currentValue ?? 0)}
 					{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
 					{inv.maturityDate ? ` · ${inv.maturityDate}` : ""}
 				</p>
 			</div>
 			<span className="tnum text-sm" style={{ color: IN }}>
-				{formatINR(monthly)}
+				{fmt(monthly)}
 				<span className="text-[0.6rem] text-muted-foreground">/mo</span>
 			</span>
 			<button
@@ -423,13 +432,14 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 }
 
 function Amount({ value, monthly }: { value: number; monthly: number }) {
+	const { fmt } = useMoney();
 	return (
 		<div className="relative text-right">
 			<p className="tnum font-medium" style={{ color: IN }}>
-				{formatINR(monthly)}
+				{fmt(monthly)}
 				<span className="text-[0.6rem] text-muted-foreground"> /mo</span>
 			</p>
-			<p className="tnum text-muted-foreground text-xs">{formatINR(value)}</p>
+			<p className="tnum text-muted-foreground text-xs">{fmt(value)}</p>
 		</div>
 	);
 }
@@ -444,6 +454,7 @@ function OutgoingColumn({
 	max: number;
 	onDone: () => void;
 }) {
+	const { rates } = useMoney();
 	const [editing, setEditing] = useState<string | null>(null);
 	const [adding, setAdding] = useState(false);
 	const add = useMutation({
@@ -488,7 +499,16 @@ function OutgoingColumn({
 						<OutgoingRow
 							key={exp.id}
 							exp={exp}
-							pct={(monthlyAmount(exp) / max) * 100}
+							pct={
+								(convert(
+									monthlyAmount(exp),
+									exp.currency ?? "INR",
+									"INR",
+									rates,
+								) /
+									max) *
+								100
+							}
 							onEdit={() => setEditing(exp.id)}
 							onDelete={() => del.mutate({ id: Number(exp.id) })}
 						/>
@@ -532,12 +552,20 @@ function OutgoingRow({
 			<Depth pct={pct} side="left" tone={OUT} />
 			<div className="relative text-left">
 				<p className="tnum font-medium" style={{ color: OUT }}>
-					{formatINR(monthlyAmount(exp))}
+					<MoneyNative
+						amount={monthlyAmount(exp)}
+						code={exp.currency ?? "INR"}
+					/>
 				</p>
 				<p className="text-[0.6rem] text-muted-foreground">
-					{exp.cadence === "monthly"
-						? "/mo"
-						: `${formatINR(exp.amount)}${CADENCE_LABEL[exp.cadence] ?? ""}`}
+					{exp.cadence === "monthly" ? (
+						"/mo"
+					) : (
+						<>
+							<MoneyNative amount={exp.amount} code={exp.currency ?? "INR"} />
+							{CADENCE_LABEL[exp.cadence] ?? ""}
+						</>
+					)}
 				</p>
 			</div>
 			<div className="relative min-w-0 flex-1 text-right">
@@ -569,6 +597,7 @@ function InvestmentForm({
 	onCancel?: () => void;
 	onDelete?: () => void;
 }) {
+	const { enabled } = useMoney();
 	const [cls, setCls] = useState<IncomeClass>(initial?.incomeClass ?? "income");
 	const [payout, setPayout] = useState<Payout>(
 		(initial?.payout as Payout) ?? "cash",
@@ -577,6 +606,7 @@ function InvestmentForm({
 	const [type, setType] = useState<InvestmentType>(initial?.type ?? "bond");
 	const [group, setGroup] = useState(initial?.group ?? "");
 	const [platform, setPlatform] = useState(initial?.platform ?? "");
+	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [value, setValue] = useState(str(initial?.currentValue));
 	const [ratePct, setRatePct] = useState(
 		initial?.annualRate != null
@@ -589,7 +619,12 @@ function InvestmentForm({
 	function submit(e: FormEvent) {
 		e.preventDefault();
 		if (!name.trim()) return;
-		const d: InvestmentDraft = { name: name.trim(), type, incomeClass: cls };
+		const d: InvestmentDraft = {
+			name: name.trim(),
+			type,
+			incomeClass: cls,
+			currency,
+		};
 		if (group.trim()) d.group = group.trim();
 		if (platform.trim()) d.platform = platform.trim();
 		if (value) d.currentValue = Number(value);
@@ -659,7 +694,17 @@ function InvestmentForm({
 						placeholder="provider"
 					/>
 				</Field>
-				<Field label="Value ₹">
+				<Field label="Currency">
+					<NativeSelect
+						value={currency}
+						onChange={setCurrency}
+						options={enabled.map((c) => ({
+							value: c.code,
+							label: `${c.symbol} ${c.code}`,
+						}))}
+					/>
+				</Field>
+				<Field label="Value">
 					<Input
 						type="number"
 						value={value}
@@ -668,7 +713,7 @@ function InvestmentForm({
 						placeholder="100000"
 					/>
 				</Field>
-				<Field label="XIRR % / yr">
+				<Field label="Rate % / yr">
 					<Input
 						type="number"
 						step="0.1"
@@ -723,8 +768,10 @@ function ExpenseForm({
 	onCancel?: () => void;
 	onDelete?: () => void;
 }) {
+	const { enabled } = useMoney();
 	const [name, setName] = useState(initial?.name ?? "");
 	const [amount, setAmount] = useState(str(initial?.amount));
+	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [category, setCategory] = useState(initial?.category ?? "");
 	const [cadence, setCadence] = useState<ExpenseCadence>(
 		(initial?.cadence as ExpenseCadence) ?? "monthly",
@@ -737,6 +784,7 @@ function ExpenseForm({
 			name: name.trim(),
 			amount: Number(amount),
 			cadence,
+			currency,
 		};
 		if (category.trim()) d.category = category.trim();
 		onSubmit(d);
@@ -760,7 +808,17 @@ function ExpenseForm({
 						options={EXPENSE_CATEGORY_OPTIONS}
 					/>
 				</Field>
-				<Field label="Amount ₹">
+				<Field label="Currency">
+					<NativeSelect
+						value={currency}
+						onChange={setCurrency}
+						options={enabled.map((c) => ({
+							value: c.code,
+							label: `${c.symbol} ${c.code}`,
+						}))}
+					/>
+				</Field>
+				<Field label="Amount">
 					<Input
 						type="number"
 						value={amount}

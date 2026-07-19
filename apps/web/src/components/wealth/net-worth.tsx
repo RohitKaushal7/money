@@ -13,7 +13,7 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
-import { formatCompactINR, formatINR } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
 const COVERED = "var(--covered)";
@@ -43,6 +43,7 @@ function fmtAxis(iso: string): string {
 
 export function NetWorthOverTime() {
 	const q = useQuery(orpc.networth.list.queryOptions());
+	const m = useMoney();
 	const s = q.data as NetworthSeries | undefined;
 
 	if (q.isLoading) {
@@ -64,7 +65,7 @@ export function NetWorthOverTime() {
 					</p>
 					<div className="mt-1 flex items-baseline gap-3">
 						<span className="tnum font-display font-medium text-4xl leading-none">
-							{formatINR(s.latest)}
+							{m.fmt(s.latest ?? 0)}
 						</span>
 						<span
 							className="flex items-center gap-1 font-medium text-sm"
@@ -83,7 +84,7 @@ export function NetWorthOverTime() {
 						<p className="mt-1 text-muted-foreground text-sm">
 							<span className="tnum text-foreground/70">
 								{s.change >= 0 ? "+" : "−"}
-								{formatCompactINR(Math.abs(s.change))}
+								{m.fmtc(Math.abs(s.change))}
 							</span>{" "}
 							since {fmtDate(s.points[0]?.asOf ?? "")} · compounded annually
 						</p>
@@ -106,6 +107,7 @@ type ChartDatum = {
 };
 
 function NetWorthChart({ points }: { points: NetworthPoint[] }) {
+	const m = useMoney();
 	const data: ChartDatum[] = points.map((p) => ({
 		asOf: p.asOf,
 		label: fmtAxis(p.asOf),
@@ -135,7 +137,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 					/>
 					<YAxis
 						yAxisId="value"
-						tickFormatter={(v: number) => formatCompactINR(v)}
+						tickFormatter={(v: number) => m.fmtc(v)}
 						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
 						tickLine={false}
 						axisLine={false}
@@ -155,7 +157,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 					<Tooltip
 						cursor={{ stroke: "var(--border)" }}
 						isAnimationActive={false}
-						content={<NetWorthTip />}
+						content={<NetWorthTip fmt={m.fmt} />}
 					/>
 					<Bar yAxisId="growth" dataKey="growthPct" barSize={14} radius={2}>
 						{data.map((d) => (
@@ -186,9 +188,11 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 function NetWorthTip({
 	active,
 	payload,
+	fmt,
 }: {
 	active?: boolean;
 	payload?: { payload: ChartDatum }[];
+	fmt: (inr: number) => string;
 }) {
 	if (!active || !payload?.length) return null;
 	const d = payload[0]?.payload;
@@ -197,7 +201,7 @@ function NetWorthTip({
 	return (
 		<div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
 			<p className="font-medium text-sm">{fmtDate(d.asOf)}</p>
-			<p className="tnum mt-0.5 text-sm">{formatINR(d.value)}</p>
+			<p className="tnum mt-0.5 text-sm">{fmt(d.value)}</p>
 			{d.growthPct != null && (
 				<p className="tnum text-xs" style={{ color: up ? COVERED : UNCOVERED }}>
 					{signedPct(d.growthPct / 100)} annualised
@@ -209,6 +213,7 @@ function NetWorthTip({
 
 function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 	const qc = useQueryClient();
+	const m = useMoney();
 	const remove = useMutation({
 		...orpc.networth.remove.mutationOptions(),
 		onSuccess: () => qc.invalidateQueries(),
@@ -240,7 +245,7 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 									</span>
 								)}
 							</span>
-							<span className="tnum text-right">{formatINR(p.value)}</span>
+							<span className="tnum text-right">{m.fmt(p.value)}</span>
 							<span
 								className="tnum w-20 text-right"
 								style={{

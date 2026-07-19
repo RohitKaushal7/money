@@ -1,4 +1,5 @@
-import { formatINR, formatPct, formatRatio } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
+import { formatPct, formatRatio } from "@/lib/format";
 
 interface CoverageHeroProps {
 	/** expected monthly passive income (the total-tier ladder numerator; ADR-0015) */
@@ -15,6 +16,7 @@ interface CoverageHeroProps {
  * both sides come from the Plan, not the noisy statement. Green when covered, warm amber while not.
  */
 export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
+	const m = useMoney();
 	const passive = interest;
 	const covered = ratio != null && ratio >= 1;
 	const gap = Math.max(0, expenses - passive);
@@ -55,15 +57,11 @@ export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
 				</div>
 
 				<dl className="grid grid-cols-3 gap-x-8 gap-y-1 lg:text-right">
-					<Stat
-						label="Passive / mo"
-						value={formatINR(passive)}
-						tone="covered"
-					/>
-					<Stat label="Expenses / mo" value={formatINR(expenses)} />
+					<Stat label="Passive / mo" value={m.fmt(passive)} tone="covered" />
+					<Stat label="Expenses / mo" value={m.fmt(expenses)} />
 					<Stat
 						label="Gap to freedom"
-						value={formatINR(gap)}
+						value={m.fmt(gap)}
 						tone={covered ? "covered" : "uncovered"}
 					/>
 				</dl>

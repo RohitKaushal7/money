@@ -3,12 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
-import {
-	formatCompactINR,
-	formatDay,
-	formatINR,
-	formatMonth,
-} from "@/lib/format";
+import { useMoney } from "@/lib/currency";
+import { formatDay, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/spending")({
@@ -67,6 +63,7 @@ function SpendingPage() {
 
 // ── summary ─────────────────────────────────────────────────────────────────────────────────────────
 function SummaryBar({ res }: { res: SpendingTrends }) {
+	const { fmt } = useMoney();
 	const latestMonth = res.months[res.months.length - 1] ?? "";
 	const overBudget = res.totalBudget > 0 && res.latestTotal > res.totalBudget;
 	return (
@@ -80,7 +77,7 @@ function SummaryBar({ res }: { res: SpendingTrends }) {
 						className="tnum font-display font-medium text-3xl leading-none"
 						style={{ color: OUT }}
 					>
-						{formatINR(res.latestTotal)}
+						{fmt(res.latestTotal)}
 					</p>
 				</div>
 				{res.totalBudget > 0 && (
@@ -89,7 +86,7 @@ function SummaryBar({ res }: { res: SpendingTrends }) {
 							Monthly budget
 						</p>
 						<p className="tnum font-display font-medium text-2xl text-muted-foreground leading-none">
-							{formatINR(res.totalBudget)}
+							{fmt(res.totalBudget)}
 						</p>
 					</div>
 				)}
@@ -97,8 +94,8 @@ function SummaryBar({ res }: { res: SpendingTrends }) {
 			{res.totalBudget > 0 && (
 				<p className="text-sm" style={{ color: overBudget ? OUT : IN }}>
 					{overBudget
-						? `${formatINR(res.latestTotal - res.totalBudget)} over budget this month`
-						: `${formatINR(res.totalBudget - res.latestTotal)} under budget this month`}
+						? `${fmt(res.latestTotal - res.totalBudget)} over budget this month`
+						: `${fmt(res.totalBudget - res.latestTotal)} under budget this month`}
 				</p>
 			)}
 		</section>
@@ -113,6 +110,7 @@ function MoverRow({
 	cat: SpendingCategory;
 	months: string[];
 }) {
+	const { fmt, fmtc } = useMoney();
 	const [open, setOpen] = useState(false);
 	return (
 		<li className="border-border border-b">
@@ -128,12 +126,12 @@ function MoverRow({
 					<p className="truncate font-medium">{cat.label}</p>
 					<p className="text-muted-foreground text-xs">
 						{cat.n} txn{cat.n === 1 ? "" : "s"}
-						{cat.budget > 0 && <> · budget {formatCompactINR(cat.budget)}/mo</>}
+						{cat.budget > 0 && <> · budget {fmtc(cat.budget)}/mo</>}
 					</p>
 				</div>
 				<Sparkline values={cat.byMonth} budget={cat.budget} months={months} />
 				<div className="w-28 shrink-0 text-right">
-					<p className="tnum font-medium">{formatINR(cat.latest)}</p>
+					<p className="tnum font-medium">{fmt(cat.latest)}</p>
 					<TrendChip cat={cat} />
 				</div>
 			</button>
@@ -152,6 +150,7 @@ function Sparkline({
 	budget: number;
 	months: string[];
 }) {
+	const { fmt } = useMoney();
 	const max = Math.max(1, ...values, budget);
 	return (
 		<div
@@ -162,7 +161,7 @@ function Sparkline({
 				<div
 					className="absolute inset-x-0 border-muted-foreground/60 border-t border-dashed"
 					style={{ bottom: `${(budget / max) * 100}%` }}
-					title={`budget ${formatINR(budget)}`}
+					title={`budget ${fmt(budget)}`}
 				/>
 			)}
 			{values.map((v, i) => {
@@ -170,7 +169,7 @@ function Sparkline({
 				return (
 					<div
 						key={months[i]}
-						title={`${formatMonth(months[i] ?? "")}: ${formatINR(v)}`}
+						title={`${formatMonth(months[i] ?? "")}: ${fmt(v)}`}
 						className="w-1.5 rounded-sm"
 						style={{
 							height: `${Math.max(4, (v / max) * 100)}%`,
@@ -225,6 +224,7 @@ function TrendChip({ cat }: { cat: SpendingCategory }) {
 
 /** Drill-in: the individual transactions filed under this category (lazy-loaded on expand). */
 function Drill({ categoryKey }: { categoryKey: string }) {
+	const { fmt } = useMoney();
 	const q = useQuery(
 		orpc.spending.categoryTransactions.queryOptions({
 			input: { categoryKey },
@@ -249,7 +249,7 @@ function Drill({ categoryKey }: { categoryKey: string }) {
 					</span>
 					<span className="min-w-0 flex-1 truncate text-xs">{t.narration}</span>
 					<span className="tnum shrink-0 text-xs" style={{ color: OUT }}>
-						{formatINR(t.amount)}
+						{fmt(t.amount)}
 					</span>
 				</div>
 			))}
@@ -263,6 +263,7 @@ function BudgetedNoActual({
 }: {
 	items: SpendingTrends["budgetedNoActual"];
 }) {
+	const { fmtc } = useMoney();
 	return (
 		<section className="rounded-2xl border border-border border-dashed bg-card/30 px-6 py-5">
 			<p className="mb-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
@@ -273,7 +274,7 @@ function BudgetedNoActual({
 					<li key={b.key} className="text-sm">
 						<span className="text-foreground/80">{b.label}</span>{" "}
 						<span className="tnum text-muted-foreground">
-							{formatCompactINR(b.budget)}/mo
+							{fmtc(b.budget)}/mo
 						</span>
 					</li>
 				))}

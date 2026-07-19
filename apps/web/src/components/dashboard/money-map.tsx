@@ -1,5 +1,5 @@
 import { CATEGORY_BY_KEY } from "@money/shared";
-import { formatINR } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
 import { SectionHead } from "./trend-chart";
 
 interface CategoryRow {
@@ -16,6 +16,7 @@ interface MoneyMapProps {
 
 /** "Where's my money" — expense categories ranked by spend, as an editorial bar list. */
 export function MoneyMap({ rows }: MoneyMapProps) {
+	const m = useMoney();
 	const byCategory = new Map<string, { amount: number; n: number }>();
 	for (const row of rows) {
 		if (row.kind !== "expense") continue;
@@ -48,7 +49,7 @@ export function MoneyMap({ rows }: MoneyMapProps) {
 				title="Where's my money"
 				aside={
 					<span className="text-muted-foreground text-xs">
-						{formatINR(total)} total
+						{m.fmt(total)} total
 					</span>
 				}
 			/>
@@ -61,7 +62,7 @@ export function MoneyMap({ rows }: MoneyMapProps) {
 							<div className="flex items-baseline justify-between gap-4">
 								<span className="truncate font-medium text-sm">{label}</span>
 								<span className="tnum shrink-0 font-display text-base">
-									{formatINR(item.amount)}
+									{m.fmt(item.amount)}
 								</span>
 							</div>
 							<div className="flex items-center gap-3">

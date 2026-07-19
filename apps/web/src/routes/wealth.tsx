@@ -16,7 +16,7 @@ import {
 	ZAxis,
 } from "recharts";
 import { NetWorthOverTime } from "@/components/wealth/net-worth";
-import { formatCompactINR, formatINR } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/wealth")({ component: WealthPage });
@@ -45,6 +45,7 @@ function daysUntil(iso?: string): number | null {
 function DonutTip({
 	active,
 	payload,
+	fmt,
 }: {
 	active?: boolean;
 	payload?: {
@@ -56,6 +57,7 @@ function DonutTip({
 			monthly: number;
 		};
 	}[];
+	fmt: (inr: number) => string;
 }) {
 	if (!active || !payload?.length) return null;
 	const d = payload[0]?.payload;
@@ -64,8 +66,8 @@ function DonutTip({
 		<div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
 			<p className="font-medium text-sm">{d.name}</p>
 			<p className="tnum mt-0.5 text-muted-foreground text-xs">
-				{formatINR(d.value)} · {Math.round(d.share * 100)}% · {pct1(d.rate)} ·{" "}
-				{formatINR(d.monthly)}/mo
+				{fmt(d.value)} · {Math.round(d.share * 100)}% · {pct1(d.rate)} ·{" "}
+				{fmt(d.monthly)}/mo
 			</p>
 		</div>
 	);
@@ -171,6 +173,7 @@ function Distribution({ w }: { w: WealthSummary }) {
 }
 
 function AllocationView({ data, total }: { data: Datum[]; total: number }) {
+	const { fmt, fmtc } = useMoney();
 	return (
 		<>
 			<div className="relative mx-auto h-64 w-full max-w-sm">
@@ -193,7 +196,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 						<Tooltip
 							cursor={false}
 							isAnimationActive={false}
-							content={<DonutTip />}
+							content={<DonutTip fmt={fmt} />}
 						/>
 					</PieChart>
 				</ResponsiveContainer>
@@ -202,7 +205,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 						Total
 					</span>
 					<span className="tnum font-display font-medium text-2xl">
-						{formatCompactINR(total)}
+						{fmtc(total)}
 					</span>
 				</div>
 			</div>
@@ -218,7 +221,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 							{Math.round(d.share * 100)}%
 						</span>
 						<span className="tnum w-24 text-right font-medium">
-							{formatINR(d.value)}
+							{fmt(d.value)}
 						</span>
 					</li>
 				))}
@@ -228,6 +231,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 }
 
 function ReturnBands({ data, total }: { data: Datum[]; total: number }) {
+	const { fmt } = useMoney();
 	const bands = BANDS.map((b) => {
 		const items = data.filter(
 			(d) => d.rate != null && d.rate >= b.lo && d.rate < b.hi,
@@ -257,9 +261,7 @@ function ReturnBands({ data, total }: { data: Datum[]; total: number }) {
 						<span className="tnum w-9 shrink-0 text-muted-foreground text-sm">
 							{Math.round(b.share * 100)}%
 						</span>
-						<span className="tnum w-24 shrink-0 text-sm">
-							{formatINR(b.value)}
-						</span>
+						<span className="tnum w-24 shrink-0 text-sm">{fmt(b.value)}</span>
 						<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
 							{b.items.map((i) => i.name).join(" · ")}
 						</span>
@@ -294,6 +296,7 @@ function annularPath(
 }
 
 function RoseView({ data, total }: { data: Datum[]; total: number }) {
+	const { fmtc } = useMoney();
 	const [active, setActive] = useState<number | null>(null);
 	const size = 264;
 	const cx = size / 2;
@@ -343,7 +346,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 								{act.name}
 							</span>
 							<span className="tnum font-display font-medium text-lg">
-								{formatCompactINR(act.value)}
+								{fmtc(act.value)}
 							</span>
 							<span className="text-muted-foreground text-xs">
 								{pct1(act.rate)} · {Math.round(act.share * 100)}%
@@ -355,7 +358,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 								Total
 							</span>
 							<span className="tnum font-display font-medium text-2xl">
-								{formatCompactINR(total)}
+								{fmtc(total)}
 							</span>
 						</>
 					)}
@@ -370,6 +373,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 }
 
 function SpreadView({ data }: { data: Datum[] }) {
+	const { fmt } = useMoney();
 	const points = data
 		.filter((d) => d.rate != null)
 		.map((d) => ({ ...d, ratePct: (d.rate ?? 0) * 100 }));
@@ -393,7 +397,7 @@ function SpreadView({ data }: { data: Datum[] }) {
 						<Tooltip
 							cursor={{ strokeDasharray: "3 3" }}
 							isAnimationActive={false}
-							content={<DonutTip />}
+							content={<DonutTip fmt={fmt} />}
 						/>
 						<Scatter data={points}>
 							{points.map((p) => (
@@ -412,6 +416,7 @@ function SpreadView({ data }: { data: Datum[] }) {
 }
 
 function Metrics({ w }: { w: WealthSummary }) {
+	const { fmt } = useMoney();
 	const cushion =
 		w.avgRoi != null && w.requiredRoi != null ? w.avgRoi - w.requiredRoi : null;
 	const free = cushion != null && cushion >= 0;
@@ -422,12 +427,12 @@ function Metrics({ w }: { w: WealthSummary }) {
 					Total wealth
 				</p>
 				<p className="tnum font-display font-medium text-5xl leading-none">
-					{formatINR(w.totalValue)}
+					{fmt(w.totalValue)}
 				</p>
 				<p className="mt-1 text-muted-foreground text-sm">
 					throwing off{" "}
 					<span className="tnum text-foreground/80">
-						{formatINR(Math.round(w.annualReturn / 12))}
+						{fmt(Math.round(w.annualReturn / 12))}
 					</span>{" "}
 					/mo
 				</p>
@@ -481,7 +486,7 @@ function Metrics({ w }: { w: WealthSummary }) {
 			{w.maturedValue > 0 && (
 				<div className="rounded-lg border border-[var(--uncovered)]/30 bg-[var(--uncovered)]/5 px-4 py-3 text-sm">
 					<span className="tnum font-medium text-[var(--uncovered)]">
-						{formatINR(w.maturedValue)}
+						{fmt(w.maturedValue)}
 					</span>{" "}
 					<span className="text-muted-foreground">
 						matured and awaiting redeploy — record where it went on the Plan
@@ -551,6 +556,7 @@ function HoldingCard({
 	rollup: HoldingRollup;
 	share: number;
 }) {
+	const { fmt } = useMoney();
 	const [open, setOpen] = useState(false);
 	const grouped = rollup.group != null && rollup.members.length > 1;
 	return (
@@ -573,13 +579,9 @@ function HoldingCard({
 							: `${rollup.incomeClass === "growth" ? "growth" : "income"} · ${pct1(rollup.rate)}`}
 					</p>
 				</div>
-				<Stat label="value" value={formatINR(rollup.value)} />
+				<Stat label="value" value={fmt(rollup.value)} />
 				<Stat label="of wealth" value={`${Math.round(share * 100)}%`} muted />
-				<Stat
-					label="/mo"
-					value={formatINR(rollup.monthly)}
-					color="var(--covered)"
-				/>
+				<Stat label="/mo" value={fmt(rollup.monthly)} color="var(--covered)" />
 			</button>
 			{grouped && open && (
 				<ul className="flex flex-col divide-y divide-border border-border border-t">
@@ -610,7 +612,7 @@ function HoldingCard({
 									)}
 								</div>
 								<span className="tnum w-24 text-right text-muted-foreground">
-									{formatINR(m.currentValue ?? 0)}
+									{fmt(m.currentValue ?? 0)}
 								</span>
 								<span className="tnum w-12 text-right text-muted-foreground">
 									{pct1(m.annualRate)}
@@ -619,7 +621,7 @@ function HoldingCard({
 									className="tnum w-20 text-right"
 									style={{ color: "var(--covered)" }}
 								>
-									{formatINR(monthly)}
+									{fmt(monthly)}
 								</span>
 							</li>
 						);
