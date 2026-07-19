@@ -1,26 +1,31 @@
 import { formatINR, formatPct, formatRatio } from "@/lib/format";
 
 interface CoverageHeroProps {
-	/** total passive income (cash) over the period */
-	passive: number;
-	/** total expenses over the period */
+	/** expected monthly interest from income investments */
+	interest: number;
+	/** imputed monthly drawdown from growth investments (0 when the toggle is off) */
+	drawdown: number;
+	/** expected monthly recurring expenses */
 	expenses: number;
-	/** number of months in the period */
-	months: number;
+	/** passiveIncome / expenses; null when there are no recurring expenses yet */
+	ratio: number | null;
 }
 
 /**
- * The north-star KPI as the emotional centerpiece: how much of monthly spending passive income covers,
- * and how far from "1.0× = free". Green when covered, warm amber while not.
+ * The north-star KPI (ADR-0011 revised) as the emotional centerpiece: what fraction of your recurring
+ * expenses your expected passive income covers, and how far from "1.0× = free". Plan-driven and monthly —
+ * both sides come from the Plan, not the noisy statement. Green when covered, warm amber while not.
  */
-export function CoverageHero({ passive, expenses, months }: CoverageHeroProps) {
-	const ratio = expenses > 0 ? passive / expenses : 0;
-	const covered = ratio >= 1;
-	const n = Math.max(1, months);
-	const passivePerMonth = passive / n;
-	const expensesPerMonth = expenses / n;
-	const gapPerMonth = Math.max(0, expensesPerMonth - passivePerMonth);
-	const fill = Math.max(1.5, Math.min(100, ratio * 100));
+export function CoverageHero({
+	interest,
+	drawdown,
+	expenses,
+	ratio,
+}: CoverageHeroProps) {
+	const passive = interest + drawdown;
+	const covered = ratio != null && ratio >= 1;
+	const gap = Math.max(0, expenses - passive);
+	const fill = ratio == null ? 1.5 : Math.max(1.5, Math.min(100, ratio * 100));
 	const accent = covered ? "var(--covered)" : "var(--uncovered)";
 
 	return (
@@ -28,42 +33,57 @@ export function CoverageHero({ passive, expenses, months }: CoverageHeroProps) {
 			<div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
 				<div className="max-w-xl">
 					<p className="font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
-						Passive-income coverage
+						Passive-income coverage · monthly
 					</p>
 					<div className="mt-3 flex items-baseline gap-4">
 						<span
 							className="tnum font-display font-medium text-[clamp(4.5rem,15vw,10rem)] leading-[0.82] tracking-tight"
 							style={{ color: accent }}
 						>
-							{formatRatio(ratio)}
+							{ratio == null ? "—" : formatRatio(ratio)}
 						</span>
 					</div>
 					<p className="mt-5 max-w-md text-foreground/80 text-lg leading-snug">
-						Passive income covers{" "}
-						<span className="font-semibold" style={{ color: accent }}>
-							{formatPct(ratio)}
-						</span>{" "}
-						of your monthly expenses.{" "}
-						{covered
-							? "You're free — it fully covers your spending."
-							: "Keep growing it toward 1.0×."}
+						{ratio == null ? (
+							<>Add recurring expenses to complete the ratio.</>
+						) : (
+							<>
+								Passive income covers{" "}
+								<span className="font-semibold" style={{ color: accent }}>
+									{formatPct(ratio)}
+								</span>{" "}
+								of your recurring expenses.{" "}
+								{covered
+									? "You're free — it fully covers your baseline."
+									: "Keep growing it toward 1.0×."}
+							</>
+						)}
 					</p>
 				</div>
 
 				<dl className="grid grid-cols-3 gap-x-8 gap-y-1 lg:text-right">
 					<Stat
 						label="Passive / mo"
-						value={formatINR(passivePerMonth)}
+						value={formatINR(passive)}
 						tone="covered"
 					/>
-					<Stat label="Expenses / mo" value={formatINR(expensesPerMonth)} />
+					<Stat label="Expenses / mo" value={formatINR(expenses)} />
 					<Stat
 						label="Gap to freedom"
-						value={formatINR(gapPerMonth)}
+						value={formatINR(gap)}
 						tone={covered ? "covered" : "uncovered"}
 					/>
 				</dl>
 			</div>
+
+			{drawdown > 0 && (
+				<p className="-mt-2 text-muted-foreground text-sm">
+					<span className="tnum text-foreground/70">{formatINR(interest)}</span>{" "}
+					interest +{" "}
+					<span className="tnum text-foreground/70">{formatINR(drawdown)}</span>{" "}
+					imputed drawdown
+				</p>
+			)}
 
 			{/* progress toward 1.0× */}
 			<div className="flex flex-col gap-2">
@@ -74,7 +94,7 @@ export function CoverageHero({ passive, expenses, months }: CoverageHeroProps) {
 					/>
 				</div>
 				<div className="flex items-center justify-between text-muted-foreground text-xs">
-					<span>now · {formatRatio(ratio)}</span>
+					<span>now · {ratio == null ? "—" : formatRatio(ratio)}</span>
 					<span className="font-medium text-foreground/70">
 						1.0× — passive income covers everything
 					</span>
