@@ -68,7 +68,7 @@ function toRecurring(r: RecurringRow): RecurringExpense {
 	};
 }
 
-async function listInvestments(): Promise<Investment[]> {
+export async function listInvestments(): Promise<Investment[]> {
 	const rows = await db.select().from(investments);
 	return rows.map(toInvestment);
 }

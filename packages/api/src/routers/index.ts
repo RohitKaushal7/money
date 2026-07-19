@@ -3,6 +3,7 @@ import type { RouterClient } from "@orpc/server";
 import { protectedProcedure, publicProcedure } from "../index";
 import { analyticsRouter } from "./analytics";
 import { planRouter } from "./plan";
+import { reconcileRouter } from "./reconcile";
 
 export const appRouter = {
 	healthCheck: publicProcedure.handler(() => {
@@ -16,6 +17,7 @@ export const appRouter = {
 	}),
 	analytics: analyticsRouter,
 	plan: planRouter,
+	reconcile: reconcileRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;
