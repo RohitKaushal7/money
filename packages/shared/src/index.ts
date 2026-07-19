@@ -19,4 +19,6 @@ export * from "./networth";
 export * from "./plan";
 export * from "./reconcile";
 export * from "./spending";
+export * from "./tax";
+export * from "./tax-reference";
 export * from "./types";
