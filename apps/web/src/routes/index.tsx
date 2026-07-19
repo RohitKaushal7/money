@@ -73,11 +73,8 @@ function Masthead({
 		<header className="flex flex-wrap items-end justify-between gap-4">
 			<div>
 				<h1 className="font-display font-medium text-3xl tracking-tight">
-					money
+					Overview
 				</h1>
-				<p className="mt-1 text-muted-foreground text-sm">
-					Is passive income covering the life you spend?
-				</p>
 			</div>
 			{uncategorized > 0 && (
 				<div className="flex items-center gap-2 rounded-full border border-border bg-secondary/60 px-3.5 py-1.5 text-muted-foreground text-xs">
