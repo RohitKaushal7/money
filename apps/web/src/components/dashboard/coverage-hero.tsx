@@ -34,7 +34,7 @@ export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
 					</p>
 					<div className="mt-3 flex items-baseline gap-4">
 						<span
-							className="tnum font-display font-medium text-[clamp(4.5rem,15vw,10rem)] leading-[0.82] tracking-tight"
+							className="tnum pointer-events-none font-display font-medium text-[clamp(4.5rem,15vw,10rem)] leading-[0.82] tracking-tight"
 							style={{ color: accent }}
 						>
 							{ratio == null ? "—" : formatRatio(ratio)}

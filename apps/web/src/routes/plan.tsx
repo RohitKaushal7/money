@@ -195,7 +195,7 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 						<TaxModeChip />
 					</p>
 					<p
-						className="tnum font-display font-medium text-5xl leading-none"
+						className="tnum pointer-events-none font-display font-medium text-5xl leading-none"
 						style={{ color: accent }}
 					>
 						{ratioStr(total)}
