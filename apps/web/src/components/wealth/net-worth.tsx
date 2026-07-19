@@ -101,7 +101,8 @@ export function NetWorthOverTime() {
 
 type ChartDatum = {
 	asOf: string;
-	label: string;
+	/** epoch ms — the x position, so spacing is proportional to real elapsed time */
+	t: number;
 	value: number;
 	growthPct: number | null;
 };
@@ -110,7 +111,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 	const m = useMoney();
 	const data: ChartDatum[] = points.map((p) => ({
 		asOf: p.asOf,
-		label: fmtAxis(p.asOf),
+		t: new Date(p.asOf).getTime(),
 		value: p.value,
 		growthPct: p.growth == null ? null : p.growth * 100,
 	}));
@@ -129,11 +130,15 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 						</linearGradient>
 					</defs>
 					<XAxis
-						dataKey="label"
+						dataKey="t"
+						type="number"
+						scale="time"
+						domain={["dataMin", "dataMax"]}
+						tickFormatter={(v: number) => fmtAxis(new Date(v).toISOString())}
 						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
 						tickLine={false}
 						axisLine={{ stroke: "var(--border)" }}
-						minTickGap={24}
+						minTickGap={40}
 					/>
 					<YAxis
 						yAxisId="value"

@@ -132,6 +132,10 @@ export const analyticsRouter = {
 				kind: z.string().optional(),
 				uncategorizedOnly: z.boolean().optional(),
 				search: z.string().optional(),
+				/** YYYY-MM-DD inclusive lower bound */
+				dateFrom: z.string().optional(),
+				/** YYYY-MM-DD inclusive upper bound */
+				dateTo: z.string().optional(),
 				limit: z.number().int().min(1).max(500).optional(),
 				offset: z.number().int().min(0).optional(),
 			}),
@@ -176,6 +180,14 @@ export const analyticsRouter = {
 					where.push("t.narration ILIKE '%' || ? || '%'");
 					params.push(input.search);
 				}
+				if (input.dateFrom) {
+					where.push("t.txn_date >= ?");
+					params.push(input.dateFrom);
+				}
+				if (input.dateTo) {
+					where.push("t.txn_date <= ?");
+					params.push(input.dateTo);
+				}
 				const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
 				const [countRow] = await reader.query<{ n: number }>(
@@ -201,8 +213,7 @@ export const analyticsRouter = {
 					FROM transactions t
 					LEFT JOIN transaction_splits s ON s.txn_id = t.txn_id AND s.seq = 0
 					${whereSql}
-					ORDER BY (CASE WHEN s.category_key = 'uncategorized' OR s.category_key IS NULL THEN 0 ELSE 1 END),
-						t.txn_date DESC, t.balance DESC
+					ORDER BY t.txn_date DESC, t.balance DESC
 					LIMIT ${limit} OFFSET ${offset}`,
 					params,
 				);

@@ -15,8 +15,19 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { formatDay, formatINR } from "@/lib/format";
+import { formatINR } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
+
+/** "2026-07-02" → "2 Jul '26" (year matters once the statement spans years). */
+function fmtTxnDate(iso: string): string {
+	return new Date(iso)
+		.toLocaleDateString("en-GB", {
+			day: "numeric",
+			month: "short",
+			year: "2-digit",
+		})
+		.replace(/(\d{2})$/, "'$1");
+}
 
 export const Route = createFileRoute("/transactions")({
 	component: TransactionsPage,
@@ -93,6 +104,8 @@ function TransactionsPage() {
 	const [month, setMonth] = useState("");
 	const [kind, setKind] = useState("");
 	const [uncatOnly, setUncatOnly] = useState(false);
+	const [dateFrom, setDateFrom] = useState("");
+	const [dateTo, setDateTo] = useState("");
 	const [offset, setOffset] = useState(0);
 	const [splitOpen, setSplitOpen] = useState<string | null>(null);
 
@@ -115,6 +128,8 @@ function TransactionsPage() {
 				month: month || undefined,
 				kind: kind || undefined,
 				uncategorizedOnly: uncatOnly || undefined,
+				dateFrom: dateFrom || undefined,
+				dateTo: dateTo || undefined,
 				limit: PAGE,
 				offset,
 			},
@@ -150,8 +165,8 @@ function TransactionsPage() {
 						Transactions
 					</h1>
 					<p className="text-muted-foreground">
-						Every statement row, uncategorised first. Fix a category inline or
-						split a mixed payout — then re-tag to apply it to your reports.
+						Every statement row, newest first. Fix a category inline or split a
+						mixed payout — then re-tag to apply it to your reports.
 					</p>
 				</header>
 
@@ -174,6 +189,10 @@ function TransactionsPage() {
 					uncatOnly={uncatOnly}
 					onUncatOnly={onFilter(setUncatOnly)}
 					uncategorized={summaryQ.data?.uncategorized ?? 0}
+					dateFrom={dateFrom}
+					onDateFrom={onFilter(setDateFrom)}
+					dateTo={dateTo}
+					onDateTo={onFilter(setDateTo)}
 				/>
 
 				<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
@@ -270,6 +289,10 @@ function Filters({
 	uncatOnly,
 	onUncatOnly,
 	uncategorized,
+	dateFrom,
+	onDateFrom,
+	dateTo,
+	onDateTo,
 }: {
 	search: string;
 	onSearch: (v: string) => void;
@@ -281,6 +304,10 @@ function Filters({
 	uncatOnly: boolean;
 	onUncatOnly: (v: boolean) => void;
 	uncategorized: number;
+	dateFrom: string;
+	onDateFrom: (v: string) => void;
+	dateTo: string;
+	onDateTo: (v: string) => void;
 }) {
 	return (
 		<div className="flex flex-wrap items-center gap-2">
@@ -337,6 +364,38 @@ function Filters({
 				Uncategorised
 				<span className="tnum text-xs opacity-70">{uncategorized}</span>
 			</button>
+			<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+				<input
+					type="date"
+					aria-label="From date"
+					value={dateFrom}
+					max={dateTo || undefined}
+					onChange={(e) => onDateFrom(e.target.value)}
+					className="h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring"
+				/>
+				<span>→</span>
+				<input
+					type="date"
+					aria-label="To date"
+					value={dateTo}
+					min={dateFrom || undefined}
+					onChange={(e) => onDateTo(e.target.value)}
+					className="h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring"
+				/>
+				{(dateFrom || dateTo) && (
+					<button
+						type="button"
+						onClick={() => {
+							onDateFrom("");
+							onDateTo("");
+						}}
+						aria-label="Clear date range"
+						className="rounded p-1 hover:text-foreground"
+					>
+						<X className="size-3.5" />
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -378,15 +437,15 @@ function TxnRow({
 		<li className="border-border border-b">
 			<div className="flex items-center gap-3 py-3">
 				<span
-					className="mt-0.5 size-1.5 shrink-0 rounded-full"
+					className="size-1.5 shrink-0 rounded-full"
 					style={{ background: rowPending ? PENDING_C : "transparent" }}
 					title={rowPending ? "Edited — re-tag to apply" : undefined}
 				/>
-				<div className="tnum w-10 shrink-0 text-muted-foreground text-xs">
-					{formatDay(txn.date)}
+				<div className="tnum w-14 shrink-0 text-muted-foreground text-xs">
+					{fmtTxnDate(txn.date)}
 				</div>
 				<div className="min-w-0 flex-1">
-					<p className="truncate text-sm" title={txn.narration}>
+					<p className="line-clamp-2 text-sm" title={txn.narration}>
 						{txn.narration}
 					</p>
 				</div>
