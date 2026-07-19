@@ -20,6 +20,7 @@ note (see 0011, revised 2026-07-19 before the KPI shipped).
 | [0012](0012-transaction-kinds-and-splits.md) | Ledger model: transaction kinds, splits, orthogonal investment-linkage |
 | [0013](0013-idempotent-ingest-and-ui-import.md) | Idempotent ingest (deterministic txn_id); UI import via the ingest runner |
 | [0014](0014-plan-vs-actuals.md) | Plan vs Actuals: two-scene architecture (SQLite plan drives the KPI; statement is actuals) |
+| [0015](0015-coverage-ladder-and-wealth.md) | Coverage ladder (cash ⊆ fixed ⊆ total) + investment grouping, payout tiers, auto-expiry, wealth rollup — *revises 0011* |
 
 See also the session specs in `docs/superpowers/specs/` — `2026-07-18-money-bootstrap-design.md`
 (architecture) and `2026-07-18-money-schema-design.md` (feature & schema design) — and `docs/roadmap.md`
