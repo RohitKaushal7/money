@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { formatINR } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 
@@ -189,9 +190,7 @@ function TransactionsPage() {
 					uncatOnly={uncatOnly}
 					onUncatOnly={onFilter(setUncatOnly)}
 					uncategorized={summaryQ.data?.uncategorized ?? 0}
-					dateFrom={dateFrom}
 					onDateFrom={onFilter(setDateFrom)}
-					dateTo={dateTo}
 					onDateTo={onFilter(setDateTo)}
 				/>
 
@@ -289,9 +288,7 @@ function Filters({
 	uncatOnly,
 	onUncatOnly,
 	uncategorized,
-	dateFrom,
 	onDateFrom,
-	dateTo,
 	onDateTo,
 }: {
 	search: string;
@@ -304,9 +301,7 @@ function Filters({
 	uncatOnly: boolean;
 	onUncatOnly: (v: boolean) => void;
 	uncategorized: number;
-	dateFrom: string;
 	onDateFrom: (v: string) => void;
-	dateTo: string;
 	onDateTo: (v: string) => void;
 }) {
 	return (
@@ -364,38 +359,13 @@ function Filters({
 				Uncategorised
 				<span className="tnum text-xs opacity-70">{uncategorized}</span>
 			</button>
-			<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-				<input
-					type="date"
-					aria-label="From date"
-					value={dateFrom}
-					max={dateTo || undefined}
-					onChange={(e) => onDateFrom(e.target.value)}
-					className="h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring"
-				/>
-				<span>→</span>
-				<input
-					type="date"
-					aria-label="To date"
-					value={dateTo}
-					min={dateFrom || undefined}
-					onChange={(e) => onDateTo(e.target.value)}
-					className="h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring"
-				/>
-				{(dateFrom || dateTo) && (
-					<button
-						type="button"
-						onClick={() => {
-							onDateFrom("");
-							onDateTo("");
-						}}
-						aria-label="Clear date range"
-						className="rounded p-1 hover:text-foreground"
-					>
-						<X className="size-3.5" />
-					</button>
-				)}
-			</div>
+			<DateRangePicker
+				defaultPreset="all"
+				onChange={(r) => {
+					onDateFrom(r.from ?? "");
+					onDateTo(r.to ?? "");
+				}}
+			/>
 		</div>
 	);
 }

@@ -1,4 +1,8 @@
-import type { NetworthPoint, NetworthSeries } from "@money/shared";
+import {
+	type NetworthPoint,
+	type NetworthSeries,
+	networthSeries,
+} from "@money/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, TrendingDown, TrendingUp, X } from "lucide-react";
 import { useState } from "react";
@@ -13,6 +17,10 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
+import {
+	type DateRange,
+	DateRangePicker,
+} from "@/components/date-range-picker";
 import { useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
@@ -44,6 +52,7 @@ function fmtAxis(iso: string): string {
 export function NetWorthOverTime() {
 	const q = useQuery(orpc.networth.list.queryOptions());
 	const m = useMoney();
+	const [range, setRange] = useState<DateRange>({});
 	const s = q.data as NetworthSeries | undefined;
 
 	if (q.isLoading) {
@@ -53,7 +62,20 @@ export function NetWorthOverTime() {
 		return <EmptyNetWorth />;
 	}
 
-	const up = (s.cagr ?? 0) >= 0;
+	// filter to the selected range and recompute growth/CAGR so the whole card reflects the window
+	const inRange = (p: NetworthPoint) =>
+		(!range.from || p.asOf >= range.from) && (!range.to || p.asOf <= range.to);
+	const view = networthSeries(
+		s.points.filter(inRange).map((p) => ({
+			id: p.id,
+			asOf: p.asOf,
+			value: p.value,
+			source: p.source,
+			note: p.note,
+		})),
+	);
+	const hasPoints = view.points.length > 0;
+	const up = (view.cagr ?? 0) >= 0;
 	const accent = up ? COVERED : UNCOVERED;
 
 	return (
@@ -65,36 +87,49 @@ export function NetWorthOverTime() {
 					</p>
 					<div className="mt-1 flex items-baseline gap-3">
 						<span className="tnum font-display font-medium text-4xl leading-none">
-							{m.fmt(s.latest ?? 0)}
+							{m.fmt(view.latest ?? 0)}
 						</span>
-						<span
-							className="flex items-center gap-1 font-medium text-sm"
-							style={{ color: accent }}
-						>
-							{up ? (
-								<TrendingUp className="size-4" />
-							) : (
-								<TrendingDown className="size-4" />
-							)}
-							{signedPct(s.cagr)}
-							<span className="text-muted-foreground text-xs">/yr</span>
-						</span>
+						{view.cagr != null && (
+							<span
+								className="flex items-center gap-1 font-medium text-sm"
+								style={{ color: accent }}
+							>
+								{up ? (
+									<TrendingUp className="size-4" />
+								) : (
+									<TrendingDown className="size-4" />
+								)}
+								{signedPct(view.cagr)}
+								<span className="text-muted-foreground text-xs">/yr</span>
+							</span>
+						)}
 					</div>
-					{s.change != null && s.first != null && (
+					{view.change != null && view.first != null && (
 						<p className="mt-1 text-muted-foreground text-sm">
 							<span className="tnum text-foreground/70">
-								{s.change >= 0 ? "+" : "−"}
-								{m.fmtc(Math.abs(s.change))}
+								{view.change >= 0 ? "+" : "−"}
+								{m.fmtc(Math.abs(view.change))}
 							</span>{" "}
-							since {fmtDate(s.points[0]?.asOf ?? "")} · compounded annually
+							since {fmtDate(view.points[0]?.asOf ?? "")} · compounded annually
 						</p>
 					)}
 				</div>
-				<Controls />
+				<div className="flex flex-col items-end gap-2">
+					<Controls />
+					<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+				</div>
 			</div>
 
-			<NetWorthChart points={s.points} />
-			<NetWorthLog points={s.points} />
+			{hasPoints ? (
+				<>
+					<NetWorthChart points={view.points} />
+					<NetWorthLog points={view.points} />
+				</>
+			) : (
+				<p className="rounded-xl border border-border border-dashed px-6 py-10 text-center text-muted-foreground text-sm">
+					No net-worth entries in this range.
+				</p>
+			)}
 		</section>
 	);
 }
