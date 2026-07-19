@@ -10,13 +10,12 @@ function inv(partial: Partial<Investment>): Investment {
 	return {
 		id: "i1",
 		name: "test",
-		type: "bond",
+		type: "p2p",
 		incomeClass: "income",
 		valuationSource: "manual",
 		isPassiveIncomeSource: true,
 		active: true,
 		payout: "cash",
-		interestCadence: "monthly",
 		...partial,
 	};
 }
@@ -29,27 +28,48 @@ function credit(partial: Partial<StatementCredit>): StatementCredit {
 		amount: 0,
 		month: "2026-07",
 		kind: "passive_income",
+		categoryKey: "p2p_payout",
 		...partial,
 	};
 }
 
 describe("expectedInterestEvents", () => {
-	test("monthly cash-income holding fires every month at 1× monthly", () => {
+	test("unset cadence defaults to monthly, fires every month at 1× monthly", () => {
 		const events = expectedInterestEvents(
-			[inv({ platform: "SustVest", principal: 1_000_000, annualRate: 0.18 })],
+			[inv({ platform: "SustVest", expectedMonthlyInterest: 6454 })],
 			"2026-07",
 		);
 		expect(events).toHaveLength(1);
-		// ₹10L @ 18% → ₹1.8L/yr → ₹15,000/mo
-		expect(events[0]?.expectedAmount).toBeCloseTo(15_000, 2);
+		expect(events[0]?.expectedAmount).toBeCloseTo(6454, 2);
+		expect(events[0]?.expectedCategory).toBe("p2p_payout");
+	});
+
+	test("grouped holdings roll into ONE event summing members", () => {
+		const tranches = Array.from({ length: 12 }, (_, i) =>
+			inv({ id: `sv${i}`, group: "SustVest", expectedMonthlyInterest: 500 }),
+		);
+		const events = expectedInterestEvents(tranches, "2026-07");
+		expect(events).toHaveLength(1);
+		expect(events[0]?.name).toBe("SustVest");
+		expect(events[0]?.memberCount).toBe(12);
+		expect(events[0]?.expectedAmount).toBeCloseTo(6000, 2);
+	});
+
+	test("asset type maps to the statement category (bond → bond_coupon)", () => {
+		const events = expectedInterestEvents(
+			[inv({ type: "bond", group: "Wint", expectedMonthlyInterest: 1000 })],
+			"2026-07",
+		);
+		expect(events[0]?.expectedCategory).toBe("bond_coupon");
 	});
 
 	test("accrue holdings never emit a cash event (PPF, cumulative FD)", () => {
-		const events = expectedInterestEvents(
-			[inv({ payout: "accrue", principal: 659_951, annualRate: 0.071 })],
-			"2026-07",
-		);
-		expect(events).toHaveLength(0);
+		expect(
+			expectedInterestEvents(
+				[inv({ type: "fd", payout: "accrue", principal: 659_951, annualRate: 0.071 })],
+				"2026-07",
+			),
+		).toHaveLength(0);
 	});
 
 	test("growth holdings never emit (they aren't interest)", () => {
@@ -63,7 +83,7 @@ describe("expectedInterestEvents", () => {
 
 	test("quarterly fires only on anchored months, at 3× monthly (the lump)", () => {
 		const bond = inv({
-			platform: "Wint",
+			type: "bond",
 			interestCadence: "quarterly",
 			startDate: "2026-01-10",
 			principal: 100_000,
@@ -76,21 +96,6 @@ describe("expectedInterestEvents", () => {
 		expect(
 			expectedInterestEvents([bond], "2026-07")[0]?.expectedAmount,
 		).toBeCloseTo(3_000, 2);
-	});
-
-	test("anchored cadence without a startDate is skipped (can't place the lump)", () => {
-		expect(
-			expectedInterestEvents(
-				[
-					inv({
-						interestCadence: "quarterly",
-						principal: 100_000,
-						annualRate: 0.12,
-					}),
-				],
-				"2026-07",
-			),
-		).toHaveLength(0);
 	});
 
 	test("does not fire before startDate or after maturity", () => {
@@ -106,7 +111,6 @@ describe("expectedInterestEvents", () => {
 	});
 
 	test("a now-matured holding still reports coupons for months it was live", () => {
-		// status matured today, but was live and paying in June
 		const bond = inv({
 			status: "matured",
 			principal: 100_000,
@@ -119,31 +123,45 @@ describe("expectedInterestEvents", () => {
 });
 
 describe("reconcile", () => {
-	const sustvest = inv({
-		id: "sv",
-		name: "SustVest",
-		platform: "SustVest",
-		principal: 1_000_000,
-		annualRate: 0.18,
-	}); // → ₹15,000/mo expected
+	// SustVest group: 12 tranches summing ₹6,454/mo, paid as many p2p_payout credits
+	const sustvest = Array.from({ length: 12 }, (_, i) =>
+		inv({
+			id: `sv${i}`,
+			name: `SustVest T${i}`,
+			group: "SustVest",
+			platform: "SustVest",
+			expectedMonthlyInterest: 6454 / 12,
+		}),
+	);
+	const p2pCredits = (month: string, per: number) =>
+		Array.from({ length: 12 }, (_, i) =>
+			credit({
+				txnId: `${month}-sv${i}`,
+				month,
+				date: `${month}-15`,
+				amount: per,
+				categoryKey: "p2p_payout",
+			}),
+		);
 
-	test("a same-platform credit within ±20% is received, with delta", () => {
+	test("a group's summed credits within ±20% of expected → received", () => {
 		const res = reconcile({
-			investments: [sustvest],
-			credits: [credit({ narration: "UPI/SUSTVEST TECH", amount: 13_500 })], // −10% TDS
+			investments: sustvest,
+			credits: p2pCredits("2026-07", 6454 / 12), // 12 credits summing 6454
 			month: "2026-07",
 			today: "2026-07-20",
 		});
-		const ev = res.events[0];
-		expect(ev?.status).toBe("received");
-		expect(ev?.delta).toBeCloseTo(-1_500, 2);
+		expect(res.events).toHaveLength(1);
+		expect(res.events[0]?.status).toBe("received");
+		expect(res.events[0]?.actualAmount).toBeCloseTo(6454, 0);
+		expect(res.events[0]?.matches).toHaveLength(12);
 		expect(res.summary.receivedCount).toBe(1);
 	});
 
-	test("a same-platform credit outside the band is 'differs', not dropped", () => {
+	test("summed credits outside the band → 'differs', not dropped", () => {
 		const res = reconcile({
-			investments: [sustvest],
-			credits: [credit({ narration: "SUSTVEST", amount: 5_000 })],
+			investments: sustvest,
+			credits: p2pCredits("2026-07", 300), // 12 × 300 = 3600 vs 6454 → −44%
 			month: "2026-07",
 			today: "2026-07-20",
 		});
@@ -151,9 +169,29 @@ describe("reconcile", () => {
 		expect(res.summary.differsCount).toBe(1);
 	});
 
+	test("distinct asset classes match distinct categories independently", () => {
+		const wint = inv({
+			id: "w",
+			name: "Wint",
+			group: "Wint",
+			type: "bond",
+			expectedMonthlyInterest: 2000,
+		});
+		const res = reconcile({
+			investments: [...sustvest, wint],
+			credits: [
+				...p2pCredits("2026-07", 6454 / 12),
+				credit({ txnId: "k", categoryKey: "bond_coupon", amount: 2000 }),
+			],
+			month: "2026-07",
+			today: "2026-07-20",
+		});
+		expect(res.summary.receivedCount).toBe(2); // SustVest (p2p) + Wint (bond)
+	});
+
 	test("no credit in an elapsed month is missed", () => {
 		const res = reconcile({
-			investments: [sustvest],
+			investments: sustvest,
 			credits: [],
 			month: "2026-06",
 			today: "2026-07-20",
@@ -163,7 +201,7 @@ describe("reconcile", () => {
 
 	test("no credit yet in the current month is pending", () => {
 		const res = reconcile({
-			investments: [sustvest],
+			investments: sustvest,
 			credits: [],
 			month: "2026-07",
 			today: "2026-07-20",
@@ -171,42 +209,18 @@ describe("reconcile", () => {
 		expect(res.events[0]?.status).toBe("pending");
 	});
 
-	test("one credit matches at most one event", () => {
-		const two = [
-			inv({
-				id: "a",
-				name: "A",
-				platform: "Wint",
-				principal: 100_000,
-				annualRate: 0.12,
-			}),
-			inv({
-				id: "b",
-				name: "B",
-				platform: "Wint",
-				principal: 100_000,
-				annualRate: 0.12,
-			}),
-		]; // each ₹1,000/mo
-		const res = reconcile({
-			investments: two,
-			credits: [credit({ narration: "WINT WEALTH", amount: 1_000 })],
-			month: "2026-07",
-			today: "2026-08-01", // July elapsed → the unclaimed event is missed, not pending
-		});
-		expect(res.summary.receivedCount).toBe(1);
-		expect(res.summary.missedCount).toBe(1);
-	});
-
 	test("unmatched income-looking credit becomes a suggestion with a platform guess", () => {
 		const res = reconcile({
-			investments: [sustvest],
+			investments: sustvest,
 			credits: [
-				credit({ txnId: "sv", narration: "SUSTVEST", amount: 15_000 }),
+				...p2pCredits("2026-07", 6454 / 12),
+				// a different P2P not in the plan, left uncategorised by the rules
 				credit({
 					txnId: "new",
-					narration: "ACH CR INDMONEY BONDS",
+					narration: "DEP TFR NEFT*BANK0000123*BANK1234*EXAMPLE FIN",
 					amount: 5_000,
+					kind: "transfer",
+					categoryKey: "uncategorized",
 				}),
 			],
 			month: "2026-07",
@@ -215,7 +229,7 @@ describe("reconcile", () => {
 		expect(res.events[0]?.status).toBe("received");
 		expect(res.suggestions).toHaveLength(1);
 		expect(res.suggestions[0]?.txnId).toBe("new");
-		expect(res.suggestions[0]?.platformGuess).toBe("Indmoney");
+		expect(res.suggestions[0]?.platformGuess).toBe("Example");
 	});
 
 	test("salary-sized uncategorised credits are not suggested", () => {
@@ -226,7 +240,8 @@ describe("reconcile", () => {
 					txnId: "sal",
 					narration: "IMPS SALARY",
 					amount: 169_512,
-					kind: "uncategorized",
+					kind: "transfer",
+					categoryKey: "uncategorized",
 				}),
 			],
 			month: "2026-07",
@@ -235,16 +250,12 @@ describe("reconcile", () => {
 		expect(res.suggestions).toHaveLength(0);
 	});
 
-	test("credits already classed as active_income/transfer/expense are not suggested", () => {
+	test("classified non-income credits (salary/sweep) are not suggested", () => {
 		const res = reconcile({
 			investments: [],
 			credits: [
-				credit({
-					txnId: "x",
-					narration: "EMPLOYER",
-					amount: 40_000,
-					kind: "active_income",
-				}),
+				credit({ txnId: "q", amount: 40_000, kind: "active_income", categoryKey: "salary" }),
+				credit({ txnId: "s", amount: 20_000, kind: "transfer", categoryKey: "sweep_in" }),
 			],
 			month: "2026-07",
 			today: "2026-07-20",

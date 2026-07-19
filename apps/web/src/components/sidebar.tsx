@@ -4,6 +4,7 @@ import {
 	LayoutGrid,
 	PiggyBank,
 	Receipt,
+	Scale,
 	Settings,
 	Wallet,
 } from "lucide-react";
@@ -14,13 +15,14 @@ type NavItem = {
 	label: string;
 	icon: typeof LayoutGrid;
 	/** present = a real route; absent = a "soon" placeholder */
-	to?: "/" | "/plan" | "/wealth";
+	to?: "/" | "/plan" | "/wealth" | "/reconcile";
 };
 
 const NAV: NavItem[] = [
 	{ label: "Overview", icon: LayoutGrid, to: "/" },
 	{ label: "Plan", icon: PiggyBank, to: "/plan" },
 	{ label: "Wealth", icon: Wallet, to: "/wealth" },
+	{ label: "Reconcile", icon: Scale, to: "/reconcile" },
 	{ label: "Transactions", icon: ArrowLeftRight },
 	{ label: "Tax", icon: Receipt },
 	{ label: "Settings", icon: Settings },

@@ -7,16 +7,32 @@
  * v1 (decided 2026-07-19): month-level match · ±20% amount band · incoming interest only · surface +
  * prefill for unrecognised credits. Only `payout = cash` income holdings emit expected cash events —
  * `accrue` holdings never hit the bank.
+ *
+ * Matching is by **category**, not narration name: the statement never names the platform (SustVest arrives
+ * as YESB/YESIG borrower rows, Wint as issuer names), but issue 001's rules tag each credit's `category_key`
+ * (p2p_payout ⇒ SustVest, bond_coupon ⇒ Wint, fd_interest ⇒ FDs, …). Each plan group/holding derives its
+ * expected category from its asset `type` and claims that category's credits for the month. (Limitation: two
+ * income groups of the same asset class would contend for one category — fine for the current portfolio;
+ * refine with a per-group signature or a split-level platform tag when that arises.)
  */
 
 import { PERIODS_PER_YEAR } from "./plan";
-import type { Cadence, IncomeClass, Investment } from "./types";
+import type { Cadence, IncomeClass, Investment, InvestmentType } from "./types";
 
-/** Amount tolerance: a platform credit within ±20% of expected counts as received (absorbs TDS, rounding). */
+/** Amount tolerance: actual within ±20% of expected counts as received (absorbs TDS, rounding, drift). */
 const BAND = 0.2;
 
 /** Uncategorised credits above this are treated as salary/principal noise, not income suggestions (issue 001). */
 const SUGGESTION_MAX = 50_000;
+
+/** Asset type → the statement `category_key` its cash interest lands under (issue 001 taxonomy). */
+const INCOME_CATEGORY: Partial<Record<InvestmentType, string>> = {
+	p2p: "p2p_payout",
+	bond: "bond_coupon",
+	ncd: "bond_coupon",
+	fd: "fd_interest",
+	savings: "savings_interest",
+};
 
 // ── inputs / outputs ──────────────────────────────────────────────────────────────────────────────────
 
@@ -32,30 +48,41 @@ export interface StatementCredit {
 	month: string;
 	/** primary-split kind assigned by the rules engine (ADR-0012), if any */
 	kind?: string | null;
+	/** primary-split category_key — the reconciliation match key */
 	categoryKey?: string | null;
 }
 
-/** An interest payout the Plan expects in a given month (the lump for the cadence, e.g. 3× monthly quarterly). */
+/**
+ * An interest payout the Plan expects in a given month — one per grouped holding-set (SustVest's tranches
+ * roll into one), or per standalone holding. `expectedAmount` is the cadence lump (e.g. 3× monthly quarterly).
+ */
 export interface ExpectedEvent {
-	investmentId: string;
+	/** `group:<name>` for a rollup, else the holding id */
+	key: string;
 	name: string;
 	platform?: string;
 	group?: string;
-	/** INR expected this month for this cadence */
+	/** the statement category this event's credits should carry */
+	expectedCategory?: string;
+	/** INR expected this month */
 	expectedAmount: number;
 	cadence: Cadence;
 	incomeClass: IncomeClass;
+	/** how many holdings rolled into this event */
+	memberCount: number;
 }
 
 export type ReconcileStatus = "received" | "differs" | "pending" | "missed";
 
-/** An expected event paired with its best-matching credit (if any) and a status. */
+/** An expected event with the credits it claimed and a status. */
 export interface ReconciledEvent extends ExpectedEvent {
 	status: ReconcileStatus;
-	/** the matched statement credit, when received/differs */
-	matched?: StatementCredit;
-	/** actual − expected (INR), when matched */
-	delta?: number;
+	/** statement credits claimed by this event (summed into actualAmount) */
+	matches: StatementCredit[];
+	/** Σ matched credit amount (INR); 0 when none */
+	actualAmount: number;
+	/** actualAmount − expectedAmount (INR) */
+	delta: number;
 }
 
 /** An unmatched income-looking credit → a prompt to enrich the Plan (prefilled investment form). */
@@ -77,7 +104,7 @@ export interface ReconcileSummary {
 	missedCount: number;
 	/** Σ expected across events */
 	expectedAmount: number;
-	/** Σ matched actual across received + differs */
+	/** Σ matched actual across all events */
 	actualAmount: number;
 }
 
@@ -121,10 +148,43 @@ const ANCHORED: Partial<Record<Cadence, number>> = {
 	yearly: 12,
 };
 
+/** A holding that fires a cash interest event in the target month, with its lump amount. */
+interface Fire {
+	inv: Investment;
+	amount: number;
+}
+
+/** Does this income/cash holding fire an interest event in month `target` (ordinal)? Returns the lump, or null. */
+function fireAmount(inv: Investment, target: number): number | null {
+	if (inv.active === false) return null;
+	if (inv.incomeClass !== "income") return null;
+	if (inv.payout !== "cash") return null;
+	// The Plan form doesn't capture cadence yet → an unset cadence means "monthly" (the common case).
+	const cadence = inv.interestCadence ?? "monthly";
+	const ppy = PERIODS_PER_YEAR[cadence];
+	if (!ppy) return null; // maturity/none → no periodic cash event
+
+	// live *during this month*: started on/before it, not matured before it (date-based, not today).
+	const start = monthOrdinal(inv.startDate);
+	if (start != null && start > target) return null;
+	const matured = monthOrdinal(inv.maturityDate);
+	if (matured != null && matured < target) return null;
+
+	const monthly = rawMonthlyInterest(inv);
+	if (monthly <= 0) return null;
+
+	const period = ANCHORED[cadence];
+	if (period != null) {
+		if (start == null) return null; // can't place the lump without an anchor
+		if ((target - start) % period !== 0) return null; // not a firing month
+	}
+	return monthly * (12 / ppy);
+}
+
 /**
- * The interest events the Plan expects to hit the bank in `month` ("YYYY-MM"). Only live, `income`-class,
- * `payout = cash` holdings with a periodic cadence emit. Firing months are anchored on `startDate`; an
- * anchored cadence (quarterly/…) without a `startDate` can't be placed and is skipped.
+ * The interest events the Plan expects to hit the bank in `month` ("YYYY-MM"). Grouped holdings roll into a
+ * single event (they pay as one platform's credits); standalone holdings stand alone. Each event carries the
+ * statement category its credits should match.
  */
 export function expectedInterestEvents(
 	investments: Investment[],
@@ -132,83 +192,54 @@ export function expectedInterestEvents(
 ): ExpectedEvent[] {
 	const target = monthOrdinal(month);
 	if (target == null) return [];
-	const events: ExpectedEvent[] = [];
 
+	const byGroup = new Map<string, Fire[]>();
+	const standalone: Fire[] = [];
 	for (const inv of investments) {
-		if (inv.active === false) continue;
-		if (inv.incomeClass !== "income") continue;
-		if (inv.payout !== "cash") continue;
-		const cadence = inv.interestCadence;
-		if (!cadence) continue;
-		const ppy = PERIODS_PER_YEAR[cadence];
-		if (!ppy) continue; // maturity/none → no periodic cash event
-
-		// live *during this month*: started on/before it, not matured before it (date-based, not today).
-		const start = monthOrdinal(inv.startDate);
-		if (start != null && start > target) continue;
-		const matured = monthOrdinal(inv.maturityDate);
-		if (matured != null && matured < target) continue;
-
-		const monthly = rawMonthlyInterest(inv);
-		if (monthly <= 0) continue;
-
-		const period = ANCHORED[cadence];
-		if (period != null) {
-			if (start == null) continue; // can't place the lump without an anchor
-			if ((target - start) % period !== 0) continue; // not a firing month
+		const amount = fireAmount(inv, target);
+		if (amount == null) continue;
+		if (inv.group) {
+			const arr = byGroup.get(inv.group) ?? [];
+			arr.push({ inv, amount });
+			byGroup.set(inv.group, arr);
+		} else {
+			standalone.push({ inv, amount });
 		}
+	}
 
+	const events: ExpectedEvent[] = [];
+	for (const [group, members] of byGroup) {
+		const head = members[0]?.inv;
+		if (!head) continue;
 		events.push({
-			investmentId: inv.id,
+			key: `group:${group}`,
+			name: group,
+			platform: head.platform,
+			group,
+			expectedCategory: INCOME_CATEGORY[head.type],
+			expectedAmount: members.reduce((s, m) => s + m.amount, 0),
+			cadence: head.interestCadence ?? "monthly",
+			incomeClass: "income",
+			memberCount: members.length,
+		});
+	}
+	for (const { inv, amount } of standalone) {
+		events.push({
+			key: inv.id,
 			name: inv.name,
 			platform: inv.platform,
-			group: inv.group,
-			expectedAmount: monthly * (12 / ppy),
-			cadence,
-			incomeClass: inv.incomeClass,
+			group: undefined,
+			expectedCategory: INCOME_CATEGORY[inv.type],
+			expectedAmount: amount,
+			cadence: inv.interestCadence ?? "monthly",
+			incomeClass: "income",
+			memberCount: 1,
 		});
 	}
 	return events;
 }
 
-// ── name matching / suggestion heuristics ─────────────────────────────────────────────────────────────
-
-const PLATFORM_STOPWORDS = new Set([
-	"wealth",
-	"capital",
-	"technologies",
-	"technology",
-	"finance",
-	"fintech",
-	"financial",
-	"private",
-	"limited",
-	"ltd",
-	"india",
-	"services",
-	"invest",
-	"the",
-	"and",
-]);
-
-/** Distinctive lowercase tokens of a platform label ("Wint Wealth" → ["wint"]). */
-function platformTokens(platform: string): string[] {
-	return platform
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter((t) => t.length >= 3 && !PLATFORM_STOPWORDS.has(t));
-}
-
-/** Whether a statement narration plausibly names the platform (any distinctive token appears). */
-function narrationMatchesPlatform(
-	narration: string,
-	platform: string,
-): boolean {
-	const n = narration.toLowerCase();
-	const tokens = platformTokens(platform);
-	if (tokens.length === 0) return n.includes(platform.toLowerCase());
-	return tokens.some((t) => n.includes(t));
-}
+// ── suggestion heuristics ─────────────────────────────────────────────────────────────────────────────
 
 const NARRATION_NOISE = new Set([
 	"transfer",
@@ -226,42 +257,51 @@ const NARRATION_NOISE = new Set([
 	"deposit",
 	"the",
 	"and",
+	// SBI statement furniture common to every row — never the provider
+	"chatrokhari",
+	"rohit",
+	"kumar",
+	"dep",
+	"tfr",
+	"cmpift",
+	"cms",
+	"wdl",
+	"within",
+	"bank",
+	"pay",
 ]);
 
-/** A prefill hint for `platform`: the longest distinctive alphabetic token in the narration, title-cased. */
+/** A prefill hint for `platform`: the longest pure-alphabetic token in the narration, title-cased. */
 function guessPlatform(narration: string): string | undefined {
 	const tokens = narration
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
-		.filter((t) => t.length >= 4 && !NARRATION_NOISE.has(t) && !/^\d+$/.test(t))
+		.filter((t) => t.length >= 4 && !NARRATION_NOISE.has(t) && !/\d/.test(t))
 		.sort((a, b) => b.length - a.length);
 	const pick = tokens[0];
 	return pick ? pick.charAt(0).toUpperCase() + pick.slice(1) : undefined;
 }
 
-/** Whether an unmatched credit should be offered as an "add to plan?" suggestion. */
+/**
+ * Whether an unclaimed credit should be offered as an "add to plan?" suggestion. Explicit passive income the
+ * plan didn't claim always qualifies; otherwise only genuinely-uncategorised credits below the salary/
+ * principal-size cutoff (classified salary/expense/transfer/sweep/investment are excluded).
+ */
 function isSuggestionCandidate(c: StatementCredit): boolean {
-	const kind = c.kind ?? "uncategorized";
-	if (
-		kind === "active_income" ||
-		kind === "transfer" ||
-		kind === "expense" ||
-		kind === "investment"
-	) {
-		return false;
-	}
-	if (kind === "passive_income") return true; // trusted income tag, any size
-	// uncategorised → income-ish only when not salary/principal-sized (until a salary rule lands, issue 001)
-	return c.amount > 0 && c.amount <= SUGGESTION_MAX;
+	if (c.kind === "passive_income") return true;
+	const cat = c.categoryKey ?? "uncategorized";
+	if (cat === "uncategorized")
+		return c.amount > 0 && c.amount <= SUGGESTION_MAX;
+	return false;
 }
 
 // ── the match ─────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Reconcile one month. Each expected event claims the closest same-platform credit; within ±20% ⇒
- * `received`, outside ⇒ `differs`. Unclaimed events are `pending` (target month not yet elapsed per
- * `today`) or `missed`. Remaining income-looking credits become suggestions. A credit matches at most
- * one event.
+ * Reconcile one month. Each expected event claims all unclaimed credits of its `expectedCategory` and
+ * compares the sum to expected: within ±20% ⇒ `received`, otherwise ⇒ `differs`. Events with no matching
+ * credit are `pending` (target month not yet elapsed per `today`) or `missed`. Remaining income-looking
+ * credits become suggestions. A credit is claimed by at most one event.
  */
 export function reconcile(input: {
 	investments: Investment[];
@@ -283,26 +323,31 @@ export function reconcile(input: {
 	const reconciled: ReconciledEvent[] = [];
 
 	for (const ev of events) {
-		let best: { credit: StatementCredit; distance: number } | undefined;
-		if (ev.platform) {
-			for (const c of credits) {
-				if (used.has(c.txnId)) continue;
-				if (!narrationMatchesPlatform(c.narration, ev.platform)) continue;
-				const distance = Math.abs(c.amount - ev.expectedAmount);
-				if (!best || distance < best.distance) best = { credit: c, distance };
-			}
-		}
-		if (best) {
-			used.add(best.credit.txnId);
-			const within = best.distance <= ev.expectedAmount * BAND;
+		const matches = ev.expectedCategory
+			? credits.filter(
+					(c) => !used.has(c.txnId) && c.categoryKey === ev.expectedCategory,
+				)
+			: [];
+		const actualAmount = matches.reduce((s, c) => s + c.amount, 0);
+		if (matches.length > 0) {
+			for (const c of matches) used.add(c.txnId);
+			const within =
+				Math.abs(actualAmount - ev.expectedAmount) <= ev.expectedAmount * BAND;
 			reconciled.push({
 				...ev,
 				status: within ? "received" : "differs",
-				matched: best.credit,
-				delta: best.credit.amount - ev.expectedAmount,
+				matches,
+				actualAmount,
+				delta: actualAmount - ev.expectedAmount,
 			});
 		} else {
-			reconciled.push({ ...ev, status: monthElapsed ? "missed" : "pending" });
+			reconciled.push({
+				...ev,
+				status: monthElapsed ? "missed" : "pending",
+				matches: [],
+				actualAmount: 0,
+				delta: -ev.expectedAmount,
+			});
 		}
 	}
 
@@ -327,7 +372,7 @@ export function reconcile(input: {
 		pendingCount: by("pending"),
 		missedCount: by("missed"),
 		expectedAmount: reconciled.reduce((s, e) => s + e.expectedAmount, 0),
-		actualAmount: reconciled.reduce((s, e) => s + (e.matched?.amount ?? 0), 0),
+		actualAmount: reconciled.reduce((s, e) => s + e.actualAmount, 0),
 	};
 
 	return { month, events: reconciled, suggestions, summary };
