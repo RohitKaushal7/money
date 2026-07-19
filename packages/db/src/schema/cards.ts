@@ -23,6 +23,21 @@ export const cards = sqliteTable("cards", {
 	forexMarkup: real("forex_markup"),
 	vintageYear: integer("vintage_year"),
 	active: integer("active", { mode: "boolean" }).default(true).notNull(),
+	// ── lossless fields imported from packages/info (issue 005) ──
+	variant: text("variant"),
+	/** active | dormant | closed (mirrors `active` for quick filtering) */
+	status: text("status").default("active"),
+	joiningFee: real("joining_fee"),
+	/** raw waiver condition, e.g. "spend >= 2,00,000/year" or "lifetime free" */
+	feeWaiverCondition: text("fee_waiver_condition"),
+	/** raw forex string alongside numeric forexMarkup, e.g. "3.5% + GST" */
+	forexMarkupText: text("forex_markup_text"),
+	lastUpdated: text("last_updated"),
+	termsEffective: text("terms_effective"),
+	/** high | medium | low */
+	confidence: text("confidence"),
+	inWallet: integer("in_wallet", { mode: "boolean" }).default(false).notNull(),
+	tier: text("tier"),
 	...timestamps,
 });
 
@@ -44,6 +59,13 @@ export const cardRewardRules = sqliteTable(
 		isExclusion: integer("is_exclusion", { mode: "boolean" })
 			.default(false)
 			.notNull(),
+		/** raw rate string, e.g. "0.2% (1x)" (numeric `rate` is parsed from this for ranking) */
+		rateText: text("rate_text"),
+		/** raw cap string when non-numeric, e.g. "25,000 RP/month combined" */
+		capText: text("cap_text"),
+		rewardCurrency: text("reward_currency"),
+		/** base/default rate (true) vs an accelerated category boost (false) */
+		isBase: integer("is_base", { mode: "boolean" }).default(false).notNull(),
 		notes: text("notes"),
 		...timestamps,
 	},
@@ -58,6 +80,10 @@ export const cardExtras = sqliteTable("card_extras", {
 	gotchas: text("gotchas", { mode: "json" }),
 	lounge: text("lounge", { mode: "json" }),
 	exclusions: text("exclusions", { mode: "json" }),
+	bestFor: text("best_for", { mode: "json" }),
+	avoidFor: text("avoid_for", { mode: "json" }),
+	redemption: text("redemption", { mode: "json" }),
+	sources: text("sources", { mode: "json" }),
 	...timestamps,
 });
 
