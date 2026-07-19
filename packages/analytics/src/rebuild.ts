@@ -34,11 +34,12 @@ async function seedCategories(writer: AnalyticsWriter): Promise<void> {
 async function seedRules(writer: AnalyticsWriter): Promise<void> {
 	await writer.run(
 		`CREATE OR REPLACE TABLE _rules (priority INTEGER, match_type VARCHAR, pattern VARCHAR,
-		 assign_kind VARCHAR, assign_category_key VARCHAR, assign_investment_id INTEGER, rid INTEGER)`,
+		 assign_kind VARCHAR, assign_category_key VARCHAR, assign_investment_id INTEGER,
+		 min_amount DOUBLE, max_amount DOUBLE, rid INTEGER)`,
 	);
 	const values = SEED_RULES.map(
 		(r, i) =>
-			`(${r.priority}, ${sqlStr(r.matchType)}, ${sqlStr(r.pattern)}, ${sqlStr(r.kind)}, ${sqlStr(r.categoryKey)}, ${r.investmentId ?? "NULL"}, ${i})`,
+			`(${r.priority}, ${sqlStr(r.matchType)}, ${sqlStr(r.pattern)}, ${sqlStr(r.kind)}, ${sqlStr(r.categoryKey)}, ${r.investmentId ?? "NULL"}, ${r.minAmount ?? "NULL"}, ${r.maxAmount ?? "NULL"}, ${i})`,
 	).join(", ");
 	await writer.run(`INSERT INTO _rules VALUES ${values}`);
 }
@@ -92,8 +93,10 @@ async function buildSplits(writer: AnalyticsWriter): Promise<void> {
 				row_number() OVER (PARTITION BY t.txn_id ORDER BY r.priority ASC, r.rid ASC) AS rnk
 			FROM transactions t
 			JOIN _rules r
-				ON (r.match_type = 'substring' AND t.narration ILIKE '%' || r.pattern || '%')
-				OR (r.match_type = 'regex' AND regexp_matches(t.narration, r.pattern))
+				ON ((r.match_type = 'substring' AND t.narration ILIKE '%' || r.pattern || '%')
+					OR (r.match_type = 'regex' AND regexp_matches(t.narration, r.pattern)))
+				AND (r.min_amount IS NULL OR t.amount >= r.min_amount)
+				AND (r.max_amount IS NULL OR t.amount <= r.max_amount)
 		)
 		SELECT t.txn_id, 0 AS seq, t.amount,
 			COALESCE(m.assign_kind, 'transfer') AS kind,
