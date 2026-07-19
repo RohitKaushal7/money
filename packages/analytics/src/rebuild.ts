@@ -18,6 +18,9 @@ export interface RebuildFile {
 	name: string;
 }
 
+/** Minimal read surface {@link count}/{@link dryRun} need — satisfied by both a reader and a writer. */
+type Queryable = Pick<AnalyticsWriter, "query">;
+
 function sqlStr(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
@@ -50,11 +53,65 @@ async function attachApp(
 	);
 }
 
-async function count(writer: AnalyticsWriter, sql: string): Promise<number> {
-	const rows = await writer.query<{ n: number }>(
+async function count(db: Queryable, sql: string): Promise<number> {
+	const rows = await db.query<{ n: number }>(
 		`SELECT count(*) AS n FROM ${sql}`,
 	);
 	return rows[0]?.n ?? 0;
+}
+
+/** Dry-run counts for a single pasted CSV (ADR-0013): how many rows are new vs already present. */
+export interface DryRunReport {
+	sourceFile: string;
+	rowsTotal: number;
+	rowsNew: number;
+	rowsDuplicate: number;
+	rowsConflict: number;
+}
+
+/**
+ * Parse ONE CSV and report how many rows are new vs already imported — **without writing anything**
+ * (the ADR-0013 import preview). Deliberately never calls {@link applySchema} (that `CREATE OR REPLACE`s
+ * the tables and would wipe live data); if `transactions` doesn't exist yet, every row counts as new.
+ * Accepts any {@link Queryable}, so the ingest runner can hand it a read-only connection on the live DB.
+ *
+ * `rowsConflict` is always 0: the idempotency key (ADR-0013) excludes narration, so a re-import can only
+ * ever be a byte-identical duplicate, never a same-key-different-content conflict.
+ */
+export async function dryRun(
+	db: Queryable,
+	file: RebuildFile,
+): Promise<DryRunReport> {
+	const select = sbiTransactionsSelect({
+		csvPath: file.path,
+		accountId: 1,
+		sourceFile: file.name,
+		importBatchId: 0,
+	});
+	const rowsTotal = await count(db, `(${select})`);
+	const tables = await db.query<{ n: number }>(
+		"SELECT count(*) AS n FROM information_schema.tables WHERE table_name = 'transactions'",
+	);
+	if ((tables[0]?.n ?? 0) === 0) {
+		return {
+			sourceFile: file.name,
+			rowsTotal,
+			rowsNew: rowsTotal,
+			rowsDuplicate: 0,
+			rowsConflict: 0,
+		};
+	}
+	const rowsDuplicate = await count(
+		db,
+		`(${select}) s WHERE s.txn_id IN (SELECT txn_id FROM transactions)`,
+	);
+	return {
+		sourceFile: file.name,
+		rowsTotal,
+		rowsNew: rowsTotal - rowsDuplicate,
+		rowsDuplicate,
+		rowsConflict: 0,
+	};
 }
 
 async function loadFile(

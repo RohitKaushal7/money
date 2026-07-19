@@ -28,7 +28,7 @@ async function expenseRows(): Promise<SpendingRow[]> {
 	);
 }
 
-interface CategoryTxn {
+export interface CategoryTxn {
 	txnId: string;
 	date: string;
 	narration: string;

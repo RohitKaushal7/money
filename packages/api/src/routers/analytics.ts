@@ -1,6 +1,16 @@
-import type { CoverageRatioPoint } from "@money/shared";
+import type { SqlParam } from "@money/analytics";
+import { db, transactionManualSplits, transactionOverrides } from "@money/db";
+import { CATEGORY_BY_KEY, type CoverageRatioPoint } from "@money/shared";
+import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { publicProcedure } from "../index";
+
+const UNCATEGORIZED = "uncategorized";
+
+/** Union of the category keys, ignoring order/duplicates — a stable signature for "same categorisation". */
+function categorySignature(keys: string[]): string {
+	return [...new Set(keys)].sort().join("|");
+}
 
 /**
  * Read-only analytics endpoints backing the dashboards. All open DuckDB read-only (ADR-0003).
@@ -9,7 +19,7 @@ import { publicProcedure } from "../index";
  * non-tailnet exposure they MUST become `protectedProcedure` — this is financial data (ADR-0006).
  */
 
-interface CategoryRow {
+export interface CategoryRow {
 	month: string;
 	categoryKey: string;
 	kind: string;
@@ -17,7 +27,7 @@ interface CategoryRow {
 	n: number;
 }
 
-interface TransactionRow {
+export interface TransactionRow {
 	txnId: string;
 	date: string;
 	narration: string;
@@ -106,4 +116,164 @@ export const analyticsRouter = {
 			);
 		},
 	),
+
+	/**
+	 * The **Transactions review** page (issue 002). A filtered, uncategorised-first page of transactions with
+	 * their baked category/kind, **overlaid live with the current SQLite overrides** (so an edit shows
+	 * instantly, before a re-tag bakes it — the same trick Reconcile uses). `pendingRetag` counts rows whose
+	 * SQLite intent (override or manual split) isn't yet reflected in DuckDB — it drives the "Re-tag now"
+	 * banner. Filters run against the BAKED split (DuckDB truth); a freshly-overridden row keeps showing its
+	 * new category until the next re-tag.
+	 */
+	transactions: publicProcedure
+		.input(
+			z.object({
+				month: z.string().optional(),
+				kind: z.string().optional(),
+				uncategorizedOnly: z.boolean().optional(),
+				search: z.string().optional(),
+				limit: z.number().int().min(1).max(500).optional(),
+				offset: z.number().int().min(0).optional(),
+			}),
+		)
+		.handler(async ({ input }) => {
+			if (!analyticsReady()) {
+				return { transactions: [], total: 0, pendingRetag: 0 };
+			}
+			const limit = input.limit ?? 100;
+			const offset = input.offset ?? 0;
+
+			// Overlay sources from SQLite (small tables — read whole, index in JS).
+			const [overrides, manualSplits] = await Promise.all([
+				db.select().from(transactionOverrides),
+				db.select().from(transactionManualSplits),
+			]);
+			const overrideByTxn = new Map(overrides.map((o) => [o.txnId, o]));
+			const manualByTxn = new Map<string, typeof manualSplits>();
+			for (const m of manualSplits) {
+				const arr = manualByTxn.get(m.txnId) ?? [];
+				arr.push(m);
+				manualByTxn.set(m.txnId, arr);
+			}
+
+			return withReader(async (reader) => {
+				const where: string[] = [];
+				const params: SqlParam[] = [];
+				if (input.month) {
+					where.push("t.month = ?");
+					params.push(input.month);
+				}
+				if (input.kind) {
+					where.push("s.kind = ?");
+					params.push(input.kind);
+				}
+				if (input.uncategorizedOnly) {
+					where.push(
+						"(s.category_key = 'uncategorized' OR s.category_key IS NULL)",
+					);
+				}
+				if (input.search) {
+					where.push("t.narration ILIKE '%' || ? || '%'");
+					params.push(input.search);
+				}
+				const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+				const [countRow] = await reader.query<{ n: number }>(
+					`SELECT count(*) AS n
+					FROM transactions t
+					LEFT JOIN transaction_splits s ON s.txn_id = t.txn_id AND s.seq = 0
+					${whereSql}`,
+					params,
+				);
+				const total = countRow?.n ?? 0;
+
+				const rows = await reader.query<{
+					txnId: string;
+					date: string;
+					narration: string;
+					amount: number;
+					balance: number;
+					categoryKey: string | null;
+					kind: string | null;
+				}>(
+					`SELECT t.txn_id AS "txnId", CAST(t.txn_date AS VARCHAR) AS date, t.narration,
+						t.amount, t.balance, s.category_key AS "categoryKey", s.kind
+					FROM transactions t
+					LEFT JOIN transaction_splits s ON s.txn_id = t.txn_id AND s.seq = 0
+					${whereSql}
+					ORDER BY (CASE WHEN s.category_key = 'uncategorized' OR s.category_key IS NULL THEN 0 ELSE 1 END),
+						t.txn_date DESC, t.balance DESC
+					LIMIT ${limit} OFFSET ${offset}`,
+					params,
+				);
+
+				const transactions = rows.map((r) => {
+					const ov = overrideByTxn.get(r.txnId);
+					const manual = manualByTxn.get(r.txnId);
+					const bakedCategoryKey = r.categoryKey ?? UNCATEGORIZED;
+					const effectiveCategoryKey =
+						ov?.overrideCategoryKey ?? bakedCategoryKey;
+					const effectiveKind =
+						ov?.overrideKind ??
+						CATEGORY_BY_KEY.get(effectiveCategoryKey)?.kind ??
+						r.kind ??
+						"transfer";
+					return {
+						txnId: r.txnId,
+						date: r.date,
+						narration: r.narration,
+						amount: r.amount,
+						balance: r.balance,
+						bakedCategoryKey,
+						categoryKey: effectiveCategoryKey,
+						kind: effectiveKind,
+						hasOverride: ov != null,
+						overrideNote: ov?.note ?? null,
+						manualSplitCount: manual?.length ?? 0,
+					};
+				});
+
+				// pendingRetag: any candidate whose expected category signature differs from what's baked.
+				const candidateIds = new Set<string>([
+					...overrideByTxn.keys(),
+					...manualByTxn.keys(),
+				]);
+				let pendingRetag = 0;
+				if (candidateIds.size > 0) {
+					const idList = [...candidateIds]
+						.map((id) => `'${id.replace(/'/g, "''")}'`)
+						.join(",");
+					const bakedRows = await reader.query<{
+						txnId: string;
+						categoryKey: string;
+					}>(
+						`SELECT txn_id AS "txnId", category_key AS "categoryKey"
+						FROM transaction_splits WHERE txn_id IN (${idList})`,
+					);
+					const bakedByTxn = new Map<string, string[]>();
+					for (const b of bakedRows) {
+						const arr = bakedByTxn.get(b.txnId) ?? [];
+						arr.push(b.categoryKey);
+						bakedByTxn.set(b.txnId, arr);
+					}
+					for (const id of candidateIds) {
+						const manual = manualByTxn.get(id);
+						const ov = overrideByTxn.get(id);
+						let expected: string;
+						if (manual && manual.length > 0) {
+							expected = categorySignature(manual.map((m) => m.categoryKey));
+						} else if (ov?.overrideCategoryKey) {
+							expected = categorySignature([ov.overrideCategoryKey]);
+						} else {
+							continue; // override with no category → nothing to bake
+						}
+						if (expected !== categorySignature(bakedByTxn.get(id) ?? [])) {
+							pendingRetag++;
+						}
+					}
+				}
+
+				return { transactions, total, pendingRetag };
+			});
+		}),
 };
