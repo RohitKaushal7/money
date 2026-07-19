@@ -24,7 +24,8 @@ type NavItem = {
 		| "/reconcile"
 		| "/spending"
 		| "/transactions"
-		| "/import";
+		| "/import"
+		| "/settings";
 };
 
 const NAV: NavItem[] = [
@@ -36,7 +37,7 @@ const NAV: NavItem[] = [
 	{ label: "Transactions", icon: ArrowLeftRight, to: "/transactions" },
 	{ label: "Import", icon: Upload, to: "/import" },
 	{ label: "Tax", icon: Receipt },
-	{ label: "Settings", icon: Settings },
+	{ label: "Settings", icon: Settings, to: "/settings" },
 ];
 
 const BASE =
