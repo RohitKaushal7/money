@@ -1,0 +1,174 @@
+import {
+	cardAssignments,
+	cardExtras,
+	cardRewardRules,
+	cardSpendProfile,
+	cards,
+	db,
+	settings,
+} from "@money/db";
+import {
+	bestCardForCategory,
+	type CardInfo,
+	type RewardRule,
+} from "@money/shared";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { publicProcedure } from "../index";
+
+/**
+ * The **cards** router (issue 005). Read the portfolio + run the "best card for X" picker; light human
+ * writes (spend profile, wallet/status toggles, purpose assignments). Reward TERMS are advisor-maintained
+ * via direct DB writes — no CRUD here.
+ *
+ * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard — MUST become `protectedProcedure`
+ * before non-tailnet exposure (ADR-0006).
+ */
+
+async function loadRules(): Promise<RewardRule[]> {
+	const rows = await db.select().from(cardRewardRules);
+	return rows.map((r) => ({
+		cardId: r.cardId,
+		category: r.category,
+		isBase: r.isBase,
+		rate: r.rate,
+		rateText: r.rateText,
+		cap: r.cap,
+		capText: r.capText,
+		condition: r.condition,
+		rewardType: r.rewardType,
+		isExclusion: r.isExclusion,
+	}));
+}
+
+async function gotchasByCard(): Promise<Record<number, string[]>> {
+	const rows = await db.select().from(cardExtras);
+	const out: Record<number, string[]> = {};
+	for (const r of rows) {
+		const g = r.gotchas;
+		if (Array.isArray(g)) out[r.cardId] = g.map((x) => String(x));
+	}
+	return out;
+}
+
+export const cardsRouter = {
+	/** The full portfolio: cards + their rules + extras (dashboard table). */
+	list: publicProcedure.handler(async () => {
+		const [cardRows, ruleRows, extraRows] = await Promise.all([
+			db.select().from(cards),
+			db.select().from(cardRewardRules),
+			db.select().from(cardExtras),
+		]);
+		const rulesByCard = new Map<number, typeof ruleRows>();
+		for (const r of ruleRows) {
+			const arr = rulesByCard.get(r.cardId) ?? [];
+			arr.push(r);
+			rulesByCard.set(r.cardId, arr);
+		}
+		const extraByCard = new Map(extraRows.map((e) => [e.cardId, e]));
+		return cardRows.map((c) => ({
+			...c,
+			rules: rulesByCard.get(c.id) ?? [],
+			extras: extraByCard.get(c.id) ?? null,
+		}));
+	}),
+
+	/** Best card for a category — ranked, with caveats. */
+	pick: publicProcedure
+		.input(z.object({ category: z.string() }))
+		.handler(async ({ input }) => {
+			const [cardRows, rules, gotchas] = await Promise.all([
+				db.select().from(cards),
+				loadRules(),
+				gotchasByCard(),
+			]);
+			const infos: CardInfo[] = cardRows
+				.filter((c) => c.active)
+				.map((c) => ({
+					id: c.id,
+					name: c.name,
+					isLtf: c.isLtf,
+					network: c.network,
+					status: c.status,
+				}));
+			return bestCardForCategory(input.category, infos, rules, gotchas);
+		}),
+
+	/** CIBIL / portfolio score from settings. */
+	health: publicProcedure.handler(async () => {
+		const rows = await db.select().from(settings);
+		const get = (k: string) => rows.find((r) => r.key === k)?.value ?? null;
+		return {
+			cibil: get("cibil_score"),
+			portfolioScore: get("portfolio_score"),
+		};
+	}),
+
+	spendProfile: publicProcedure.handler(() =>
+		db.select().from(cardSpendProfile),
+	),
+	setSpend: publicProcedure
+		.input(
+			z.object({
+				category: z.string(),
+				monthlyAmount: z.number().nonnegative(),
+			}),
+		)
+		.handler(async ({ input }) => {
+			await db
+				.insert(cardSpendProfile)
+				.values(input)
+				.onConflictDoUpdate({
+					target: cardSpendProfile.category,
+					set: { monthlyAmount: input.monthlyAmount },
+				});
+			return db.select().from(cardSpendProfile);
+		}),
+
+	assignments: publicProcedure.handler(() => db.select().from(cardAssignments)),
+	setAssignment: publicProcedure
+		.input(
+			z.object({
+				purpose: z.string(),
+				cardId: z.number().int(),
+				note: z.string().optional(),
+			}),
+		)
+		.handler(async ({ input }) => {
+			await db
+				.insert(cardAssignments)
+				.values({
+					purpose: input.purpose,
+					cardId: input.cardId,
+					note: input.note ?? null,
+				})
+				.onConflictDoUpdate({
+					target: cardAssignments.purpose,
+					set: { cardId: input.cardId, note: input.note ?? null },
+				});
+			return db.select().from(cardAssignments);
+		}),
+
+	/** Light per-card human toggles. */
+	setCardFlags: publicProcedure
+		.input(
+			z.object({
+				id: z.number().int(),
+				inWallet: z.boolean().optional(),
+				status: z.string().optional(),
+			}),
+		)
+		.handler(async ({ input }) => {
+			const set: Record<string, unknown> = {};
+			if (input.inWallet != null) set.inWallet = input.inWallet;
+			if (input.status != null) {
+				set.status = input.status;
+				set.active = input.status === "active";
+			}
+			if (Object.keys(set).length) {
+				await db.update(cards).set(set).where(eq(cards.id, input.id));
+			}
+			const [row] = await db.select().from(cards).where(eq(cards.id, input.id));
+			return row ?? null;
+		}),
+};

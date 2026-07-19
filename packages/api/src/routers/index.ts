@@ -2,6 +2,7 @@ import type { RouterClient } from "@orpc/server";
 
 import { protectedProcedure, publicProcedure } from "../index";
 import { analyticsRouter } from "./analytics";
+import { cardsRouter } from "./cards";
 import { currencyRouter } from "./currency";
 import { importRouter } from "./import";
 import { ingestRouter } from "./ingest";
@@ -24,6 +25,7 @@ export const appRouter = {
 		};
 	}),
 	analytics: analyticsRouter,
+	cards: cardsRouter,
 	plan: planRouter,
 	networth: networthRouter,
 	currency: currencyRouter,
