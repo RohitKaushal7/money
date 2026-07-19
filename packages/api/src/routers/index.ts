@@ -11,6 +11,7 @@ import { planRouter } from "./plan";
 import { reconcileRouter } from "./reconcile";
 import { spendingRouter } from "./spending";
 import { splitsRouter } from "./splits";
+import { taxRouter } from "./tax";
 
 export const appRouter = {
 	healthCheck: publicProcedure.handler(() => {
@@ -30,6 +31,7 @@ export const appRouter = {
 	overrides: overridesRouter,
 	spending: spendingRouter,
 	splits: splitsRouter,
+	tax: taxRouter,
 	import: importRouter,
 	ingest: ingestRouter,
 };
