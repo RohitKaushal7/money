@@ -14,9 +14,10 @@ export const taxProfiles = sqliteTable("tax_profiles", {
 	regimeChoice: text("regime_choice"),
 	salaryIncome: real("salary_income"),
 	otherIncome: real("other_income"),
-	/** HRA inputs (rent comes from the ledger) */
+	/** HRA inputs. `rentPaid` overrides the ledger-derived rent when set (null → fall back to ledger). */
 	basicSalary: real("basic_salary"),
 	hraReceived: real("hra_received"),
+	rentPaid: real("rent_paid"),
 	metro: integer("metro", { mode: "boolean" }),
 	/** { equityStcg, equityLtcg, crypto, otherStcg, otherLtcg } */
 	capitalGains: text("capital_gains", { mode: "json" }),

@@ -22,6 +22,7 @@ interface Draft {
 	otherIncome: number;
 	basicSalary: number;
 	hraReceived: number;
+	rentPaid: number;
 	metro: boolean;
 	capitalGains: {
 		equityStcg: number;
@@ -40,6 +41,7 @@ const EMPTY: Draft = {
 	otherIncome: 0,
 	basicSalary: 0,
 	hraReceived: 0,
+	rentPaid: 0,
 	metro: true,
 	capitalGains: {
 		equityStcg: 0,
@@ -133,6 +135,8 @@ function TaxForm({ fy }: { fy: string }) {
 			otherIncome: p?.otherIncome ?? s?.passive ?? 0,
 			basicSalary: p?.basicSalary ?? 0,
 			hraReceived: p?.hraReceived ?? 0,
+			// pre-fill with the ledger rent; the user can overwrite it (stored as an override)
+			rentPaid: p?.rentPaid ?? s?.rent ?? 0,
 			metro: p?.metro ?? true,
 			capitalGains: { ...EMPTY.capitalGains, ...(cg ?? {}) },
 			deductions: {
@@ -156,6 +160,7 @@ function TaxForm({ fy }: { fy: string }) {
 					otherIncome: next.otherIncome,
 					basicSalary: next.basicSalary,
 					hraReceived: next.hraReceived,
+					rentPaid: next.rentPaid,
 					metro: next.metro,
 					capitalGains: next.capitalGains,
 					deductions: {
@@ -298,8 +303,7 @@ function TaxForm({ fy }: { fy: string }) {
 					</div>
 					<div className="mt-2 flex flex-col gap-2 border-border border-t pt-3">
 						<span className="text-muted-foreground text-xs">
-							HRA — exemption {money.fmtc(c?.hraExemption ?? 0)} (rent{" "}
-							{money.fmtc(rent)}/yr from ledger)
+							HRA — exemption {money.fmtc(c?.hraExemption ?? 0)}
 						</span>
 						<div className="grid grid-cols-2 gap-3">
 							<Field label="Basic salary">
@@ -313,6 +317,13 @@ function TaxForm({ fy }: { fy: string }) {
 									value={draft.hraReceived}
 									onChange={(v) => set("hraReceived", v)}
 								/>
+							</Field>
+							<Field label="Rent paid /yr">
+								<Num
+									value={draft.rentPaid}
+									onChange={(v) => set("rentPaid", v)}
+								/>
+								<Hint>actual {money.fmtc(rent)}/yr from ledger</Hint>
 							</Field>
 						</div>
 						<label className="flex items-center gap-2 text-sm">

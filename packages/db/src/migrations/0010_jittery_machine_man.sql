@@ -1,0 +1,1 @@
+ALTER TABLE `tax_profiles` ADD `rent_paid` real;

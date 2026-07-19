@@ -66,7 +66,7 @@ function currentFy(): string {
 type ProfileRow = typeof taxProfiles.$inferSelect;
 
 /** Assemble compute inputs from a stored profile + ledger rent (for HRA). */
-function toInputs(row: ProfileRow | undefined, rentPaid: number): TaxInputs {
+function toInputs(row: ProfileRow | undefined, ledgerRent: number): TaxInputs {
 	const cg = {
 		...ZERO_CG,
 		...((row?.capitalGains as Partial<CapitalGains>) ?? {}),
@@ -75,7 +75,8 @@ function toInputs(row: ProfileRow | undefined, rentPaid: number): TaxInputs {
 	const hra = hraExemption({
 		basic: row?.basicSalary ?? 0,
 		hraReceived: row?.hraReceived ?? 0,
-		rentPaid,
+		// manual override wins; fall back to the ledger-derived rent when unset
+		rentPaid: row?.rentPaid ?? ledgerRent,
 		metro: row?.metro ?? false,
 	});
 	return {
@@ -213,6 +214,7 @@ export const taxRouter = {
 				otherIncome: z.number().nullish(),
 				basicSalary: z.number().nullish(),
 				hraReceived: z.number().nullish(),
+				rentPaid: z.number().nullish(),
 				metro: z.boolean().nullish(),
 				capitalGains: cgInput.optional(),
 				deductions: dedInput.optional(),
