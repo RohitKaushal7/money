@@ -1,1 +1,87 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&display=swap");
 @import "@money/ui/globals.css";
+
+/*
+ * "Warm data journal" theme for the money app. Overrides the scaffold's neutral/Inter shadcn defaults:
+ * warm-tinted neutrals (no pure black/white), a distinctive serif display + grotesk body, and a warm
+ * chart palette. One state accent: green = passive income covers expenses, amber = not yet.
+ */
+
+:root {
+	--background: oklch(0.988 0.006 83);
+	--foreground: oklch(0.24 0.02 60);
+	--card: oklch(0.995 0.004 83);
+	--card-foreground: oklch(0.24 0.02 60);
+	--popover: oklch(0.995 0.004 83);
+	--popover-foreground: oklch(0.24 0.02 60);
+	--primary: oklch(0.44 0.07 158);
+	--primary-foreground: oklch(0.985 0.01 83);
+	--secondary: oklch(0.96 0.012 83);
+	--secondary-foreground: oklch(0.3 0.02 60);
+	--muted: oklch(0.955 0.01 83);
+	--muted-foreground: oklch(0.52 0.02 70);
+	--accent: oklch(0.94 0.022 90);
+	--accent-foreground: oklch(0.3 0.02 60);
+	--destructive: oklch(0.58 0.19 28);
+	--border: oklch(0.9 0.012 80);
+	--input: oklch(0.9 0.012 80);
+	--ring: oklch(0.62 0.1 158);
+
+	--covered: oklch(0.58 0.13 158);
+	--uncovered: oklch(0.72 0.13 68);
+
+	--chart-1: oklch(0.58 0.13 158);
+	--chart-2: oklch(0.72 0.13 68);
+	--chart-3: oklch(0.56 0.15 40);
+	--chart-4: oklch(0.55 0.06 250);
+	--chart-5: oklch(0.72 0.11 96);
+
+	--radius: 0.75rem;
+}
+
+.dark {
+	--background: oklch(0.18 0.008 70);
+	--foreground: oklch(0.94 0.008 83);
+	--card: oklch(0.215 0.01 70);
+	--card-foreground: oklch(0.94 0.008 83);
+	--popover: oklch(0.215 0.01 70);
+	--popover-foreground: oklch(0.94 0.008 83);
+	--primary: oklch(0.74 0.12 158);
+	--primary-foreground: oklch(0.2 0.02 70);
+	--secondary: oklch(0.27 0.01 70);
+	--secondary-foreground: oklch(0.94 0.008 83);
+	--muted: oklch(0.27 0.01 70);
+	--muted-foreground: oklch(0.72 0.015 80);
+	--accent: oklch(0.32 0.02 80);
+	--accent-foreground: oklch(0.94 0.008 83);
+	--destructive: oklch(0.7 0.17 25);
+	--border: oklch(0.95 0.01 83 / 9%);
+	--input: oklch(0.95 0.01 83 / 12%);
+	--ring: oklch(0.62 0.1 158);
+
+	--covered: oklch(0.72 0.13 158);
+	--uncovered: oklch(0.78 0.13 72);
+
+	--chart-1: oklch(0.72 0.13 158);
+	--chart-2: oklch(0.78 0.13 72);
+	--chart-3: oklch(0.68 0.15 42);
+	--chart-4: oklch(0.68 0.08 250);
+	--chart-5: oklch(0.8 0.11 96);
+}
+
+@theme inline {
+	--font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Fraunces", ui-serif, Georgia, serif;
+	--color-covered: var(--covered);
+	--color-uncovered: var(--uncovered);
+}
+
+@utility tnum {
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum" 1;
+}
+
+/* Fraunces looks best with optical sizing on wherever the display face is used. */
+.font-display {
+	font-optical-sizing: auto;
+}
