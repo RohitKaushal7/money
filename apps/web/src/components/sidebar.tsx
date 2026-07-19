@@ -5,6 +5,7 @@ import {
 	PiggyBank,
 	Receipt,
 	Settings,
+	Wallet,
 } from "lucide-react";
 import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
@@ -13,12 +14,13 @@ type NavItem = {
 	label: string;
 	icon: typeof LayoutGrid;
 	/** present = a real route; absent = a "soon" placeholder */
-	to?: "/" | "/plan";
+	to?: "/" | "/plan" | "/wealth";
 };
 
 const NAV: NavItem[] = [
 	{ label: "Overview", icon: LayoutGrid, to: "/" },
 	{ label: "Plan", icon: PiggyBank, to: "/plan" },
+	{ label: "Wealth", icon: Wallet, to: "/wealth" },
 	{ label: "Transactions", icon: ArrowLeftRight },
 	{ label: "Tax", icon: Receipt },
 	{ label: "Settings", icon: Settings },
