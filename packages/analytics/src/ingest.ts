@@ -10,7 +10,7 @@
  * stays read-only.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
 	type DuckConnection,
@@ -52,13 +52,15 @@ export async function openReadWrite(
 const SQL_DIR = fileURLToPath(new URL("../sql/", import.meta.url));
 
 /**
- * Apply the DuckDB schema: rebuildable tables (`schema.sql`, CREATE OR REPLACE) then persisted tables
+ * Apply the DuckDB schema: rebuildable tables (`schema.sql`, CREATE OR REPLACE) then any persisted tables
  * (`persist/*.sql`, IF NOT EXISTS, applied in filename order). ATTACH-dependent views (`views.sql`) are
- * applied separately by the rebuild once the SQLite app DB is attached.
+ * applied separately by the rebuild once the SQLite app DB is attached. The `persist/` dir is optional —
+ * net-worth logs moved to SQLite, so there are currently no persisted DuckDB tables.
  */
 export async function applySchema(writer: AnalyticsWriter): Promise<void> {
 	await writer.run(readFileSync(`${SQL_DIR}schema.sql`, "utf8"));
 	const persistDir = `${SQL_DIR}persist`;
+	if (!existsSync(persistDir)) return;
 	const persistFiles = readdirSync(persistDir)
 		.filter((file) => file.endsWith(".sql"))
 		.sort();

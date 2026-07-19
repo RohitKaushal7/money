@@ -1,6 +1,7 @@
 -- DuckDB analytical schema — REBUILDABLE derived state (ADR-0002 / ADR-0008).
 -- Run by the ingest runner (scripts/ingest.ts) on every rebuild. Uses CREATE OR REPLACE so re-runs are
--- idempotent; the persisted networth_snapshots table lives in sql/persist/ and is NEVER dropped here.
+-- idempotent. Persisted (never-dropped) tables would live in sql/persist/; there are currently none —
+-- the net-worth log moved to SQLite (durable app-state the API can write; ADR-0003).
 --
 -- Amounts: DECIMAL(18,2) INR. Dates: DATE. txn_id: deterministic hash string (ADR-0013).
 -- These tables are self-contained (no ATTACH dependency); the ATTACH-joined views live in sql/views.sql,

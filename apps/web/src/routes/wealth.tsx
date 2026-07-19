@@ -15,6 +15,7 @@ import {
 	YAxis,
 	ZAxis,
 } from "recharts";
+import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
@@ -86,6 +87,10 @@ function WealthPage() {
 						at.
 					</p>
 				</header>
+
+				<NetWorthOverTime />
+
+				<hr className="border-border" />
 
 				{!w || w.totalValue === 0 ? (
 					<p className="rounded-2xl border border-border border-dashed px-8 py-16 text-muted-foreground">
@@ -357,8 +362,8 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 				</div>
 			</div>
 			<p className="text-center text-muted-foreground text-xs">
-				Angle = share of wealth · reach = XIRR. Fat-and-short = lots of money at
-				low return.
+				Angle = share of wealth · reach = expected return. Fat-and-short = money
+				at low return.
 			</p>
 		</div>
 	);
@@ -376,7 +381,7 @@ function SpreadView({ data }: { data: Datum[] }) {
 						<XAxis
 							type="number"
 							dataKey="ratePct"
-							name="XIRR"
+							name="Return"
 							unit="%"
 							domain={[0, "dataMax"]}
 							tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
@@ -399,8 +404,8 @@ function SpreadView({ data }: { data: Datum[] }) {
 				</ResponsiveContainer>
 			</div>
 			<p className="text-center text-muted-foreground text-xs">
-				x = XIRR · bubble size + height = amount. Big bubbles on the left are
-				lots of money at low return.
+				x = expected return · bubble size + height = amount. Big bubbles on the
+				left are lots of money at low return.
 			</p>
 		</div>
 	);

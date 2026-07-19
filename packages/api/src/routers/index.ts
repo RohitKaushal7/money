@@ -4,6 +4,7 @@ import { protectedProcedure, publicProcedure } from "../index";
 import { analyticsRouter } from "./analytics";
 import { importRouter } from "./import";
 import { ingestRouter } from "./ingest";
+import { networthRouter } from "./networth";
 import { overridesRouter } from "./overrides";
 import { planRouter } from "./plan";
 import { reconcileRouter } from "./reconcile";
@@ -22,6 +23,7 @@ export const appRouter = {
 	}),
 	analytics: analyticsRouter,
 	plan: planRouter,
+	networth: networthRouter,
 	reconcile: reconcileRouter,
 	overrides: overridesRouter,
 	spending: spendingRouter,
