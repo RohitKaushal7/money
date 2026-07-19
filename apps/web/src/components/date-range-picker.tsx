@@ -11,6 +11,7 @@ export type RangePreset =
 	| "this-month"
 	| "this-quarter"
 	| "this-fy"
+	| "last-fy"
 	| "last-12m"
 	| "all"
 	| "custom";
@@ -25,6 +26,7 @@ const PRESETS: { key: RangePreset; label: string }[] = [
 	{ key: "this-month", label: "This month" },
 	{ key: "this-quarter", label: "This quarter" },
 	{ key: "this-fy", label: "This FY" },
+	{ key: "last-fy", label: "Last FY" },
 	{ key: "last-12m", label: "Last 12 months" },
 	{ key: "all", label: "All time" },
 	{ key: "custom", label: "Custom range" },
@@ -53,6 +55,10 @@ export function resolveRange(
 		}
 		case "this-fy": {
 			const fs = fiscalYearStart(y, m + 1);
+			return { from: `${fs}-04-01`, to: `${fs + 1}-03-31` };
+		}
+		case "last-fy": {
+			const fs = fiscalYearStart(y, m + 1) - 1;
 			return { from: `${fs}-04-01`, to: `${fs + 1}-03-31` };
 		}
 		case "last-12m":
