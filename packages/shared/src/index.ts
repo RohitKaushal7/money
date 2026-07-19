@@ -12,6 +12,7 @@
  */
 
 export * from "./categories";
+export * from "./currency";
 export * from "./fy";
 export * from "./kinds";
 export * from "./networth";

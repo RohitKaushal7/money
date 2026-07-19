@@ -2,7 +2,8 @@ import { type SpendingRow, spendingTrends } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { publicProcedure } from "../index";
-import { listRecurring } from "./plan";
+import { loadRates } from "./currency";
+import { listRecurring, recurringToInr } from "./plan";
 
 /**
  * The **spending** router (issue 009) — the "where's it going, is it creeping" lens. Reads the categorised
@@ -40,7 +41,12 @@ export const spendingRouter = {
 	/** Category spend trends vs plan budget: movers table + totals + budgeted-but-unspent footnote. */
 	overview: publicProcedure.handler(async () => {
 		const rows = analyticsReady() ? await expenseRows() : [];
-		const recurring = await listRecurring();
+		const [recurringNative, rates] = await Promise.all([
+			listRecurring(),
+			loadRates(),
+		]);
+		// statement actuals are INR; normalise the (possibly foreign) plan budget to INR to match
+		const recurring = recurringNative.map((r) => recurringToInr(r, rates));
 		// cap the sparkline history to the last 24 months so the bars stay legible as history grows
 		const months = [...new Set(rows.map((r) => r.month))].sort().slice(-24);
 		return spendingTrends({ rows, recurring, months });

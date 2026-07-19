@@ -49,8 +49,10 @@ export const investments = sqliteTable("investments", {
 	maturityDate: text("maturity_date"),
 	/** reinvest | withdraw | auto_renew */
 	actionOnMaturity: text("action_on_maturity"),
-	/** latest known value (INR) — feeds imputed drawdown + net worth */
+	/** latest known value, in `currency` — feeds the wealth rollup + net worth */
 	currentValue: real("current_value"),
+	/** ISO 4217 code the monetary fields (principal, currentValue, expectedMonthlyInterest) are stored in */
+	currency: text("currency").notNull().default("INR"),
 	/** active | matured | closed */
 	status: text("status").notNull().default("active"),
 	/** type-specific extras: {compounding} | {scheme_code,units} | {symbol,qty} | {lots} */
@@ -68,8 +70,10 @@ export const recurringExpenses = sqliteTable("recurring_expenses", {
 	id: integer("id").primaryKey({ autoIncrement: true }),
 	name: text("name").notNull(),
 	category: text("category"),
-	/** INR per period (per `cadence`) */
+	/** amount per period (per `cadence`), in `currency` */
 	amount: real("amount").notNull(),
+	/** ISO 4217 code `amount` is stored in (e.g. USD for Claude Max, EUR for the Contabo VPS) */
+	currency: text("currency").notNull().default("INR"),
 	/** monthly | quarterly | half_yearly | yearly */
 	cadence: text("cadence").notNull().default("monthly"),
 	active: integer("active", { mode: "boolean" }).default(true).notNull(),

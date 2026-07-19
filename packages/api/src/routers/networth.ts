@@ -1,9 +1,10 @@
 import { db, investments, networthLogs } from "@money/db";
-import { type NetworthLog, networthSeries } from "@money/shared";
+import { type NetworthLog, networthSeries, toInr } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { publicProcedure } from "../index";
+import { loadRates } from "./currency";
 
 /**
  * The **Net-worth log** router (issue 003). A curated time series of dated total-net-worth points, each
@@ -50,13 +51,16 @@ async function cashOnHand(): Promise<number> {
 	});
 }
 
-/** Σ current_value across live (not soft-deleted) investments — matured principal still counts as wealth. */
+/** Σ current_value (normalised to INR) across live investments — matured principal still counts as wealth. */
 async function investmentValue(): Promise<number> {
-	const rows = await db
-		.select({ v: investments.currentValue })
-		.from(investments)
-		.where(eq(investments.active, true));
-	return rows.reduce((sum, r) => sum + (r.v ?? 0), 0);
+	const [rows, rates] = await Promise.all([
+		db
+			.select({ v: investments.currentValue, currency: investments.currency })
+			.from(investments)
+			.where(eq(investments.active, true)),
+		loadRates(),
+	]);
+	return rows.reduce((sum, r) => sum + toInr(r.v ?? 0, r.currency, rates), 0);
 }
 
 async function upsertLog(

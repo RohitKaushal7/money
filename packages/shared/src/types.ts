@@ -119,8 +119,10 @@ export interface Investment {
 	/** YYYY-MM-DD */
 	maturityDate?: string;
 	actionOnMaturity?: ActionOnMaturity;
-	/** latest known value (INR) — feeds the wealth rollup + net-worth log */
+	/** latest known value (in `currency`) — feeds the wealth rollup + net-worth log */
 	currentValue?: number;
+	/** ISO 4217 code the monetary fields are stored in (default INR); normalised to INR for aggregate math */
+	currency?: string;
 	status?: InvestmentStatus;
 }
 
@@ -129,8 +131,10 @@ export interface RecurringExpense {
 	id: string;
 	name: string;
 	category?: string;
-	/** INR per period (i.e. per `cadence`) */
+	/** amount per period (i.e. per `cadence`), in `currency` */
 	amount: number;
+	/** ISO 4217 code `amount` is stored in (default INR) */
+	currency?: string;
 	cadence: Cadence;
 	active: boolean;
 	/** YYYY-MM-DD */

@@ -4,12 +4,15 @@ import {
 	coverageLadder,
 	INVESTMENT_TYPES,
 	type Investment,
+	type RateMap,
 	type RecurringExpense,
+	toInr,
 	wealthSummary,
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { publicProcedure } from "../index";
+import { loadRates } from "./currency";
 
 /**
  * The **Plan** router (ADR-0011 revised / ADR-0014/0015) — reads and writes the SQLite plan (investments +
@@ -47,7 +50,39 @@ function toInvestment(r: InvestmentRow): Investment {
 		actionOnMaturity:
 			(r.actionOnMaturity as Investment["actionOnMaturity"]) ?? undefined,
 		currentValue: r.currentValue ?? undefined,
+		currency: r.currency,
 		status: (r.status as Investment["status"]) ?? undefined,
+	};
+}
+
+/** A copy with every monetary field normalised to INR — for the currency-agnostic aggregate compute. */
+export function investmentToInr(inv: Investment, rates: RateMap): Investment {
+	const cur = inv.currency;
+	return {
+		...inv,
+		currency: "INR",
+		principal:
+			inv.principal != null ? toInr(inv.principal, cur, rates) : inv.principal,
+		currentValue:
+			inv.currentValue != null
+				? toInr(inv.currentValue, cur, rates)
+				: inv.currentValue,
+		expectedMonthlyInterest:
+			inv.expectedMonthlyInterest != null
+				? toInr(inv.expectedMonthlyInterest, cur, rates)
+				: inv.expectedMonthlyInterest,
+	};
+}
+
+/** A copy with `amount` normalised to INR. */
+export function recurringToInr(
+	exp: RecurringExpense,
+	rates: RateMap,
+): RecurringExpense {
+	return {
+		...exp,
+		currency: "INR",
+		amount: toInr(exp.amount, exp.currency, rates),
 	};
 }
 
@@ -59,6 +94,7 @@ function toRecurring(r: RecurringRow): RecurringExpense {
 		amount: r.amount,
 		cadence: r.cadence as RecurringExpense["cadence"],
 		active: r.active,
+		currency: r.currency,
 		startDate: r.startDate ?? undefined,
 		endDate: r.endDate ?? undefined,
 		source: (r.source as RecurringExpense["source"]) ?? undefined,
@@ -92,6 +128,7 @@ const investmentInput = z.object({
 	maturityDate: z.string().optional(),
 	actionOnMaturity: z.enum(["reinvest", "withdraw", "auto_renew"]).optional(),
 	currentValue: z.number().optional(),
+	currency: z.string().optional(),
 	status: z.enum(["active", "matured", "closed"]).optional(),
 	isPassiveIncomeSource: z.boolean().optional(),
 	active: z.boolean().optional(),
@@ -101,6 +138,7 @@ const recurringInput = z.object({
 	name: z.string().min(1),
 	category: z.string().optional(),
 	amount: z.number(),
+	currency: z.string().optional(),
 	cadence: z
 		.enum(["monthly", "quarterly", "half_yearly", "yearly"])
 		.default("monthly"),
@@ -118,28 +156,30 @@ function todayISO(): string {
 }
 
 export const planRouter = {
-	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). */
+	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). INR aggregates. */
 	ladder: publicProcedure.handler(async () => {
-		const [invs, recs] = await Promise.all([
+		const [invs, recs, rates] = await Promise.all([
 			listInvestments(),
 			listRecurring(),
+			loadRates(),
 		]);
 		return coverageLadder({
-			investments: invs,
-			recurring: recs,
+			investments: invs.map((i) => investmentToInr(i, rates)),
+			recurring: recs.map((r) => recurringToInr(r, rates)),
 			today: todayISO(),
 		});
 	}),
 
-	/** Portfolio rollup: total wealth, grouped holdings + weighted XIRR, avg/required ROI, years-left. */
+	/** Portfolio rollup: total wealth, grouped holdings + weighted rate, avg/required ROI, years-left. */
 	wealth: publicProcedure.handler(async () => {
-		const [invs, recs] = await Promise.all([
+		const [invs, recs, rates] = await Promise.all([
 			listInvestments(),
 			listRecurring(),
+			loadRates(),
 		]);
 		return wealthSummary({
-			investments: invs,
-			recurring: recs,
+			investments: invs.map((i) => investmentToInr(i, rates)),
+			recurring: recs.map((r) => recurringToInr(r, rates)),
 			today: todayISO(),
 		});
 	}),
