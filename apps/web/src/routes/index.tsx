@@ -1,9 +1,15 @@
 import { Skeleton } from "@money/ui/components/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { CoverageHero } from "@/components/dashboard/coverage-hero";
 import { MoneyMap } from "@/components/dashboard/money-map";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
+import {
+	type DateRange,
+	DateRangePicker,
+	resolveRange,
+} from "@/components/date-range-picker";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/")({
@@ -20,6 +26,18 @@ function DashboardPage() {
 	const cov = ladder.data;
 	const planEmpty = !!cov && cov.total.income === 0 && cov.expenses === 0;
 	const statementReady = status.data?.ready ?? false;
+
+	// Actuals are scoped to a date range (default: this FY) — the all-time totals aren't decision-useful.
+	// v_category_monthly rows carry a `YYYY-MM` month, so we filter the already-fetched rows client-side.
+	const [range, setRange] = useState<DateRange>(() => resolveRange("this-fy"));
+	const fromMonth = range.from?.slice(0, 7);
+	const toMonth = range.to?.slice(0, 7);
+	const scopedCats = (categories.data ?? []).filter(
+		(r) =>
+			(fromMonth == null || r.month >= fromMonth) &&
+			(toMonth == null || r.month <= toMonth),
+	);
+	const scopedTxns = scopedCats.reduce((sum, r) => sum + r.n, 0);
 
 	return (
 		<main className="h-full overflow-y-auto">
@@ -48,17 +66,18 @@ function DashboardPage() {
 
 				{/* ACTUALS — what actually happened, from your SBI statement */}
 				<section className="flex flex-col gap-8">
-					<div className="flex flex-wrap items-baseline justify-between gap-2">
+					<div className="flex flex-wrap items-center justify-between gap-3">
 						<h2 className="font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
 							Actuals · from your statement
 						</h2>
 						{statementReady && (
-							<span className="text-muted-foreground text-xs">
-								<span className="tnum text-foreground/70">
-									{summary.data?.transactions ?? 0}
-								</span>{" "}
-								transactions
-							</span>
+							<div className="flex items-center gap-3">
+								<span className="text-muted-foreground text-xs">
+									<span className="tnum text-foreground/70">{scopedTxns}</span>{" "}
+									transactions
+								</span>
+								<DateRangePicker defaultPreset="this-fy" onChange={setRange} />
+							</div>
 						)}
 					</div>
 
@@ -68,7 +87,7 @@ function DashboardPage() {
 						<EmptyState />
 					) : (
 						<div className="flex flex-col gap-14">
-							<MoneyMap rows={categories.data ?? []} />
+							<MoneyMap rows={scopedCats} />
 							<hr className="border-border" />
 							<RecentActivity rows={recent.data ?? []} />
 						</div>
