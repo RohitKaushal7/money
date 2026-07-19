@@ -24,6 +24,7 @@ import {
 	X,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
+import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
@@ -189,8 +190,9 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
 			<div className="flex items-end justify-between">
 				<div>
-					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					<p className="flex items-center gap-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 						Coverage
+						<TaxModeChip />
 					</p>
 					<p
 						className="tnum font-display font-medium text-5xl leading-none"
@@ -296,10 +298,16 @@ function MaturityMini({ inv }: { inv: Investment | undefined }) {
 	);
 }
 
+/** Days from today until a holding's maturity, or null if it has no (parseable) maturity date. */
+function daysToMaturity(inv: Investment, today: string): number | null {
+	const mNum = dayNum(inv.maturityDate);
+	return mNum == null ? null : mNum - (dayNum(today) ?? 0);
+}
+
 /**
- * Alerts strip: only matured/expired holdings, prompting the owner to act. They've already dropped out of
- * the live ladder (isLive), so this is the single place they surface for Update (renew / adjust) or Delete.
- * Renders nothing when nothing has matured.
+ * Alerts strip for holdings that need attention: matured ones (already dropped from the live ladder) with
+ * Update / Delete, plus a heads-up list of anything expiring within 30 days below a divider. Renders
+ * nothing when both lists are empty.
  */
 function MaturityAlerts({ onDone }: { onDone: () => void }) {
 	const money = useMoney();
@@ -313,10 +321,29 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 		...orpc.plan.deleteInvestment.mutationOptions(),
 		onSuccess: onDone,
 	});
+	const valueInr = (inv: Investment) =>
+		money.fmt(
+			convert(
+				inv.currentValue ?? inv.principal ?? 0,
+				inv.currency ?? "INR",
+				"INR",
+				money.rates,
+			),
+		);
 
 	const today = todayISO();
-	const matured = (invs.data ?? []).filter((inv) => isMatured(inv, today));
-	if (matured.length === 0) return null;
+	const all = invs.data ?? [];
+	const matured = all.filter((inv) => isMatured(inv, today));
+	const soon = all
+		.filter((inv) => {
+			if (isMatured(inv, today)) return false;
+			const d = daysToMaturity(inv, today);
+			return d != null && d > 0 && d <= 30;
+		})
+		.map((inv) => ({ inv, days: daysToMaturity(inv, today) ?? 0 }))
+		.sort((a, b) => a.days - b.days);
+
+	if (matured.length === 0 && soon.length === 0) return null;
 
 	return (
 		<section
@@ -326,66 +353,90 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 			<div className="flex items-center gap-2">
 				<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
 				<h2 className="font-medium text-sm" style={{ color: OUT }}>
-					{matured.length} investment{matured.length === 1 ? "" : "s"} matured —
-					take action
+					{matured.length > 0
+						? `${matured.length} investment${matured.length === 1 ? "" : "s"} matured — take action`
+						: `${soon.length} investment${soon.length === 1 ? "" : "s"} expiring within 30 days`}
 				</h2>
 			</div>
-			<ul className="flex flex-col divide-y divide-border/50">
-				{matured.map((inv) =>
-					editing === inv.id ? (
-						<li key={inv.id} className="py-2">
-							<InvestmentForm
-								initial={inv}
-								pending={update.isPending}
-								submitLabel="Save"
-								onCancel={() => setEditing(null)}
-								onDelete={() => {
-									del.mutate({ id: Number(inv.id) });
-									setEditing(null);
-								}}
-								onSubmit={(d) => {
-									update.mutate({ id: Number(inv.id), ...d });
-									setEditing(null);
-								}}
-							/>
-						</li>
-					) : (
-						<li key={inv.id} className="flex items-center gap-3 py-2">
-							<div className="min-w-0 flex-1">
-								<p className="truncate font-medium text-sm">{inv.name}</p>
-								<p className="text-muted-foreground text-xs">
-									{inv.maturityDate
-										? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
-										: ""}
-									{money.fmt(
-										convert(
-											inv.currentValue ?? inv.principal ?? 0,
-											inv.currency ?? "INR",
-											"INR",
-											money.rates,
-										),
-									)}
-								</p>
-							</div>
-							<button
-								type="button"
-								onClick={() => setEditing(inv.id)}
-								className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
-							>
-								Update
-							</button>
-							<button
-								type="button"
-								onClick={() => del.mutate({ id: Number(inv.id) })}
-								aria-label={`Delete ${inv.name}`}
-								className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
-							>
-								<Trash2 className="size-3.5" />
-							</button>
-						</li>
-					),
-				)}
-			</ul>
+
+			{matured.length > 0 && (
+				<ul className="flex flex-col divide-y divide-border/50">
+					{matured.map((inv) =>
+						editing === inv.id ? (
+							<li key={inv.id} className="py-2">
+								<InvestmentForm
+									initial={inv}
+									pending={update.isPending}
+									submitLabel="Save"
+									onCancel={() => setEditing(null)}
+									onDelete={() => {
+										del.mutate({ id: Number(inv.id) });
+										setEditing(null);
+									}}
+									onSubmit={(d) => {
+										update.mutate({ id: Number(inv.id), ...d });
+										setEditing(null);
+									}}
+								/>
+							</li>
+						) : (
+							<li key={inv.id} className="flex items-center gap-3 py-2">
+								<div className="min-w-0 flex-1">
+									<p className="truncate font-medium text-sm">{inv.name}</p>
+									<p className="text-muted-foreground text-xs">
+										{inv.maturityDate
+											? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
+											: ""}
+										{valueInr(inv)}
+									</p>
+								</div>
+								<button
+									type="button"
+									onClick={() => setEditing(inv.id)}
+									className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
+								>
+									Update
+								</button>
+								<button
+									type="button"
+									onClick={() => del.mutate({ id: Number(inv.id) })}
+									aria-label={`Delete ${inv.name}`}
+									className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
+								>
+									<Trash2 className="size-3.5" />
+								</button>
+							</li>
+						),
+					)}
+				</ul>
+			)}
+
+			{soon.length > 0 && (
+				<>
+					{matured.length > 0 && (
+						<div className="mt-1 flex items-center gap-2 border-border/60 border-t pt-2">
+							<span className="text-[0.7rem] text-muted-foreground uppercase tracking-wider">
+								Expiring within 30 days
+							</span>
+						</div>
+					)}
+					<ul className="flex flex-col divide-y divide-border/50">
+						{soon.map(({ inv, days }) => (
+							<li key={inv.id} className="flex items-center gap-3 py-1.5">
+								<div className="min-w-0 flex-1">
+									<p className="truncate text-sm">{inv.name}</p>
+									<p className="tnum text-muted-foreground text-xs">
+										{valueInr(inv)}
+									</p>
+								</div>
+								<span className="tnum text-xs" style={{ color: OUT }}>
+									{days}d
+								</span>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
 		</section>
 	);
 }
