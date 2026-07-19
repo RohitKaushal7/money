@@ -13,6 +13,7 @@ export type RangePreset =
 	| "this-fy"
 	| "last-fy"
 	| "last-12m"
+	| "last-24m"
 	| "all"
 	| "custom";
 
@@ -28,6 +29,7 @@ const PRESETS: { key: RangePreset; label: string }[] = [
 	{ key: "this-fy", label: "This FY" },
 	{ key: "last-fy", label: "Last FY" },
 	{ key: "last-12m", label: "Last 12 months" },
+	{ key: "last-24m", label: "Last 24 months" },
 	{ key: "all", label: "All time" },
 	{ key: "custom", label: "Custom range" },
 ];
@@ -63,6 +65,8 @@ export function resolveRange(
 		}
 		case "last-12m":
 			return { from: iso(new Date(y - 1, m, now.getDate())), to: iso(now) };
+		case "last-24m":
+			return { from: iso(new Date(y - 2, m, now.getDate())), to: iso(now) };
 		case "all":
 			return {};
 		case "custom":

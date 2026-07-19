@@ -20,7 +20,7 @@ const OUT = "var(--uncovered)"; // spending rising / over budget = the colour of
 const IN = "var(--covered)"; // spending falling / under budget = the colour of relief
 
 function SpendingPage() {
-	const [range, setRange] = useState<DateRange>(() => resolveRange("last-12m"));
+	const [range, setRange] = useState<DateRange>(() => resolveRange("last-24m"));
 	const q = useQuery(
 		orpc.spending.overview.queryOptions({
 			input: { from: range.from, to: range.to },
@@ -42,7 +42,7 @@ function SpendingPage() {
 							month against its own recent norm and your plan budget.
 						</p>
 					</div>
-					<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+					<DateRangePicker defaultPreset="last-24m" onChange={setRange} />
 				</header>
 
 				{q.isLoading && <Muted>Loading…</Muted>}
