@@ -3,7 +3,7 @@ import { Textarea } from "@money/ui/components/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { FileText, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatDay } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -17,10 +17,36 @@ const tint = (c: string, pct: number) =>
 function ImportPage() {
 	const qc = useQueryClient();
 	const [csv, setCsv] = useState("");
+	const [fileName, setFileName] = useState<string | null>(null);
+	const [dragging, setDragging] = useState(false);
+	const fileRef = useRef<HTMLInputElement>(null);
 
 	const dryRun = useMutation(orpc.import.dryRun.mutationOptions());
 	const commit = useMutation(orpc.import.commit.mutationOptions());
 	const rawQ = useQuery(orpc.import.listRaw.queryOptions());
+
+	// load a picked/dropped file's text into the same csv state paste uses
+	const loadFile = async (file: File | undefined | null) => {
+		if (!file) return;
+		if (
+			!/\.csv$/i.test(file.name) &&
+			file.type &&
+			!/csv|text/.test(file.type)
+		) {
+			toast.error("Please choose a .csv file.");
+			return;
+		}
+		const text = await file.text();
+		setCsv(text);
+		setFileName(file.name);
+		dryRun.reset();
+		commit.reset();
+		toast.success(`Loaded ${file.name}`);
+	};
+	const setPasted = (value: string) => {
+		setCsv(value);
+		setFileName(null);
+	};
 
 	// instant, client-side shape check before any server round-trip
 	const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -60,22 +86,64 @@ function ImportPage() {
 						Import
 					</h1>
 					<p className="text-muted-foreground">
-						Paste an SBI statement export (CSV). Preview counts new vs
+						Upload or paste an SBI statement export (CSV). Preview counts new vs
 						already-imported rows; committing saves it as an immutable raw file
-						and rebuilds. Re-pasting the same statement is a safe no-op.
+						and rebuilds. Re-importing the same statement is a safe no-op.
 					</p>
 				</header>
 
 				<section className="flex flex-col gap-3">
-					<Textarea
-						value={csv}
-						onChange={(e) => setCsv(e.target.value)}
-						spellCheck={false}
-						placeholder={
-							"Date,Details,Ref No/Cheque No,Debit,Credit,Balance\n15/07/2026,…"
-						}
-						className="min-h-[15rem] rounded-md font-mono text-xs leading-relaxed"
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 font-medium text-sm transition-colors hover:bg-secondary">
+							<Upload className="size-4" />
+							Upload CSV
+							<input
+								ref={fileRef}
+								type="file"
+								accept=".csv,text/csv,text/plain"
+								className="hidden"
+								onChange={(e) => {
+									void loadFile(e.target.files?.[0]);
+									e.target.value = "";
+								}}
+							/>
+						</label>
+						{fileName ? (
+							<span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+								<FileText className="size-3.5" />
+								<span className="text-foreground/80">{fileName}</span>
+							</span>
+						) : (
+							<span className="text-muted-foreground text-xs">
+								or paste / drop a file below
+							</span>
+						)}
+					</div>
+
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: drop-zone wraps the paste box; the input above is the keyboard-accessible path */}
+					<div
+						onDragOver={(e) => {
+							e.preventDefault();
+							setDragging(true);
+						}}
+						onDragLeave={() => setDragging(false)}
+						onDrop={(e) => {
+							e.preventDefault();
+							setDragging(false);
+							void loadFile(e.dataTransfer.files?.[0]);
+						}}
+						className={`rounded-md transition-colors ${dragging ? "ring-2 ring-[var(--covered)] ring-offset-2 ring-offset-background" : ""}`}
+					>
+						<Textarea
+							value={csv}
+							onChange={(e) => setPasted(e.target.value)}
+							spellCheck={false}
+							placeholder={
+								"Date,Details,Ref No/Cheque No,Debit,Credit,Balance\n15/07/2026,…\n\n…or drop a .csv file here"
+							}
+							className="min-h-[15rem] rounded-md font-mono text-xs leading-relaxed"
+						/>
+					</div>
 
 					{csv.trim().length > 0 && (
 						<p className="text-muted-foreground text-xs">
