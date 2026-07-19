@@ -1,5 +1,4 @@
 import {
-	expectedMonthlyInterest,
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
@@ -10,31 +9,57 @@ import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { formatINR, formatRatio } from "@/lib/format";
+import { formatINR } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/plan")({ component: PlanPage });
 
 type IncomeClass = "income" | "growth";
+type Payout = "cash" | "accrue";
 type ExpenseCadence = "monthly" | "quarterly" | "half_yearly" | "yearly";
 
 interface InvestmentDraft {
 	name: string;
 	type: InvestmentType;
 	incomeClass: IncomeClass;
+	group?: string;
+	payout?: Payout;
 	platform?: string;
-	principal?: number;
+	currentValue?: number;
 	annualRate?: number;
 	expectedMonthlyInterest?: number;
-	currentValue?: number;
+	maturityDate?: string;
 }
 interface RecurringDraft {
 	name: string;
 	amount: number;
 	cadence: ExpenseCadence;
 	category?: string;
+}
+
+// mirrors @money/shared HoldingRollup (kept local to avoid importing server-only shapes)
+interface Rollup {
+	group: string | null;
+	name: string;
+	value: number;
+	rate: number | null;
+	monthly: number;
+	share: number;
+	incomeClass: IncomeClass;
+	members: Investment[];
+	maturityDate?: string;
+}
+interface Tier {
+	income: number;
+	ratio: number | null;
+}
+interface Ladder {
+	expenses: number;
+	cash: Tier;
+	fixed: Tier;
+	total: Tier;
 }
 
 const TYPE_LABEL: Record<InvestmentType, string> = {
@@ -65,34 +90,23 @@ const IN = "var(--covered)";
 const OUT = "var(--uncovered)";
 const tint = (c: string, pct: number) =>
 	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
+const ratioStr = (r: number | null) => (r == null ? "—" : `${r.toFixed(2)}×`);
+const pct1 = (r: number | null) =>
+	r == null ? "—" : `${(r * 100).toFixed(1)}%`;
 
 function PlanPage() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 
-	const coverage = useQuery(orpc.plan.coverage.queryOptions());
-	const investments = useQuery(orpc.plan.investments.queryOptions());
+	const ladder = useQuery(orpc.plan.ladder.queryOptions());
+	const wealth = useQuery(orpc.plan.wealth.queryOptions());
 	const recurring = useQuery(orpc.plan.recurring.queryOptions());
-	const settings = useQuery(orpc.plan.settings.queryOptions());
 
-	const enabled = settings.data?.enabled ?? false;
-	const rate = settings.data?.rate ?? 0.04;
-
-	/** what a holding actually contributes to the monthly numerator right now */
-	const contribution = (inv: Investment) =>
-		inv.incomeClass === "income"
-			? expectedMonthlyInterest(inv)
-			: enabled
-				? ((inv.currentValue ?? 0) * rate) / 12
-				: 0;
-
-	const invs = [...(investments.data ?? [])].sort(
-		(a, b) => contribution(b) - contribution(a),
-	);
+	const rollups = (wealth.data?.rollups ?? []) as Rollup[];
 	const recs = [...(recurring.data ?? [])].sort(
 		(a, b) => monthlyAmount(b) - monthlyAmount(a),
 	);
-	const maxIn = Math.max(1, ...invs.map(contribution));
+	const maxIn = Math.max(1, ...rollups.map((r) => r.monthly));
 	const maxOut = Math.max(1, ...recs.map(monthlyAmount));
 
 	return (
@@ -103,26 +117,15 @@ function PlanPage() {
 						Plan
 					</h1>
 					<p className="text-muted-foreground">
-						Passive income you expect vs the recurring life it has to cover.
-						This — not the statement — drives your coverage.
+						Passive income you expect vs the recurring life it has to cover —
+						laddered from cash-in-hand up to total return.
 					</p>
 				</header>
 
-				<Book
-					cov={coverage.data}
-					enabled={enabled}
-					rate={rate}
-					onDone={invalidate}
-				/>
+				<LadderCard ladder={ladder.data as Ladder | undefined} />
 
 				<div className="grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2">
-					<IncomingColumn
-						rows={invs}
-						contribution={contribution}
-						max={maxIn}
-						enabled={enabled}
-						onDone={invalidate}
-					/>
+					<IncomingColumn rollups={rollups} max={maxIn} onDone={invalidate} />
 					<OutgoingColumn rows={recs} max={maxOut} onDone={invalidate} />
 				</div>
 			</div>
@@ -130,55 +133,20 @@ function PlanPage() {
 	);
 }
 
-// ── the order-book header: incoming Σ ▏ coverage ▏ outgoing Σ ───────────────────────────────────────
-function Book({
-	cov,
-	enabled,
-	rate,
-	onDone,
-}: {
-	cov:
-		| {
-				interest: number;
-				drawdown: number;
-				passiveIncome: number;
-				expenses: number;
-				ratio: number | null;
-		  }
-		| undefined;
-	enabled: boolean;
-	rate: number;
-	onDone: () => void;
-}) {
-	const setDrawdown = useMutation({
-		...orpc.plan.setDrawdown.mutationOptions(),
-		onSuccess: onDone,
-	});
-	const [ratePct, setRatePct] = useState(String(Math.round(rate * 1000) / 10));
-	const ratio = cov?.ratio ?? null;
-	const covered = ratio != null && ratio >= 1;
-	const accent = covered ? IN : OUT;
-	const gap = Math.max(0, (cov?.expenses ?? 0) - (cov?.passiveIncome ?? 0));
-
+// ── coverage ladder ───────────────────────────────────────────────────────────────────────────────────
+function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
+	const total = ladder?.total.ratio ?? null;
+	const free = total != null && total >= 1;
+	const accent = free ? IN : OUT;
+	const tiers = [
+		{ key: "cash", label: "Cash in hand", t: ladder?.cash },
+		{ key: "fixed", label: "+ Fixed income", t: ladder?.fixed },
+		{ key: "total", label: "+ Total return", t: ladder?.total },
+	];
 	return (
-		<section className="overflow-hidden rounded-2xl border border-border bg-card/40">
-			<div className="grid grid-cols-3 items-center gap-3 px-6 py-6">
+		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
+			<div className="flex items-end justify-between">
 				<div>
-					<p
-						className="text-[0.65rem] uppercase tracking-[0.2em]"
-						style={{ color: IN }}
-					>
-						Incoming
-					</p>
-					<p
-						className="tnum font-display font-medium text-2xl"
-						style={{ color: IN }}
-					>
-						{formatINR(cov?.passiveIncome ?? 0)}
-					</p>
-					<p className="text-muted-foreground text-xs">passive / mo</p>
-				</div>
-				<div className="text-center">
 					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 						Coverage
 					</p>
@@ -186,98 +154,68 @@ function Book({
 						className="tnum font-display font-medium text-5xl leading-none"
 						style={{ color: accent }}
 					>
-						{ratio == null ? "—" : formatRatio(ratio)}
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						{gap > 0 ? `${formatINR(gap)} short` : "fully covered"}
+						{ratioStr(total)}
 					</p>
 				</div>
 				<div className="text-right">
 					<p
-						className="text-[0.65rem] uppercase tracking-[0.2em]"
+						className="tnum font-display font-medium text-xl"
 						style={{ color: OUT }}
 					>
-						Outgoing
-					</p>
-					<p
-						className="tnum font-display font-medium text-2xl"
-						style={{ color: OUT }}
-					>
-						{formatINR(cov?.expenses ?? 0)}
+						{formatINR(ladder?.expenses ?? 0)}
 					</p>
 					<p className="text-muted-foreground text-xs">recurring / mo</p>
 				</div>
 			</div>
-
-			{/* incoming vs outgoing balance bar */}
-			<BalanceBar
-				income={cov?.passiveIncome ?? 0}
-				expense={cov?.expenses ?? 0}
-			/>
-
-			<div className="flex flex-wrap items-center justify-center gap-3 border-border border-t px-6 py-3 text-sm">
-				<span className="text-muted-foreground">
-					Imputed drawdown on growth
-				</span>
-				<button
-					type="button"
-					onClick={() => setDrawdown.mutate({ enabled: !enabled })}
-					className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-					style={{ backgroundColor: enabled ? IN : "var(--muted)" }}
-					aria-pressed={enabled}
-					aria-label={
-						enabled ? "Disable imputed drawdown" : "Enable imputed drawdown"
-					}
-				>
-					<span
-						className="absolute top-0.5 size-4 rounded-full bg-background transition-all"
-						style={{ left: enabled ? "1.125rem" : "0.125rem" }}
-					/>
-				</button>
-				<Input
-					type="number"
-					step="0.1"
-					value={ratePct}
-					disabled={!enabled}
-					onChange={(e) => setRatePct(e.target.value)}
-					onBlur={() => {
-						const r = Number(ratePct) / 100;
-						if (Number.isFinite(r) && r >= 0 && r <= 1)
-							setDrawdown.mutate({ rate: r });
-					}}
-					className="tnum h-7 w-16"
-				/>
-				<span className="text-muted-foreground">% / yr</span>
+			<div className="flex flex-col gap-2.5">
+				{tiers.map(({ key, label, t }) => {
+					const r = t?.ratio ?? 0;
+					return (
+						<div key={key} className="flex items-center gap-3">
+							<span className="w-28 shrink-0 text-muted-foreground text-xs">
+								{label}
+							</span>
+							<div className="relative h-5 flex-1 overflow-hidden rounded bg-muted/60">
+								<div
+									className="h-full rounded transition-[width] duration-500"
+									style={{
+										width: `${Math.min(100, r * 100)}%`,
+										background: tint(IN, key === "total" ? 55 : 30),
+									}}
+								/>
+								{/* 1.0× marker */}
+								<div className="absolute inset-y-0 right-0 w-px bg-foreground/30" />
+							</div>
+							<span
+								className="tnum w-14 shrink-0 text-right font-medium text-sm"
+								style={{ color: IN }}
+							>
+								{ratioStr(t?.ratio ?? null)}
+							</span>
+							<span className="tnum w-20 shrink-0 text-right text-muted-foreground text-xs">
+								{formatINR(t?.income ?? 0)}
+							</span>
+						</div>
+					);
+				})}
 			</div>
+			<p className="text-muted-foreground text-xs">
+				The right edge is <span className="text-foreground/70">1.0×</span> —
+				passive income fully covers recurring expenses. Cash ⊆ fixed-income ⊆
+				total return.
+			</p>
 		</section>
 	);
 }
 
-function BalanceBar({ income, expense }: { income: number; expense: number }) {
-	const total = Math.max(1, income + expense);
-	const inPct = (income / total) * 100;
-	return (
-		<div className="flex h-1.5 w-full">
-			<div style={{ width: `${inPct}%`, backgroundColor: IN }} />
-			<div
-				style={{ width: `${100 - inPct}%`, backgroundColor: tint(OUT, 55) }}
-			/>
-		</div>
-	);
-}
-
-// ── Incoming column (investments) ───────────────────────────────────────────────────────────────────
+// ── Incoming (grouped investments) ────────────────────────────────────────────────────────────────────
 function IncomingColumn({
-	rows,
-	contribution,
+	rollups,
 	max,
-	enabled,
 	onDone,
 }: {
-	rows: Investment[];
-	contribution: (inv: Investment) => number;
+	rollups: Rollup[];
 	max: number;
-	enabled: boolean;
 	onDone: () => void;
 }) {
 	const [editing, setEditing] = useState<string | null>(null);
@@ -295,38 +233,51 @@ function IncomingColumn({
 		onSuccess: onDone,
 	});
 
+	const editRow = (inv: Investment) => (
+		<InvestmentForm
+			initial={inv}
+			pending={update.isPending}
+			submitLabel="Save"
+			onCancel={() => setEditing(null)}
+			onDelete={() => {
+				del.mutate({ id: Number(inv.id) });
+				setEditing(null);
+			}}
+			onSubmit={(d) => {
+				update.mutate({ id: Number(inv.id), ...d });
+				setEditing(null);
+			}}
+		/>
+	);
+
 	return (
 		<section className="flex flex-col">
-			<ColHeader tone={IN} label="Incoming" side="left" />
+			<ColHeader tone={IN} label="Incoming" />
 			<ul className="flex flex-col">
-				{rows.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
-				{rows.map((inv) =>
-					editing === inv.id ? (
-						<li key={inv.id} className="border-border border-b py-2">
-							<InvestmentForm
-								initial={inv}
-								pending={update.isPending}
-								submitLabel="Save"
-								onCancel={() => setEditing(null)}
-								onDelete={() => {
-									del.mutate({ id: Number(inv.id) });
-									setEditing(null);
-								}}
-								onSubmit={(d) => {
-									update.mutate({ id: Number(inv.id), ...d });
-									setEditing(null);
-								}}
-							/>
+				{rollups.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
+				{rollups.map((r) =>
+					r.group ? (
+						<GroupRow
+							key={`g:${r.group}`}
+							rollup={r}
+							pct={(r.monthly / max) * 100}
+							editing={editing}
+							setEditing={setEditing}
+							editRow={editRow}
+						/>
+					) : editing === r.members[0]?.id ? (
+						<li key={r.members[0]?.id} className="border-border border-b py-2">
+							{r.members[0] && editRow(r.members[0])}
 						</li>
 					) : (
-						<IncomingRow
-							key={inv.id}
-							inv={inv}
-							amount={contribution(inv)}
-							pct={(contribution(inv) / max) * 100}
-							dimmed={inv.incomeClass === "growth" && !enabled}
-							onEdit={() => setEditing(inv.id)}
-							onDelete={() => del.mutate({ id: Number(inv.id) })}
+						<StandaloneRow
+							key={r.members[0]?.id ?? r.name}
+							rollup={r}
+							pct={(r.monthly / max) * 100}
+							onEdit={() => setEditing(r.members[0]?.id ?? null)}
+							onDelete={() =>
+								r.members[0] && del.mutate({ id: Number(r.members[0].id) })
+							}
 						/>
 					),
 				)}
@@ -344,59 +295,135 @@ function IncomingColumn({
 					/>
 				</div>
 			) : (
-				<AddButton onClick={() => setAdding(true)}>Add income source</AddButton>
+				<AddButton onClick={() => setAdding(true)}>Add holding</AddButton>
 			)}
 		</section>
 	);
 }
 
-function IncomingRow({
-	inv,
-	amount,
+function StandaloneRow({
+	rollup,
 	pct,
-	dimmed,
 	onEdit,
 	onDelete,
 }: {
-	inv: Investment;
-	amount: number;
+	rollup: Rollup;
 	pct: number;
-	dimmed: boolean;
 	onEdit: () => void;
 	onDelete: () => void;
 }) {
-	const meta =
-		inv.incomeClass === "income"
-			? `${TYPE_LABEL[inv.type]}${inv.platform ? ` · ${inv.platform}` : ""}`
-			: `growth${inv.platform ? ` · ${inv.platform}` : ""}${dimmed ? " · drawdown off" : ""}`;
-
 	return (
 		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
-			<div
-				className="pointer-events-none absolute inset-y-1 right-0 rounded-sm"
-				style={{ width: `${Math.max(pct, 1.5)}%`, background: tint(IN, 12) }}
-			/>
+			<Depth pct={pct} side="right" tone={IN} />
 			<RowActions onEdit={onEdit} onDelete={onDelete} />
-			<div className={`relative min-w-0 flex-1 ${dimmed ? "opacity-50" : ""}`}>
-				<p className="truncate font-medium">{inv.name}</p>
-				<p className="text-muted-foreground text-xs">{meta}</p>
-			</div>
-			<div className="relative text-right">
-				<p
-					className="tnum font-medium"
-					style={{ color: dimmed ? undefined : IN }}
-				>
-					{formatINR(amount)}
-				</p>
-				<p className="text-[0.65rem] text-muted-foreground">
-					{inv.incomeClass === "income" ? "interest /mo" : "drawdown /mo"}
+			<div className="relative min-w-0 flex-1">
+				<p className="truncate font-medium">{rollup.name}</p>
+				<p className="text-muted-foreground text-xs">
+					{rollup.incomeClass === "growth" ? "growth" : "income"}
+					{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
 				</p>
 			</div>
+			<Amount value={rollup.value} monthly={rollup.monthly} />
 		</li>
 	);
 }
 
-// ── Outgoing column (recurring expenses) ────────────────────────────────────────────────────────────
+function GroupRow({
+	rollup,
+	pct,
+	editing,
+	setEditing,
+	editRow,
+}: {
+	rollup: Rollup;
+	pct: number;
+	editing: string | null;
+	setEditing: (id: string | null) => void;
+	editRow: (inv: Investment) => ReactNode;
+}) {
+	const [open, setOpen] = useState(false);
+	return (
+		<li className="border-border border-b">
+			<div className="group relative flex items-center gap-3 py-2.5">
+				<Depth pct={pct} side="right" tone={IN} />
+				<button
+					type="button"
+					onClick={() => setOpen((o) => !o)}
+					className="relative flex min-w-0 flex-1 items-center gap-2 text-left"
+				>
+					<ChevronRight
+						className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+					/>
+					<span className="min-w-0">
+						<span className="block truncate font-medium">{rollup.name}</span>
+						<span className="block text-muted-foreground text-xs">
+							{rollup.members.length} holdings
+							{rollup.rate != null ? ` · ${pct1(rollup.rate)} wtd` : ""}
+						</span>
+					</span>
+				</button>
+				<Amount value={rollup.value} monthly={rollup.monthly} />
+			</div>
+			{open && (
+				<ul className="mb-2 flex flex-col gap-px border-border border-l pl-3">
+					{rollup.members.map((m) =>
+						editing === m.id ? (
+							<li key={m.id} className="py-2">
+								{editRow(m)}
+							</li>
+						) : (
+							<MemberRow key={m.id} inv={m} onEdit={() => setEditing(m.id)} />
+						),
+					)}
+				</ul>
+			)}
+		</li>
+	);
+}
+
+function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
+	const monthly =
+		inv.expectedMonthlyInterest ??
+		((inv.currentValue ?? 0) * (inv.annualRate ?? 0)) / 12;
+	return (
+		<li className="group flex items-center gap-3 py-1.5">
+			<div className="min-w-0 flex-1">
+				<p className="truncate text-sm">{inv.name}</p>
+				<p className="text-muted-foreground text-xs">
+					{formatINR(inv.currentValue ?? 0)}
+					{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
+					{inv.maturityDate ? ` · ${inv.maturityDate}` : ""}
+				</p>
+			</div>
+			<span className="tnum text-sm" style={{ color: IN }}>
+				{formatINR(monthly)}
+				<span className="text-[0.6rem] text-muted-foreground">/mo</span>
+			</span>
+			<button
+				type="button"
+				onClick={onEdit}
+				aria-label={`Edit ${inv.name}`}
+				className="rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100"
+			>
+				<Pencil className="size-3.5" />
+			</button>
+		</li>
+	);
+}
+
+function Amount({ value, monthly }: { value: number; monthly: number }) {
+	return (
+		<div className="relative text-right">
+			<p className="tnum font-medium" style={{ color: IN }}>
+				{formatINR(monthly)}
+				<span className="text-[0.6rem] text-muted-foreground"> /mo</span>
+			</p>
+			<p className="tnum text-muted-foreground text-xs">{formatINR(value)}</p>
+		</div>
+	);
+}
+
+// ── Outgoing (recurring expenses) ─────────────────────────────────────────────────────────────────────
 function OutgoingColumn({
 	rows,
 	max,
@@ -491,15 +518,12 @@ function OutgoingRow({
 }) {
 	return (
 		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
-			<div
-				className="pointer-events-none absolute inset-y-1 left-0 rounded-sm"
-				style={{ width: `${Math.max(pct, 1.5)}%`, background: tint(OUT, 12) }}
-			/>
+			<Depth pct={pct} side="left" tone={OUT} />
 			<div className="relative text-left">
 				<p className="tnum font-medium" style={{ color: OUT }}>
 					{formatINR(monthlyAmount(exp))}
 				</p>
-				<p className="text-[0.65rem] text-muted-foreground">
+				<p className="text-[0.6rem] text-muted-foreground">
 					{exp.cadence === "monthly"
 						? "/mo"
 						: `${formatINR(exp.amount)}${CADENCE_LABEL[exp.cadence] ?? ""}`}
@@ -516,7 +540,7 @@ function OutgoingRow({
 	);
 }
 
-// ── forms (shared by add + edit) ────────────────────────────────────────────────────────────────────
+// ── forms ─────────────────────────────────────────────────────────────────────────────────────────────
 function InvestmentForm({
 	initial,
 	pending,
@@ -533,49 +557,68 @@ function InvestmentForm({
 	onDelete?: () => void;
 }) {
 	const [cls, setCls] = useState<IncomeClass>(initial?.incomeClass ?? "income");
+	const [payout, setPayout] = useState<Payout>(
+		(initial?.payout as Payout) ?? "cash",
+	);
 	const [name, setName] = useState(initial?.name ?? "");
 	const [type, setType] = useState<InvestmentType>(initial?.type ?? "bond");
+	const [group, setGroup] = useState(initial?.group ?? "");
 	const [platform, setPlatform] = useState(initial?.platform ?? "");
-	const [principal, setPrincipal] = useState(str(initial?.principal));
+	const [value, setValue] = useState(str(initial?.currentValue));
 	const [ratePct, setRatePct] = useState(
 		initial?.annualRate != null
 			? String(Math.round(initial.annualRate * 1000) / 10)
 			: "",
 	);
 	const [monthly, setMonthly] = useState(str(initial?.expectedMonthlyInterest));
-	const [currentValue, setCurrentValue] = useState(str(initial?.currentValue));
+	const [maturity, setMaturity] = useState(initial?.maturityDate ?? "");
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
 		if (!name.trim()) return;
 		const d: InvestmentDraft = { name: name.trim(), type, incomeClass: cls };
+		if (group.trim()) d.group = group.trim();
 		if (platform.trim()) d.platform = platform.trim();
+		if (value) d.currentValue = Number(value);
+		if (ratePct) d.annualRate = Number(ratePct) / 100;
+		if (maturity.trim()) d.maturityDate = maturity.trim();
 		if (cls === "income") {
-			if (principal) d.principal = Number(principal);
-			if (ratePct) d.annualRate = Number(ratePct) / 100;
+			d.payout = payout;
 			if (monthly) d.expectedMonthlyInterest = Number(monthly);
-		} else if (currentValue) {
-			d.currentValue = Number(currentValue);
 		}
 		onSubmit(d);
 	}
 
 	return (
 		<form onSubmit={submit} className="flex flex-col gap-2.5">
-			<div className="flex gap-2">
+			<div className="flex flex-wrap gap-2">
 				<Pill active={cls === "income"} onClick={() => setCls("income")}>
 					Income
 				</Pill>
 				<Pill active={cls === "growth"} onClick={() => setCls("growth")}>
 					Growth
 				</Pill>
+				{cls === "income" && (
+					<>
+						<span className="w-2" />
+						<Pill active={payout === "cash"} onClick={() => setPayout("cash")}>
+							Cash payout
+						</Pill>
+						<Pill
+							active={payout === "accrue"}
+							onClick={() => setPayout("accrue")}
+						>
+							Accrues
+						</Pill>
+					</>
+				)}
 			</div>
 			<div className="grid grid-cols-2 gap-2">
 				<Field label="Name">
 					<Input
 						value={name}
 						onChange={(e) => setName(e.target.value)}
-						placeholder="Wint bond"
+						placeholder="Wint T1"
 						required
 					/>
 				</Field>
@@ -589,55 +632,57 @@ function InvestmentForm({
 						}))}
 					/>
 				</Field>
+				<Field label="Group (optional)">
+					<Input
+						value={group}
+						onChange={(e) => setGroup(e.target.value)}
+						placeholder="SustVest, Wint, FDs…"
+					/>
+				</Field>
 				<Field label="Platform">
 					<Input
 						value={platform}
 						onChange={(e) => setPlatform(e.target.value)}
-						placeholder="SustVest…"
+						placeholder="provider"
 					/>
 				</Field>
-				{cls === "income" ? (
-					<>
-						<Field label="Principal ₹">
-							<Input
-								type="number"
-								value={principal}
-								onChange={(e) => setPrincipal(e.target.value)}
-								className="tnum"
-								placeholder="100000"
-							/>
-						</Field>
-						<Field label="Rate % / yr">
-							<Input
-								type="number"
-								step="0.1"
-								value={ratePct}
-								onChange={(e) => setRatePct(e.target.value)}
-								className="tnum"
-								placeholder="11"
-							/>
-						</Field>
-						<Field label="…or ₹ interest / mo">
-							<Input
-								type="number"
-								value={monthly}
-								onChange={(e) => setMonthly(e.target.value)}
-								className="tnum"
-								placeholder="amortising P2P"
-							/>
-						</Field>
-					</>
-				) : (
-					<Field label="Current value ₹">
+				<Field label="Value ₹">
+					<Input
+						type="number"
+						value={value}
+						onChange={(e) => setValue(e.target.value)}
+						className="tnum"
+						placeholder="100000"
+					/>
+				</Field>
+				<Field label="XIRR % / yr">
+					<Input
+						type="number"
+						step="0.1"
+						value={ratePct}
+						onChange={(e) => setRatePct(e.target.value)}
+						className="tnum"
+						placeholder="11"
+					/>
+				</Field>
+				{cls === "income" && (
+					<Field label="…or ₹ interest / mo">
 						<Input
 							type="number"
-							value={currentValue}
-							onChange={(e) => setCurrentValue(e.target.value)}
+							value={monthly}
+							onChange={(e) => setMonthly(e.target.value)}
 							className="tnum"
-							placeholder="500000"
+							placeholder="explicit payout"
 						/>
 					</Field>
 				)}
+				<Field label="Maturity (YYYY-MM-DD)">
+					<Input
+						value={maturity}
+						onChange={(e) => setMaturity(e.target.value)}
+						placeholder="2026-08-15"
+					/>
+				</Field>
 			</div>
 			<FormActions
 				pending={pending}
@@ -733,7 +778,7 @@ function ExpenseForm({
 	);
 }
 
-// ── little shared bits ──────────────────────────────────────────────────────────────────────────────
+// ── shared bits ───────────────────────────────────────────────────────────────────────────────────────
 function ColHeader({
 	tone,
 	label,
@@ -741,16 +786,33 @@ function ColHeader({
 }: {
 	tone: string;
 	label: string;
-	side: "left" | "right";
+	side?: "left" | "right";
 }) {
 	return (
 		<div
-			className={`flex items-center gap-2 border-border border-b-2 pb-2 ${side === "right" ? "flex-row-reverse" : ""}`}
+			className={`flex items-center gap-2 border-b-2 pb-2 ${side === "right" ? "flex-row-reverse" : ""}`}
 			style={{ borderColor: tint(tone, 40) }}
 		>
 			<span className="size-2 rounded-full" style={{ backgroundColor: tone }} />
 			<h2 className="font-display font-medium text-lg">{label}</h2>
 		</div>
+	);
+}
+
+function Depth({
+	pct,
+	side,
+	tone,
+}: {
+	pct: number;
+	side: "left" | "right";
+	tone: string;
+}) {
+	return (
+		<div
+			className={`pointer-events-none absolute inset-y-1 ${side === "right" ? "right-0" : "left-0"} rounded-sm`}
+			style={{ width: `${Math.max(pct, 1.5)}%`, background: tint(tone, 12) }}
+		/>
 	);
 }
 
