@@ -52,11 +52,34 @@ export function monthlyAmount(exp: RecurringExpense): number {
 
 // ── coverage ladder + wealth rollup (the total-return view; ADR-0015) ─────────────────────────────────
 
-/** YYYY-MM-DD → sortable integer (YYYYMMDD); null if absent/unparseable. */
+/**
+ * Normalise a date string to `YYYY-MM-DD`. Accepts ISO (`YYYY-MM-DD`) and the Indian day-first
+ * `DD/MM/YYYY` / `DD-MM-YYYY` seen in some imported holdings. Returns null if unparseable.
+ */
+export function toISODate(s: string | undefined): string | null {
+	if (!s) return null;
+	const t = s.trim();
+	const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+	if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+	// day-first: DD/MM/YYYY or DD-MM-YYYY (the data is Indian; day > 12 confirms day-first)
+	const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(t);
+	if (dmy) {
+		const d = (dmy[1] ?? "").padStart(2, "0");
+		const m = (dmy[2] ?? "").padStart(2, "0");
+		return `${dmy[3] ?? ""}-${m}-${d}`;
+	}
+	return null;
+}
+
+/** A date (any {@link toISODate}-accepted format) → sortable integer (YYYYMMDD); null if unparseable. */
 function dateNum(iso: string | undefined): number | null {
-	if (!iso) return null;
-	const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-	return m ? Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]) : null;
+	const s = toISODate(iso);
+	if (!s) return null;
+	return (
+		Number(s.slice(0, 4)) * 10000 +
+		Number(s.slice(5, 7)) * 100 +
+		Number(s.slice(8, 10))
+	);
 }
 
 /** Matured once flagged, or once `maturityDate` is strictly before `today` (YYYY-MM-DD). */

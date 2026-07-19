@@ -7,6 +7,7 @@ import {
 	monthlyAmount,
 	monthlyReturn,
 	netIncomeOfTax,
+	toISODate,
 	wealthSummary,
 } from "./plan";
 import type { Investment, RecurringExpense } from "./types";
@@ -167,6 +168,31 @@ describe("isMatured", () => {
 	});
 	test("no today → never auto-expires", () => {
 		expect(isMatured(inv({ maturityDate: "2020-01-01" }))).toBe(false);
+	});
+	test("day-first DD/MM/YYYY maturity is parsed (not silently ignored)", () => {
+		// 16 Sep 2026 is in the future vs 19 Jul 2026 → not matured, but must be *seen*
+		expect(isMatured(inv({ maturityDate: "16/09/2026" }), "2026-07-19")).toBe(
+			false,
+		);
+		// 05 Jul 2026 is past → matured
+		expect(isMatured(inv({ maturityDate: "05/07/2026" }), "2026-07-19")).toBe(
+			true,
+		);
+	});
+});
+
+describe("toISODate", () => {
+	test("passes through ISO", () => {
+		expect(toISODate("2026-08-15")).toBe("2026-08-15");
+	});
+	test("normalises day-first DD/MM/YYYY and DD-MM-YYYY", () => {
+		expect(toISODate("16/09/2026")).toBe("2026-09-16");
+		expect(toISODate("7/6/2027")).toBe("2027-06-07");
+		expect(toISODate("25-02-2027")).toBe("2027-02-25");
+	});
+	test("null on absent/garbage", () => {
+		expect(toISODate(undefined)).toBeNull();
+		expect(toISODate("not a date")).toBeNull();
 	});
 });
 

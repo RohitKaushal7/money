@@ -5,14 +5,24 @@ import {
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
+	isMatured,
 	monthlyAmount,
 	type RecurringExpense,
+	toISODate,
 } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	ChevronRight,
+	Pencil,
+	Plus,
+	Trash2,
+	X,
+} from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
@@ -108,6 +118,17 @@ const ratioStr = (r: number | null) => (r == null ? "—" : `${r.toFixed(2)}×`)
 const pct1 = (r: number | null) =>
 	r == null ? "—" : `${(r * 100).toFixed(1)}%`;
 
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+/** Today as YYYY-MM-DD (client clock) — drives the maturity countdown. */
+const todayISO = () => new Date().toISOString().slice(0, 10);
+/** A date (ISO or day-first DD/MM/YYYY) as a whole day-number (UTC), or null if absent/unparseable. */
+function dayNum(iso?: string): number | null {
+	const s = toISODate(iso);
+	if (!s) return null;
+	const t = Date.parse(s);
+	return Number.isNaN(t) ? null : Math.floor(t / 86_400_000);
+}
+
 function PlanPage() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
@@ -141,6 +162,8 @@ function PlanPage() {
 				</header>
 
 				<LadderCard ladder={ladder.data as Ladder | undefined} />
+
+				<MaturityAlerts onDone={invalidate} />
 
 				<div className="grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2">
 					<IncomingColumn rollups={rollups} max={maxIn} onDone={invalidate} />
@@ -223,6 +246,146 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 				passive income fully covers recurring expenses. Cash ⊆ fixed-income ⊆
 				total return.
 			</p>
+		</section>
+	);
+}
+
+// ── maturity indicators ───────────────────────────────────────────────────────────────────────────────
+/**
+ * A tiny inline maturity gauge (thin bar + days-left) for a live holding, shown in its card. Fills as the
+ * holding approaches maturity — elapsed-of-term when a start date exists, else across a 1-year horizon.
+ * Renders nothing for holdings without a (parseable) maturity date.
+ */
+function MaturityMini({ inv }: { inv: Investment | undefined }) {
+	if (!inv?.maturityDate) return null;
+	const mNum = dayNum(inv.maturityDate);
+	if (mNum == null) return null;
+	const tNum = dayNum(todayISO()) ?? 0;
+	const sNum = dayNum(inv.startDate);
+	const daysLeft = mNum - tNum;
+	const fill =
+		daysLeft <= 0
+			? 1
+			: sNum != null && mNum > sNum
+				? clamp01((tNum - sNum) / (mNum - sNum))
+				: clamp01(1 - daysLeft / 365);
+	const urgent = daysLeft <= 30;
+	const label =
+		daysLeft <= 0
+			? "due"
+			: daysLeft <= 60
+				? `${daysLeft}d`
+				: daysLeft <= 365
+					? `~${Math.round(daysLeft / 30)}mo`
+					: `~${(daysLeft / 365).toFixed(1)}yr`;
+	return (
+		<span className="inline-flex items-center gap-1.5 align-middle">
+			<span className="relative inline-block h-1 w-12 overflow-hidden rounded-full bg-muted/60">
+				<span
+					className="absolute inset-y-0 left-0 rounded-full"
+					style={{
+						width: `${fill * 100}%`,
+						background: urgent ? OUT : tint("var(--foreground)", 30),
+					}}
+				/>
+			</span>
+			<span className="tnum" style={urgent ? { color: OUT } : undefined}>
+				{label}
+			</span>
+		</span>
+	);
+}
+
+/**
+ * Alerts strip: only matured/expired holdings, prompting the owner to act. They've already dropped out of
+ * the live ladder (isLive), so this is the single place they surface for Update (renew / adjust) or Delete.
+ * Renders nothing when nothing has matured.
+ */
+function MaturityAlerts({ onDone }: { onDone: () => void }) {
+	const money = useMoney();
+	const invs = useQuery(orpc.plan.investments.queryOptions());
+	const [editing, setEditing] = useState<string | null>(null);
+	const update = useMutation({
+		...orpc.plan.updateInvestment.mutationOptions(),
+		onSuccess: onDone,
+	});
+	const del = useMutation({
+		...orpc.plan.deleteInvestment.mutationOptions(),
+		onSuccess: onDone,
+	});
+
+	const today = todayISO();
+	const matured = (invs.data ?? []).filter((inv) => isMatured(inv, today));
+	if (matured.length === 0) return null;
+
+	return (
+		<section
+			className="flex flex-col gap-2 rounded-xl border px-5 py-4"
+			style={{ borderColor: tint(OUT, 35), background: tint(OUT, 7) }}
+		>
+			<div className="flex items-center gap-2">
+				<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
+				<h2 className="font-medium text-sm" style={{ color: OUT }}>
+					{matured.length} investment{matured.length === 1 ? "" : "s"} matured —
+					take action
+				</h2>
+			</div>
+			<ul className="flex flex-col divide-y divide-border/50">
+				{matured.map((inv) =>
+					editing === inv.id ? (
+						<li key={inv.id} className="py-2">
+							<InvestmentForm
+								initial={inv}
+								pending={update.isPending}
+								submitLabel="Save"
+								onCancel={() => setEditing(null)}
+								onDelete={() => {
+									del.mutate({ id: Number(inv.id) });
+									setEditing(null);
+								}}
+								onSubmit={(d) => {
+									update.mutate({ id: Number(inv.id), ...d });
+									setEditing(null);
+								}}
+							/>
+						</li>
+					) : (
+						<li key={inv.id} className="flex items-center gap-3 py-2">
+							<div className="min-w-0 flex-1">
+								<p className="truncate font-medium text-sm">{inv.name}</p>
+								<p className="text-muted-foreground text-xs">
+									{inv.maturityDate
+										? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
+										: ""}
+									{money.fmt(
+										convert(
+											inv.currentValue ?? inv.principal ?? 0,
+											inv.currency ?? "INR",
+											"INR",
+											money.rates,
+										),
+									)}
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setEditing(inv.id)}
+								className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
+							>
+								Update
+							</button>
+							<button
+								type="button"
+								onClick={() => del.mutate({ id: Number(inv.id) })}
+								aria-label={`Delete ${inv.name}`}
+								className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
+							>
+								<Trash2 className="size-3.5" />
+							</button>
+						</li>
+					),
+				)}
+			</ul>
 		</section>
 	);
 }
@@ -337,9 +500,12 @@ function StandaloneRow({
 			<RowActions onEdit={onEdit} onDelete={onDelete} />
 			<div className="relative min-w-0 flex-1">
 				<p className="truncate font-medium">{rollup.name}</p>
-				<p className="text-muted-foreground text-xs">
-					{rollup.incomeClass === "growth" ? "growth" : "income"}
-					{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
+				<p className="flex items-center gap-2 text-muted-foreground text-xs">
+					<span>
+						{rollup.incomeClass === "growth" ? "growth" : "income"}
+						{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
+					</span>
+					<MaturityMini inv={rollup.members[0]} />
 				</p>
 			</div>
 			<Amount value={rollup.value} monthly={rollup.monthly} />
@@ -409,10 +575,12 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 		<li className="group flex items-center gap-3 py-1.5">
 			<div className="min-w-0 flex-1">
 				<p className="truncate text-sm">{inv.name}</p>
-				<p className="text-muted-foreground text-xs">
-					{fmt(inv.currentValue ?? 0)}
-					{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
-					{inv.maturityDate ? ` · ${inv.maturityDate}` : ""}
+				<p className="flex items-center gap-2 text-muted-foreground text-xs">
+					<span>
+						{fmt(inv.currentValue ?? 0)}
+						{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
+					</span>
+					<MaturityMini inv={inv} />
 				</p>
 			</div>
 			<span className="tnum text-sm" style={{ color: IN }}>
