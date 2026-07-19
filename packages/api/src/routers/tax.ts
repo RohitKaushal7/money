@@ -1,5 +1,6 @@
 import { db, settings, taxProfiles } from "@money/db";
 import {
+	breakevenDeduction,
 	type CapitalGains,
 	compareRegimes,
 	type Deductions,
@@ -242,6 +243,7 @@ export const taxRouter = {
 			return {
 				fy: input.fy,
 				...cmp,
+				breakeven: breakevenDeduction(inputs, input.fy),
 				ltcgHeadroom: ltcgHeadroom(inputs.capitalGains.equityLtcg, input.fy),
 				hraExemption: inputs.deductions.hra,
 				availableFys: Object.keys(TAX_YEARS),

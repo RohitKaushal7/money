@@ -25,6 +25,7 @@ type NavItem = {
 		| "/spending"
 		| "/transactions"
 		| "/import"
+		| "/tax"
 		| "/settings";
 };
 
@@ -36,7 +37,7 @@ const NAV: NavItem[] = [
 	{ label: "Spending", icon: TrendingUp, to: "/spending" },
 	{ label: "Transactions", icon: ArrowLeftRight, to: "/transactions" },
 	{ label: "Import", icon: Upload, to: "/import" },
-	{ label: "Tax", icon: Receipt },
+	{ label: "Tax", icon: Receipt, to: "/tax" },
 	{ label: "Settings", icon: Settings, to: "/settings" },
 ];
 
