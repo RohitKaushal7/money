@@ -161,14 +161,32 @@ function TransactionsPage() {
 	return (
 		<main className="h-full overflow-y-auto">
 			<div className="mx-auto flex max-w-4xl flex-col gap-6 px-5 py-10 sm:px-8 sm:py-14">
-				<header className="flex flex-col gap-1">
-					<h1 className="font-display font-medium text-3xl tracking-tight">
-						Transactions
-					</h1>
-					<p className="text-muted-foreground">
-						Every statement row, newest first. Fix a category inline or split a
-						mixed payout — then re-tag to apply it to your reports.
-					</p>
+				<header className="flex flex-wrap items-start justify-between gap-3">
+					<div className="flex flex-col gap-1">
+						<h1 className="font-display font-medium text-3xl tracking-tight">
+							Transactions
+						</h1>
+						<p className="max-w-xl text-muted-foreground">
+							Every statement row, newest first. Fix a category inline or split
+							a mixed payout — then re-tag to apply it to your reports.
+						</p>
+					</div>
+					{/* Always-available re-tag — inline edits bump `pending` (shown in the banner below), but rule
+					    changes don't, so this button is the way to re-run every transaction through the rules. */}
+					{pending === 0 && (
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() => retag.mutate()}
+							disabled={retag.isPending}
+							title="Re-run every transaction through the current rules"
+						>
+							<RefreshCw
+								className={`size-4 ${retag.isPending ? "animate-spin" : ""}`}
+							/>
+							{retag.isPending ? "Re-tagging…" : "Re-tag"}
+						</Button>
+					)}
 				</header>
 
 				{pending > 0 && (
