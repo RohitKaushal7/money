@@ -9,6 +9,7 @@
         "@money/db": "workspace:*",
         "@money/env": "workspace:*",
         "dotenv": "catalog:",
+        "drizzle-orm": "^0.45.2",
         "yaml": "^2.9.0",
         "zod": "catalog:",
       },

@@ -40,7 +40,7 @@
 		"db:migrate": "turbo run db:migrate -F @money/db",
 		"db:local": "turbo run db:local -F @money/db",
 		"ingest": "bun run scripts/ingest.ts",
-		"cards:import": "bun run scripts/cards-import.ts",
+		"cards:import": "DATABASE_URL=file:./local.db bun --env-file=apps/server/.env scripts/cards-import.ts",
 		"docker:build": "docker compose build",
 		"docker:up": "docker compose up -d --build",
 		"docker:down": "docker compose down",
@@ -52,6 +52,7 @@
 		"@money/db": "workspace:*",
 		"@money/env": "workspace:*",
 		"dotenv": "catalog:",
+		"drizzle-orm": "^0.45.2",
 		"yaml": "^2.9.0",
 		"zod": "catalog:"
 	},
