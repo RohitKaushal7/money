@@ -1,10 +1,7 @@
-import { db, investments, recurringExpenses, settings } from "@money/db";
+import { db, investments, recurringExpenses } from "@money/db";
 import {
 	CADENCES,
-	type CoverageBreakdown,
-	coverage,
 	coverageLadder,
-	type DrawdownSettings,
 	INVESTMENT_TYPES,
 	type Investment,
 	type RecurringExpense,
@@ -15,9 +12,9 @@ import { z } from "zod";
 import { publicProcedure } from "../index";
 
 /**
- * The **Plan** router (ADR-0011 revised / ADR-0014) — reads and writes the SQLite plan (investments +
- * recurring expenses + drawdown settings) and computes the plan-driven coverage KPI. No DuckDB here; this
- * is durable app state, not statement actuals.
+ * The **Plan** router (ADR-0011 revised / ADR-0014/0015) — reads and writes the SQLite plan (investments +
+ * recurring expenses) and computes the plan-driven coverage ladder. No DuckDB here; this is durable app
+ * state, not statement actuals.
  *
  * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard. MUST become `protectedProcedure`
  * before any non-tailnet exposure — this writes financial plan data (ADR-0006/0010).
@@ -78,25 +75,6 @@ export async function listRecurring(): Promise<RecurringExpense[]> {
 	return rows.map(toRecurring);
 }
 
-/** Read the drawdown toggle/rate from the key/value `settings` store, with ADR-0011 defaults. */
-async function readDrawdown(): Promise<DrawdownSettings> {
-	const rows = await db.select().from(settings);
-	const map = new Map(rows.map((r) => [r.key, r.value]));
-	const enabled = map.get("drawdown_enabled");
-	const rate = map.get("drawdown_rate");
-	return {
-		enabled: typeof enabled === "boolean" ? enabled : false,
-		rate: typeof rate === "number" ? rate : 0.04,
-	};
-}
-
-async function writeSetting(key: string, value: unknown): Promise<void> {
-	await db
-		.insert(settings)
-		.values({ key, value })
-		.onConflictDoUpdate({ target: settings.key, set: { value } });
-}
-
 // ── input schemas ──────────────────────────────────────────────────────────────────────────────────
 const investmentInput = z.object({
 	name: z.string().min(1),
@@ -140,17 +118,7 @@ function todayISO(): string {
 }
 
 export const planRouter = {
-	/** The plan-driven coverage KPI, broken into its terms (ADR-0011 revised). */
-	coverage: publicProcedure.handler(async (): Promise<CoverageBreakdown> => {
-		const [invs, recs, drawdown] = await Promise.all([
-			listInvestments(),
-			listRecurring(),
-			readDrawdown(),
-		]);
-		return coverage({ investments: invs, recurring: recs, drawdown });
-	}),
-
-	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0011 revised). */
+	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). */
 	ladder: publicProcedure.handler(async () => {
 		const [invs, recs] = await Promise.all([
 			listInvestments(),
@@ -178,7 +146,6 @@ export const planRouter = {
 
 	investments: publicProcedure.handler(() => listInvestments()),
 	recurring: publicProcedure.handler(() => listRecurring()),
-	settings: publicProcedure.handler(() => readDrawdown()),
 
 	addInvestment: publicProcedure
 		.input(investmentInput)
@@ -232,20 +199,4 @@ export const planRouter = {
 			.where(eq(recurringExpenses.id, input.id));
 		return { ok: true };
 	}),
-
-	/** Flip / retune the imputed-drawdown term (ADR-0011). Returns the resolved settings. */
-	setDrawdown: publicProcedure
-		.input(
-			z.object({
-				enabled: z.boolean().optional(),
-				rate: z.number().min(0).max(1).optional(),
-			}),
-		)
-		.handler(async ({ input }) => {
-			if (input.enabled !== undefined)
-				await writeSetting("drawdown_enabled", input.enabled);
-			if (input.rate !== undefined)
-				await writeSetting("drawdown_rate", input.rate);
-			return readDrawdown();
-		}),
 };

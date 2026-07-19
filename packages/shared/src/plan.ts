@@ -1,17 +1,13 @@
 /**
- * Plan-driven coverage KPI (ADR-0011 revised, ADR-0014). Pure functions over the SQLite **Plan** —
- * no DB, no framework. The KPI never reads the bank statement; it is the portfolio's steady-state
- * earning power (expected interest + optional growth drawdown) over expected recurring expenses.
- *
- *     coverage =  Σ expectedMonthlyInterest(income inv)  +  imputedMonthlyDrawdown(growth inv)
- *                 ─────────────────────────────────────────────────────────────────────────────
- *                                Σ monthlyAmount(recurring expenses)
+ * Plan-driven coverage KPI (ADR-0011 revised, ADR-0014/0015). Pure functions over the SQLite **Plan** —
+ * no DB, no framework. The KPI never reads the bank statement; it is the portfolio's steady-state earning
+ * power over expected recurring expenses, expressed as a three-tier ladder (cash ⊆ fixed ⊆ total). The
+ * switchable growth-drawdown term was retired (ADR-0015) — growth contributes its own expected return in
+ * the total tier instead.
  */
 
 import type {
 	Cadence,
-	CoverageBreakdown,
-	DrawdownSettings,
 	IncomeClass,
 	Investment,
 	RecurringExpense,
@@ -54,39 +50,7 @@ export function monthlyAmount(exp: RecurringExpense): number {
 	return (exp.amount * ppy) / 12;
 }
 
-/** Imputed monthly drawdown from growth investments (ADR-0011): `Σ currentValue × rate ÷ 12`. 0 when disabled. */
-export function imputedMonthlyDrawdown(
-	investments: Investment[],
-	settings: DrawdownSettings,
-): number {
-	if (!settings.enabled) return 0;
-	const growthValue = investments
-		.filter((i) => isActiveInvestment(i) && i.incomeClass === "growth")
-		.reduce((sum, i) => sum + (i.currentValue ?? 0), 0);
-	return (growthValue * settings.rate) / 12;
-}
-
-/** The plan-driven coverage KPI, broken into its terms. `ratio` is null when there are no expenses. */
-export function coverage(input: {
-	investments: Investment[];
-	recurring: RecurringExpense[];
-	drawdown: DrawdownSettings;
-}): CoverageBreakdown {
-	const interest = input.investments.reduce(
-		(sum, i) => sum + expectedMonthlyInterest(i),
-		0,
-	);
-	const drawdown = imputedMonthlyDrawdown(input.investments, input.drawdown);
-	const passiveIncome = interest + drawdown;
-	const expenses = input.recurring.reduce(
-		(sum, e) => sum + monthlyAmount(e),
-		0,
-	);
-	const ratio = expenses > 0 ? passiveIncome / expenses : null;
-	return { interest, drawdown, passiveIncome, expenses, ratio };
-}
-
-// ── coverage ladder + wealth rollup (the total-return view; ADR-0011 revised again 2026-07-19) ────────
+// ── coverage ladder + wealth rollup (the total-return view; ADR-0015) ─────────────────────────────────
 
 /** YYYY-MM-DD → sortable integer (YYYYMMDD); null if absent/unparseable. */
 function dateNum(iso: string | undefined): number | null {

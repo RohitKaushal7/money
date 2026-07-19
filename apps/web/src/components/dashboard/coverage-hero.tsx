@@ -1,10 +1,8 @@
 import { formatINR, formatPct, formatRatio } from "@/lib/format";
 
 interface CoverageHeroProps {
-	/** expected monthly interest from income investments */
+	/** expected monthly passive income (the total-tier ladder numerator; ADR-0015) */
 	interest: number;
-	/** imputed monthly drawdown from growth investments (0 when the toggle is off) */
-	drawdown: number;
 	/** expected monthly recurring expenses */
 	expenses: number;
 	/** passiveIncome / expenses; null when there are no recurring expenses yet */
@@ -16,13 +14,8 @@ interface CoverageHeroProps {
  * expenses your expected passive income covers, and how far from "1.0× = free". Plan-driven and monthly —
  * both sides come from the Plan, not the noisy statement. Green when covered, warm amber while not.
  */
-export function CoverageHero({
-	interest,
-	drawdown,
-	expenses,
-	ratio,
-}: CoverageHeroProps) {
-	const passive = interest + drawdown;
+export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
+	const passive = interest;
 	const covered = ratio != null && ratio >= 1;
 	const gap = Math.max(0, expenses - passive);
 	const fill = ratio == null ? 1.5 : Math.max(1.5, Math.min(100, ratio * 100));
@@ -75,15 +68,6 @@ export function CoverageHero({
 					/>
 				</dl>
 			</div>
-
-			{drawdown > 0 && (
-				<p className="-mt-2 text-muted-foreground text-sm">
-					<span className="tnum text-foreground/70">{formatINR(interest)}</span>{" "}
-					interest +{" "}
-					<span className="tnum text-foreground/70">{formatINR(drawdown)}</span>{" "}
-					imputed drawdown
-				</p>
-			)}
 
 			{/* progress toward 1.0× */}
 			<div className="flex flex-col gap-2">

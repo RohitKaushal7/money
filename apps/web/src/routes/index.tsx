@@ -39,7 +39,6 @@ function DashboardPage() {
 				) : cov ? (
 					<CoverageHero
 						interest={cov.total.income}
-						drawdown={0}
 						expenses={cov.expenses}
 						ratio={cov.total.ratio}
 					/>

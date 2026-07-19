@@ -70,7 +70,7 @@ export const INVESTMENT_TYPES = [
 ] as const;
 export type InvestmentType = (typeof INVESTMENT_TYPES)[number];
 
-/** `income` = pays cash (interest/coupons); `growth` = appreciates, eligible for imputed drawdown (ADR-0011). */
+/** `income` = pays cash (interest/coupons); `growth` = appreciates, counts at its own return in the total tier (ADR-0015). */
 export type IncomeClass = "income" | "growth";
 export type ValuationSource = "compute" | "nav_api" | "manual";
 export type InvestmentStatus = "active" | "matured" | "closed";
@@ -119,7 +119,7 @@ export interface Investment {
 	/** YYYY-MM-DD */
 	maturityDate?: string;
 	actionOnMaturity?: ActionOnMaturity;
-	/** latest known value (INR) — feeds imputed drawdown + net worth */
+	/** latest known value (INR) — feeds the wealth rollup + net-worth log */
 	currentValue?: number;
 	status?: InvestmentStatus;
 }
@@ -138,27 +138,6 @@ export interface RecurringExpense {
 	/** YYYY-MM-DD */
 	endDate?: string;
 	source?: "manual" | "seeded";
-}
-
-/** Imputed-drawdown parameters from SQLite `settings` (ADR-0011). */
-export interface DrawdownSettings {
-	enabled: boolean;
-	/** annual safe-withdrawal rate as a fraction, e.g. 0.04 */
-	rate: number;
-}
-
-/** The plan-driven coverage KPI, broken into its terms (ADR-0011 revised). All amounts are monthly INR. */
-export interface CoverageBreakdown {
-	/** Σ expected monthly interest from income investments */
-	interest: number;
-	/** imputed monthly drawdown from growth investments (0 when disabled) */
-	drawdown: number;
-	/** numerator = interest + drawdown */
-	passiveIncome: number;
-	/** denominator = Σ monthly-normalised recurring expenses */
-	expenses: number;
-	/** passiveIncome / expenses; null when expenses = 0 */
-	ratio: number | null;
 }
 
 /** XIRR + totals for one investment (computed over its cashflows + current value as the final flow). */

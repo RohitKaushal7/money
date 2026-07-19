@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-	coverage,
 	coverageLadder,
 	expectedMonthlyInterest,
-	imputedMonthlyDrawdown,
 	isActiveInvestment,
 	isMatured,
 	monthlyAmount,
@@ -113,90 +111,6 @@ describe("monthlyAmount", () => {
 	});
 	test("non-periodic cadence → 0", () => {
 		expect(monthlyAmount(exp({ amount: 32_000, cadence: "maturity" }))).toBe(0);
-	});
-});
-
-describe("imputedMonthlyDrawdown", () => {
-	const growth = inv({ incomeClass: "growth", currentValue: 1_200_000 });
-	const income = inv({
-		id: "i2",
-		incomeClass: "income",
-		currentValue: 999_999,
-	});
-
-	test("disabled → 0", () => {
-		expect(
-			imputedMonthlyDrawdown([growth], { enabled: false, rate: 0.04 }),
-		).toBe(0);
-	});
-	test("enabled: Σ growth value × rate ÷ 12; ignores income-class value", () => {
-		// 12,00,000 @ 4% → 48,000/yr → 4,000/mo
-		expect(
-			imputedMonthlyDrawdown([growth, income], { enabled: true, rate: 0.04 }),
-		).toBe(4_000);
-	});
-	test("ignores inactive growth", () => {
-		expect(
-			imputedMonthlyDrawdown(
-				[
-					inv({
-						incomeClass: "growth",
-						currentValue: 1_200_000,
-						active: false,
-					}),
-				],
-				{
-					enabled: true,
-					rate: 0.04,
-				},
-			),
-		).toBe(0);
-	});
-});
-
-describe("coverage", () => {
-	test("full scenario: interest + drawdown over recurring", () => {
-		const investments: Investment[] = [
-			inv({ id: "b1", principal: 100_000, annualRate: 0.12 }), // 1,000/mo
-			inv({ id: "p1", expectedMonthlyInterest: 2_500 }), // 2,500/mo
-			inv({ id: "g1", incomeClass: "growth", currentValue: 3_000_000 }), // drawdown
-		];
-		const recurring: RecurringExpense[] = [
-			exp({ id: "rent", amount: 32_000, cadence: "monthly" }),
-			exp({ id: "sub", amount: 12_000, cadence: "yearly" }), // 1,000/mo
-		];
-		const b = coverage({
-			investments,
-			recurring,
-			drawdown: { enabled: true, rate: 0.04 },
-		});
-		expect(b.interest).toBeCloseTo(3_500, 6);
-		expect(b.drawdown).toBeCloseTo(10_000, 6); // 30,00,000 × 4% / 12
-		expect(b.passiveIncome).toBeCloseTo(13_500, 6);
-		expect(b.expenses).toBeCloseTo(33_000, 6);
-		expect(b.ratio).toBeCloseTo(13_500 / 33_000, 6);
-	});
-
-	test("drawdown off → numerator is pure interest", () => {
-		const b = coverage({
-			investments: [
-				inv({ incomeClass: "growth", currentValue: 3_000_000 }),
-				inv({ id: "x", expectedMonthlyInterest: 1_000 }),
-			],
-			recurring: [exp({ amount: 2_000 })],
-			drawdown: { enabled: false, rate: 0.04 },
-		});
-		expect(b.passiveIncome).toBe(1_000);
-		expect(b.ratio).toBe(0.5);
-	});
-
-	test("no expenses → ratio null (avoid divide-by-zero)", () => {
-		const b = coverage({
-			investments: [inv({ expectedMonthlyInterest: 1_000 })],
-			recurring: [],
-			drawdown: { enabled: false, rate: 0.04 },
-		});
-		expect(b.ratio).toBeNull();
 	});
 });
 
