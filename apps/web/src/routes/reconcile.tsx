@@ -4,10 +4,10 @@ import type {
 	ReconcileStatus,
 	ReconcileSuggestion,
 } from "@money/shared";
-import { Button } from "@money/ui/components/button";
+import { CATEGORIES } from "@money/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, Check, Clock, Plus, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, Check, Clock, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import { formatINR, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -190,27 +190,41 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 }
 
 // ── suggestions ─────────────────────────────────────────────────────────────────────────────────────────
+const INCOME_CATS = CATEGORIES.filter((c) => c.kind === "passive_income");
+
 function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 	const qc = useQueryClient();
-	const [added, setAdded] = useState<Set<string>>(new Set());
-	const add = useMutation(orpc.plan.addInvestment.mutationOptions());
+	const [busy, setBusy] = useState<string | null>(null);
+	const setOverride = useMutation(orpc.overrides.set.mutationOptions());
+	const addHolding = useMutation(orpc.plan.addInvestment.mutationOptions());
 
-	const accept = (s: ReconcileSuggestion) => {
-		add.mutate(
-			{
-				name: s.platformGuess ?? "New income",
-				platform: s.platformGuess,
-				incomeClass: "income",
-				payout: "cash",
-				type: "other",
-				expectedMonthlyInterest: Math.round(s.amount),
-			},
-			{
-				onSuccess: () => {
-					setAdded((prev) => new Set(prev).add(s.txnId));
-					qc.invalidateQueries();
+	const done = () => {
+		setBusy(null);
+		qc.invalidateQueries();
+	};
+	const fail = () => setBusy(null);
+
+	const fileUnder = (s: ReconcileSuggestion, value: string) => {
+		if (!value) return;
+		setBusy(s.txnId);
+		if (value === "__new__") {
+			addHolding.mutate(
+				{
+					name: s.platformGuess ?? "New income",
+					platform: s.platformGuess,
+					incomeClass: "income",
+					payout: "cash",
+					type: "other",
+					expectedMonthlyInterest: Math.round(s.amount),
 				},
-			},
+				{ onSuccess: done, onError: fail },
+			);
+			return;
+		}
+		const categoryKey = value === "__ignore__" ? "self_transfer" : value;
+		setOverride.mutate(
+			{ txnId: s.txnId, categoryKey },
+			{ onSuccess: done, onError: fail },
 		);
 	};
 
@@ -237,32 +251,48 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 						<span className="tnum shrink-0 font-medium" style={{ color: IN }}>
 							{formatINR(s.amount)}
 						</span>
-						{added.has(s.txnId) ? (
-							<span
-								className="flex shrink-0 items-center gap-1 text-xs"
-								style={{ color: IN }}
-							>
-								<Check className="size-3.5" /> Added
-							</span>
-						) : (
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								disabled={add.isPending}
-								onClick={() => accept(s)}
-								className="shrink-0"
-							>
-								<Plus className="size-3.5" /> Add to plan
-							</Button>
-						)}
+						<select
+							value=""
+							disabled={busy === s.txnId}
+							onChange={(e) => fileUnder(s, e.target.value)}
+							className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-foreground text-sm shadow-xs outline-none [color-scheme:light] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 dark:[color-scheme:dark]"
+						>
+							<option value="">File under…</option>
+							<optgroup label="Existing income category">
+								{INCOME_CATS.map((c) => (
+									<option
+										key={c.key}
+										value={c.key}
+										className="bg-popover text-popover-foreground"
+									>
+										{c.label}
+									</option>
+								))}
+							</optgroup>
+							<optgroup label="Or">
+								<option
+									value="__new__"
+									className="bg-popover text-popover-foreground"
+								>
+									＋ New holding
+								</option>
+								<option
+									value="__ignore__"
+									className="bg-popover text-popover-foreground"
+								>
+									Not income — ignore
+								</option>
+							</optgroup>
+						</select>
 					</li>
 				))}
 			</ul>
 			<p className="mt-2 text-muted-foreground text-xs">
-				Adds a cash-income holding prefilled from the credit — refine its
-				principal, rate and grouping over in{" "}
-				<span className="text-foreground/70">Plan</span>.
+				<span className="text-foreground/70">File under</span> an existing
+				category to tag a credit the rules missed (e.g. a SustVest borrower) ·{" "}
+				<span className="text-foreground/70">New holding</span> creates a plan
+				item · <span className="text-foreground/70">Ignore</span> marks it
+				not-income. Applies instantly.
 			</p>
 		</section>
 	);

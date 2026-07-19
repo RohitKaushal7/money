@@ -1,3 +1,4 @@
+import { db, transactionOverrides } from "@money/db";
 import { reconcile, type StatementCredit } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
@@ -39,6 +40,27 @@ async function monthCredits(month: string): Promise<StatementCredit[]> {
 	);
 }
 
+/**
+ * Overlay manual overrides (issue 001) onto the fetched credits at read time — so a retag recategorises
+ * instantly, before a full re-ingest bakes it into DuckDB via `ATTACH`. Pins category_key (+ derived kind).
+ */
+async function applyOverrides(
+	credits: StatementCredit[],
+): Promise<StatementCredit[]> {
+	const rows = await db.select().from(transactionOverrides);
+	if (rows.length === 0) return credits;
+	const byTxn = new Map(rows.map((r) => [r.txnId, r]));
+	return credits.map((c) => {
+		const o = byTxn.get(c.txnId);
+		if (!o?.overrideCategoryKey) return c;
+		return {
+			...c,
+			categoryKey: o.overrideCategoryKey,
+			kind: o.overrideKind ?? c.kind,
+		};
+	});
+}
+
 const monthInput = z.object({
 	/** YYYY-MM; defaults to the current month */
 	month: z
@@ -54,7 +76,8 @@ export const reconcileRouter = {
 		const month = input.month ?? today.slice(0, 7);
 		const investments = await listInvestments();
 		// No statement ingested yet → still show the expected side (all pending/missed); no credits, no matches.
-		const credits = analyticsReady() ? await monthCredits(month) : [];
+		const raw = analyticsReady() ? await monthCredits(month) : [];
+		const credits = await applyOverrides(raw);
 		return reconcile({ investments, credits, month, today });
 	}),
 
