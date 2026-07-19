@@ -11,6 +11,8 @@
  * - `spending` — category spend trends vs plan budget (issue 009).
  */
 
+export * from "./card-categories";
+export * from "./cards";
 export * from "./categories";
 export * from "./currency";
 export * from "./fy";
