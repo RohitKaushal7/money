@@ -3,10 +3,12 @@ import {
 	CADENCES,
 	type CoverageBreakdown,
 	coverage,
+	coverageLadder,
 	type DrawdownSettings,
 	INVESTMENT_TYPES,
 	type Investment,
 	type RecurringExpense,
+	wealthSummary,
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -34,14 +36,19 @@ function toInvestment(r: InvestmentRow): Investment {
 		isPassiveIncomeSource: r.isPassiveIncomeSource,
 		active: r.active,
 		platform: r.platform ?? undefined,
+		group: r.group ?? undefined,
+		payout: (r.payout as Investment["payout"]) ?? undefined,
 		principal: r.principal ?? undefined,
 		annualRate: r.annualRate ?? undefined,
 		expectedMonthlyInterest: r.expectedMonthlyInterest ?? undefined,
-		interestCadence: (r.interestCadence as Investment["interestCadence"]) ?? undefined,
-		principalCadence: (r.principalCadence as Investment["principalCadence"]) ?? undefined,
+		interestCadence:
+			(r.interestCadence as Investment["interestCadence"]) ?? undefined,
+		principalCadence:
+			(r.principalCadence as Investment["principalCadence"]) ?? undefined,
 		startDate: r.startDate ?? undefined,
 		maturityDate: r.maturityDate ?? undefined,
-		actionOnMaturity: (r.actionOnMaturity as Investment["actionOnMaturity"]) ?? undefined,
+		actionOnMaturity:
+			(r.actionOnMaturity as Investment["actionOnMaturity"]) ?? undefined,
 		currentValue: r.currentValue ?? undefined,
 		status: (r.status as Investment["status"]) ?? undefined,
 	};
@@ -96,6 +103,8 @@ const investmentInput = z.object({
 	type: z.enum(INVESTMENT_TYPES),
 	incomeClass: z.enum(["income", "growth"]),
 	platform: z.string().optional(),
+	group: z.string().optional(),
+	payout: z.enum(["cash", "accrue"]).optional(),
 	principal: z.number().nonnegative().optional(),
 	annualRate: z.number().optional(),
 	expectedMonthlyInterest: z.number().optional(),
@@ -114,7 +123,9 @@ const recurringInput = z.object({
 	name: z.string().min(1),
 	category: z.string().optional(),
 	amount: z.number(),
-	cadence: z.enum(["monthly", "quarterly", "half_yearly", "yearly"]).default("monthly"),
+	cadence: z
+		.enum(["monthly", "quarterly", "half_yearly", "yearly"])
+		.default("monthly"),
 	active: z.boolean().optional(),
 	startDate: z.string().optional(),
 	endDate: z.string().optional(),
@@ -122,6 +133,11 @@ const recurringInput = z.object({
 });
 
 const idInput = z.object({ id: z.coerce.number().int().positive() });
+
+/** Today as YYYY-MM-DD (server clock) — drives auto-expiry of matured holdings. */
+function todayISO(): string {
+	return new Date().toISOString().slice(0, 10);
+}
 
 export const planRouter = {
 	/** The plan-driven coverage KPI, broken into its terms (ADR-0011 revised). */
@@ -134,14 +150,43 @@ export const planRouter = {
 		return coverage({ investments: invs, recurring: recs, drawdown });
 	}),
 
+	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0011 revised). */
+	ladder: publicProcedure.handler(async () => {
+		const [invs, recs] = await Promise.all([
+			listInvestments(),
+			listRecurring(),
+		]);
+		return coverageLadder({
+			investments: invs,
+			recurring: recs,
+			today: todayISO(),
+		});
+	}),
+
+	/** Portfolio rollup: total wealth, grouped holdings + weighted XIRR, avg/required ROI, years-left. */
+	wealth: publicProcedure.handler(async () => {
+		const [invs, recs] = await Promise.all([
+			listInvestments(),
+			listRecurring(),
+		]);
+		return wealthSummary({
+			investments: invs,
+			recurring: recs,
+			today: todayISO(),
+		});
+	}),
+
 	investments: publicProcedure.handler(() => listInvestments()),
 	recurring: publicProcedure.handler(() => listRecurring()),
 	settings: publicProcedure.handler(() => readDrawdown()),
 
-	addInvestment: publicProcedure.input(investmentInput).handler(async ({ input }) => {
-		const [row] = await db.insert(investments).values(input).returning();
-		return toInvestment(row);
-	}),
+	addInvestment: publicProcedure
+		.input(investmentInput)
+		.handler(async ({ input }) => {
+			const [row] = await db.insert(investments).values(input).returning();
+			if (!row) throw new Error("insert failed");
+			return toInvestment(row);
+		}),
 	updateInvestment: publicProcedure
 		.input(investmentInput.partial().merge(idInput))
 		.handler(async ({ input }) => {
@@ -153,15 +198,23 @@ export const planRouter = {
 				.returning();
 			return row ? toInvestment(row) : null;
 		}),
-	deleteInvestment: publicProcedure.input(idInput).handler(async ({ input }) => {
-		await db.delete(investments).where(eq(investments.id, input.id));
-		return { ok: true };
-	}),
+	deleteInvestment: publicProcedure
+		.input(idInput)
+		.handler(async ({ input }) => {
+			await db.delete(investments).where(eq(investments.id, input.id));
+			return { ok: true };
+		}),
 
-	addRecurring: publicProcedure.input(recurringInput).handler(async ({ input }) => {
-		const [row] = await db.insert(recurringExpenses).values(input).returning();
-		return toRecurring(row);
-	}),
+	addRecurring: publicProcedure
+		.input(recurringInput)
+		.handler(async ({ input }) => {
+			const [row] = await db
+				.insert(recurringExpenses)
+				.values(input)
+				.returning();
+			if (!row) throw new Error("insert failed");
+			return toRecurring(row);
+		}),
 	updateRecurring: publicProcedure
 		.input(recurringInput.partial().merge(idInput))
 		.handler(async ({ input }) => {
@@ -174,16 +227,25 @@ export const planRouter = {
 			return row ? toRecurring(row) : null;
 		}),
 	deleteRecurring: publicProcedure.input(idInput).handler(async ({ input }) => {
-		await db.delete(recurringExpenses).where(eq(recurringExpenses.id, input.id));
+		await db
+			.delete(recurringExpenses)
+			.where(eq(recurringExpenses.id, input.id));
 		return { ok: true };
 	}),
 
 	/** Flip / retune the imputed-drawdown term (ADR-0011). Returns the resolved settings. */
 	setDrawdown: publicProcedure
-		.input(z.object({ enabled: z.boolean().optional(), rate: z.number().min(0).max(1).optional() }))
+		.input(
+			z.object({
+				enabled: z.boolean().optional(),
+				rate: z.number().min(0).max(1).optional(),
+			}),
+		)
 		.handler(async ({ input }) => {
-			if (input.enabled !== undefined) await writeSetting("drawdown_enabled", input.enabled);
-			if (input.rate !== undefined) await writeSetting("drawdown_rate", input.rate);
+			if (input.enabled !== undefined)
+				await writeSetting("drawdown_enabled", input.enabled);
+			if (input.rate !== undefined)
+				await writeSetting("drawdown_rate", input.rate);
 			return readDrawdown();
 		}),
 };

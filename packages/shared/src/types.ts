@@ -75,6 +75,8 @@ export type IncomeClass = "income" | "growth";
 export type ValuationSource = "compute" | "nav_api" | "manual";
 export type InvestmentStatus = "active" | "matured" | "closed";
 export type ActionOnMaturity = "reinvest" | "withdraw" | "auto_renew";
+/** `cash` = interest is deposited to the account (counts in the "cash in hand" coverage tier); `accrue` = compounds / paid at maturity. */
+export type Payout = "cash" | "accrue";
 
 /** Payout / recurrence cadences. `maturity`/`none` are non-periodic (contribute 0 to a monthly-normalised sum). */
 export const CADENCES = [
@@ -100,6 +102,10 @@ export interface Investment {
 	// ── plan-driven KPI fields (2026-07-19, ADR-0011 revised) ──────────────────────────────
 	/** provider/counterparty, used to reconcile against statement rows ("Wint Wealth", "SustVest") */
 	platform?: string;
+	/** rollup bucket — holdings sharing a group nest under one weighted-avg header ("SustVest", "Wint", "FDs") */
+	group?: string;
+	/** cash = interest deposited to the account; accrue = compounds / paid at maturity */
+	payout?: Payout;
 	/** invested amount / cost basis (INR) */
 	principal?: number;
 	/** expected annual interest rate as a fraction, e.g. 0.11 (income investments) */

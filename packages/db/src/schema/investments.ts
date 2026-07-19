@@ -28,6 +28,8 @@ export const investments = sqliteTable("investments", {
 		.notNull(),
 	/** provider/counterparty, used to reconcile against statement rows ("Wint Wealth", "SustVest") */
 	platform: text("platform"),
+	/** rollup bucket: holdings sharing a group nest under one header with a weighted-avg XIRR (e.g. "SustVest", "Wint", "FDs") */
+	group: text("group"),
 	/** invested amount / cost basis (INR rupees) */
 	principal: real("principal"),
 	/** expected annual interest rate as a fraction, e.g. 0.11 (income investments) */
@@ -36,6 +38,8 @@ export const investments = sqliteTable("investments", {
 	expectedMonthlyInterest: real("expected_monthly_interest"),
 	/** none|daily|weekly|monthly|quarterly|half_yearly|yearly|maturity */
 	interestCadence: text("interest_cadence"),
+	/** cash = interest deposited to the account (counts in the "cash in hand" tier); accrue = compounds/paid at maturity */
+	payout: text("payout").notNull().default("accrue"),
 	principalCadence: text("principal_cadence"),
 	/** YYYY-MM-DD */
 	startDate: text("start_date"),

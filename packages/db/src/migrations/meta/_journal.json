@@ -15,6 +15,20 @@
       "when": 1784432017861,
       "tag": "0001_loving_ravenous",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784436936432,
+      "tag": "0002_fast_doctor_doom",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784437242858,
+      "tag": "0003_dashing_ender_wiggin",
+      "breakpoints": true
     }
   ]
 }

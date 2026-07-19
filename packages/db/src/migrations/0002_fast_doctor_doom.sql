@@ -1,0 +1,1 @@
+ALTER TABLE `investments` ADD `payout` text DEFAULT 'accrue' NOT NULL;
