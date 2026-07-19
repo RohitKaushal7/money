@@ -113,6 +113,14 @@ export const CATEGORIES: Category[] = [
 		label: "Self / inter-account transfer",
 		kind: "transfer",
 	},
+	// investment redemptions / maturities: principal coming back — the inflow inverse of the `investment`
+	// purchases. Return of capital, NOT income, so it sits in `transfer` (excluded from the KPI); it also
+	// maps to the `redemption`/`maturity` cashflow types (kinds.ts) once XIRR/cost-basis lands (003).
+	{
+		key: "investment_redemption",
+		label: "Investment redemption / maturity (principal)",
+		kind: "transfer",
+	},
 	// reimbursement: a credit that pays you back for a spend — NOT income. Kept neutral (transfer) so it
 	// never inflates income; if the reimbursed expense is also tracked in this statement, re-tag the row to
 	// `expense` instead to net it against spend (see issue 001 findings).
