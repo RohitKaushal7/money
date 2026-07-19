@@ -56,25 +56,103 @@ export interface NetWorthPoint {
 	netWorth: number;
 }
 
-export type InvestmentType =
-	| "sustvest"
-	| "wint_wealth"
-	| "sbi_fd"
-	| "ppf"
-	| "stock"
-	| "mf";
-export type IncomeClass = "cash_yielding" | "growth";
+/** Asset class of an investment. The specific provider goes in `Investment.platform`. */
+export const INVESTMENT_TYPES = [
+	"bond",
+	"p2p",
+	"fd",
+	"ncd",
+	"savings",
+	"equity",
+	"mutual_fund",
+	"gold",
+	"other",
+] as const;
+export type InvestmentType = (typeof INVESTMENT_TYPES)[number];
+
+/** `income` = pays cash (interest/coupons); `growth` = appreciates, eligible for imputed drawdown (ADR-0011). */
+export type IncomeClass = "income" | "growth";
 export type ValuationSource = "compute" | "nav_api" | "manual";
+export type InvestmentStatus = "active" | "matured" | "closed";
+export type ActionOnMaturity = "reinvest" | "withdraw" | "auto_renew";
+
+/** Payout / recurrence cadences. `maturity`/`none` are non-periodic (contribute 0 to a monthly-normalised sum). */
+export const CADENCES = [
+	"daily",
+	"weekly",
+	"monthly",
+	"quarterly",
+	"half_yearly",
+	"yearly",
+	"maturity",
+	"none",
+] as const;
+export type Cadence = (typeof CADENCES)[number];
 
 export interface Investment {
 	id: string;
 	name: string;
 	type: InvestmentType;
-	/** `growth` assets (that don't pay out) are the ones eligible for imputed drawdown (ADR-0011) */
 	incomeClass: IncomeClass;
 	valuationSource: ValuationSource;
 	isPassiveIncomeSource: boolean;
 	active: boolean;
+	// ── plan-driven KPI fields (2026-07-19, ADR-0011 revised) ──────────────────────────────
+	/** provider/counterparty, used to reconcile against statement rows ("Wint Wealth", "SustVest") */
+	platform?: string;
+	/** invested amount / cost basis (INR) */
+	principal?: number;
+	/** expected annual interest rate as a fraction, e.g. 0.11 (income investments) */
+	annualRate?: number;
+	/** explicit expected monthly interest (INR) — overrides principal×rate/12 for amortising instruments */
+	expectedMonthlyInterest?: number;
+	interestCadence?: Cadence;
+	principalCadence?: Cadence;
+	/** YYYY-MM-DD */
+	startDate?: string;
+	/** YYYY-MM-DD */
+	maturityDate?: string;
+	actionOnMaturity?: ActionOnMaturity;
+	/** latest known value (INR) — feeds imputed drawdown + net worth */
+	currentValue?: number;
+	status?: InvestmentStatus;
+}
+
+/** A committed recurring outflow — the KPI denominator (ADR-0011). One-off spend does NOT belong here. */
+export interface RecurringExpense {
+	id: string;
+	name: string;
+	category?: string;
+	/** INR per period (i.e. per `cadence`) */
+	amount: number;
+	cadence: Cadence;
+	active: boolean;
+	/** YYYY-MM-DD */
+	startDate?: string;
+	/** YYYY-MM-DD */
+	endDate?: string;
+	source?: "manual" | "seeded";
+}
+
+/** Imputed-drawdown parameters from SQLite `settings` (ADR-0011). */
+export interface DrawdownSettings {
+	enabled: boolean;
+	/** annual safe-withdrawal rate as a fraction, e.g. 0.04 */
+	rate: number;
+}
+
+/** The plan-driven coverage KPI, broken into its terms (ADR-0011 revised). All amounts are monthly INR. */
+export interface CoverageBreakdown {
+	/** Σ expected monthly interest from income investments */
+	interest: number;
+	/** imputed monthly drawdown from growth investments (0 when disabled) */
+	drawdown: number;
+	/** numerator = interest + drawdown */
+	passiveIncome: number;
+	/** denominator = Σ monthly-normalised recurring expenses */
+	expenses: number;
+	/** passiveIncome / expenses; null when expenses = 0 */
+	ratio: number | null;
 }
 
 /** XIRR + totals for one investment (computed over its cashflows + current value as the final flow). */
