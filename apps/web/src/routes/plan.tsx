@@ -1,4 +1,6 @@
 import {
+	CATEGORIES,
+	CATEGORY_BY_KEY,
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
@@ -15,6 +17,15 @@ import { formatINR } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/plan")({ component: PlanPage });
+
+/** Recurring-expense categories, sourced from the single shared taxonomy so budgets stay aligned to spend. */
+const EXPENSE_CATEGORY_OPTIONS = [
+	{ value: "", label: "— none —" },
+	...CATEGORIES.filter((c) => c.kind === "expense").map((c) => ({
+		value: c.key,
+		label: c.label,
+	})),
+];
 
 type IncomeClass = "income" | "growth";
 type Payout = "cash" | "accrue";
@@ -532,7 +543,9 @@ function OutgoingRow({
 			<div className="relative min-w-0 flex-1 text-right">
 				<p className="truncate font-medium">{exp.name}</p>
 				{exp.category && (
-					<p className="text-muted-foreground text-xs">{exp.category}</p>
+					<p className="text-muted-foreground text-xs">
+						{CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category}
+					</p>
 				)}
 			</div>
 			<RowActions onEdit={onEdit} onDelete={onDelete} />
@@ -741,10 +754,10 @@ function ExpenseForm({
 					/>
 				</Field>
 				<Field label="Category">
-					<Input
+					<NativeSelect
 						value={category}
-						onChange={(e) => setCategory(e.target.value)}
-						placeholder="rent, health…"
+						onChange={setCategory}
+						options={EXPENSE_CATEGORY_OPTIONS}
 					/>
 				</Field>
 				<Field label="Amount ₹">

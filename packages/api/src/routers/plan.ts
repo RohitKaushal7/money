@@ -73,7 +73,7 @@ export async function listInvestments(): Promise<Investment[]> {
 	return rows.map(toInvestment);
 }
 
-async function listRecurring(): Promise<RecurringExpense[]> {
+export async function listRecurring(): Promise<RecurringExpense[]> {
 	const rows = await db.select().from(recurringExpenses);
 	return rows.map(toRecurring);
 }

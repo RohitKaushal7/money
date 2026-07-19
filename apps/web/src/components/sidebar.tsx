@@ -6,6 +6,7 @@ import {
 	Receipt,
 	Scale,
 	Settings,
+	TrendingUp,
 	Wallet,
 } from "lucide-react";
 import { ModeToggle } from "./mode-toggle";
@@ -15,7 +16,7 @@ type NavItem = {
 	label: string;
 	icon: typeof LayoutGrid;
 	/** present = a real route; absent = a "soon" placeholder */
-	to?: "/" | "/plan" | "/wealth" | "/reconcile";
+	to?: "/" | "/plan" | "/wealth" | "/reconcile" | "/spending";
 };
 
 const NAV: NavItem[] = [
@@ -23,6 +24,7 @@ const NAV: NavItem[] = [
 	{ label: "Plan", icon: PiggyBank, to: "/plan" },
 	{ label: "Wealth", icon: Wallet, to: "/wealth" },
 	{ label: "Reconcile", icon: Scale, to: "/reconcile" },
+	{ label: "Spending", icon: TrendingUp, to: "/spending" },
 	{ label: "Transactions", icon: ArrowLeftRight },
 	{ label: "Tax", icon: Receipt },
 	{ label: "Settings", icon: Settings },
