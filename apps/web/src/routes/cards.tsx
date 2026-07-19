@@ -153,6 +153,7 @@ function CardRow({ card }: { card: CardListItem }) {
 	const gotchas = Array.isArray(extras?.gotchas) ? extras.gotchas : [];
 	const bestFor = Array.isArray(extras?.bestFor) ? extras.bestFor : [];
 	const avoidFor = Array.isArray(extras?.avoidFor) ? extras.avoidFor : [];
+	const lounge = formatLounge(extras?.lounge);
 
 	return (
 		<li className="flex flex-col">
@@ -174,6 +175,7 @@ function CardRow({ card }: { card: CardListItem }) {
 							card.vintageYear
 								? `'${String(card.vintageYear).slice(-2)}`
 								: null,
+							lounge ? "✈ lounge" : null,
 							card.status && card.status !== "active" ? card.status : null,
 						]
 							.filter(Boolean)
@@ -215,6 +217,7 @@ function CardRow({ card }: { card: CardListItem }) {
 							</li>
 						))}
 					</ul>
+					{lounge && <Detail label="Lounge" items={[lounge]} />}
 					{gotchas.length > 0 && (
 						<Detail label="Gotchas" items={gotchas.map(String)} />
 					)}
@@ -228,6 +231,33 @@ function CardRow({ card }: { card: CardListItem }) {
 			)}
 		</li>
 	);
+}
+
+/** Normalise the lounge extra (a string like "none", or a {domestic, international} object) to one line. */
+function formatLounge(lounge: unknown): string | null {
+	if (typeof lounge === "string") {
+		const s = lounge.trim();
+		return s && !/^none/i.test(s) ? s : null;
+	}
+	if (lounge && typeof lounge === "object") {
+		const l = lounge as {
+			domestic?: { visits?: unknown; condition?: unknown };
+			international?: { visits?: unknown; condition?: unknown } | null;
+		};
+		const parts: string[] = [];
+		const fmt = (
+			label: string,
+			v?: { visits?: unknown; condition?: unknown } | null,
+		) => {
+			if (!v?.visits) return;
+			const cond = v.condition ? ` (${String(v.condition)})` : "";
+			parts.push(`${label}: ${String(v.visits)}${cond}`);
+		};
+		fmt("Domestic", l.domestic);
+		fmt("International", l.international);
+		return parts.length ? parts.join(" · ") : null;
+	}
+	return null;
 }
 
 function Detail({ label, items }: { label: string; items: string[] }) {
