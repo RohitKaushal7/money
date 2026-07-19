@@ -8,12 +8,11 @@ import {
 } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
-import { Label } from "@money/ui/components/label";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Trash2 } from "lucide-react";
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { formatINR, formatPct, formatRatio } from "@/lib/format";
+import { formatINR, formatRatio } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/plan")({ component: PlanPage });
@@ -62,6 +61,11 @@ const CADENCE_LABEL: Record<string, string> = {
 	yearly: "/yr",
 };
 
+const IN = "var(--covered)";
+const OUT = "var(--uncovered)";
+const tint = (c: string, pct: number) =>
+	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
+
 function PlanPage() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
@@ -71,42 +75,69 @@ function PlanPage() {
 	const recurring = useQuery(orpc.plan.recurring.queryOptions());
 	const settings = useQuery(orpc.plan.settings.queryOptions());
 
+	const enabled = settings.data?.enabled ?? false;
+	const rate = settings.data?.rate ?? 0.04;
+
+	/** what a holding actually contributes to the monthly numerator right now */
+	const contribution = (inv: Investment) =>
+		inv.incomeClass === "income"
+			? expectedMonthlyInterest(inv)
+			: enabled
+				? ((inv.currentValue ?? 0) * rate) / 12
+				: 0;
+
+	const invs = [...(investments.data ?? [])].sort(
+		(a, b) => contribution(b) - contribution(a),
+	);
+	const recs = [...(recurring.data ?? [])].sort(
+		(a, b) => monthlyAmount(b) - monthlyAmount(a),
+	);
+	const maxIn = Math.max(1, ...invs.map(contribution));
+	const maxOut = Math.max(1, ...recs.map(monthlyAmount));
+
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-4xl flex-col gap-12 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-5xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
 				<header className="flex flex-col gap-1">
 					<h1 className="font-display font-medium text-3xl tracking-tight">
 						Plan
 					</h1>
 					<p className="text-muted-foreground">
-						The investments that throw off interest, and the recurring expenses
-						they need to cover. This — not the statement — drives your coverage.
+						Passive income you expect vs the recurring life it has to cover.
+						This — not the statement — drives your coverage.
 					</p>
 				</header>
 
-				<CoverageStrip data={coverage.data} />
-
-				<DrawdownControl
-					enabled={settings.data?.enabled ?? false}
-					rate={settings.data?.rate ?? 0.04}
-					onChange={invalidate}
+				<Book
+					cov={coverage.data}
+					enabled={enabled}
+					rate={rate}
+					onDone={invalidate}
 				/>
 
-				<InvestmentsSection
-					rows={investments.data ?? []}
-					onChange={invalidate}
-				/>
-
-				<RecurringSection rows={recurring.data ?? []} onChange={invalidate} />
+				<div className="grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2">
+					<IncomingColumn
+						rows={invs}
+						contribution={contribution}
+						max={maxIn}
+						enabled={enabled}
+						onDone={invalidate}
+					/>
+					<OutgoingColumn rows={recs} max={maxOut} onDone={invalidate} />
+				</div>
 			</div>
 		</main>
 	);
 }
 
-function CoverageStrip({
-	data,
+// ── the order-book header: incoming Σ ▏ coverage ▏ outgoing Σ ───────────────────────────────────────
+function Book({
+	cov,
+	enabled,
+	rate,
+	onDone,
 }: {
-	data:
+	cov:
 		| {
 				interest: number;
 				drawdown: number;
@@ -115,210 +146,404 @@ function CoverageStrip({
 				ratio: number | null;
 		  }
 		| undefined;
-}) {
-	const ratio = data?.ratio ?? null;
-	const covered = ratio != null && ratio >= 1;
-	const accent = covered ? "var(--covered)" : "var(--uncovered)";
-	return (
-		<section className="flex flex-wrap items-center gap-x-10 gap-y-4 rounded-2xl border border-border bg-card/40 px-6 py-5">
-			<div className="flex flex-col">
-				<span className="text-muted-foreground text-xs uppercase tracking-wider">
-					Coverage
-				</span>
-				<span
-					className="tnum font-display font-medium text-4xl"
-					style={{ color: accent }}
-				>
-					{ratio == null ? "—" : formatRatio(ratio)}
-				</span>
-			</div>
-			<Metric
-				label="Passive / mo"
-				value={formatINR(data?.passiveIncome ?? 0)}
-				sub={
-					(data?.drawdown ?? 0) > 0
-						? `${formatINR(data?.interest ?? 0)} int + ${formatINR(data?.drawdown ?? 0)} draw`
-						: undefined
-				}
-			/>
-			<Metric label="Expenses / mo" value={formatINR(data?.expenses ?? 0)} />
-			<Metric label="Covered" value={ratio == null ? "—" : formatPct(ratio)} />
-		</section>
-	);
-}
-
-function Metric({
-	label,
-	value,
-	sub,
-}: {
-	label: string;
-	value: string;
-	sub?: string;
-}) {
-	return (
-		<div className="flex flex-col">
-			<span className="text-muted-foreground text-xs uppercase tracking-wider">
-				{label}
-			</span>
-			<span className="tnum font-display font-medium text-2xl">{value}</span>
-			{sub && <span className="text-muted-foreground text-xs">{sub}</span>}
-		</div>
-	);
-}
-
-function DrawdownControl({
-	enabled,
-	rate,
-	onChange,
-}: {
 	enabled: boolean;
 	rate: number;
-	onChange: () => void;
+	onDone: () => void;
 }) {
 	const setDrawdown = useMutation({
 		...orpc.plan.setDrawdown.mutationOptions(),
-		onSuccess: onChange,
+		onSuccess: onDone,
 	});
 	const [ratePct, setRatePct] = useState(String(Math.round(rate * 1000) / 10));
+	const ratio = cov?.ratio ?? null;
+	const covered = ratio != null && ratio >= 1;
+	const accent = covered ? IN : OUT;
+	const gap = Math.max(0, (cov?.expenses ?? 0) - (cov?.passiveIncome ?? 0));
 
 	return (
-		<Section
-			title="Imputed drawdown"
-			hint="Count a safe-withdrawal slice of your growth (equity/MF) holdings as income."
-		>
-			<div className="flex flex-wrap items-center gap-4">
+		<section className="overflow-hidden rounded-2xl border border-border bg-card/40">
+			<div className="grid grid-cols-3 items-center gap-3 px-6 py-6">
+				<div>
+					<p
+						className="text-[0.65rem] uppercase tracking-[0.2em]"
+						style={{ color: IN }}
+					>
+						Incoming
+					</p>
+					<p
+						className="tnum font-display font-medium text-2xl"
+						style={{ color: IN }}
+					>
+						{formatINR(cov?.passiveIncome ?? 0)}
+					</p>
+					<p className="text-muted-foreground text-xs">passive / mo</p>
+				</div>
+				<div className="text-center">
+					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+						Coverage
+					</p>
+					<p
+						className="tnum font-display font-medium text-5xl leading-none"
+						style={{ color: accent }}
+					>
+						{ratio == null ? "—" : formatRatio(ratio)}
+					</p>
+					<p className="mt-1 text-muted-foreground text-xs">
+						{gap > 0 ? `${formatINR(gap)} short` : "fully covered"}
+					</p>
+				</div>
+				<div className="text-right">
+					<p
+						className="text-[0.65rem] uppercase tracking-[0.2em]"
+						style={{ color: OUT }}
+					>
+						Outgoing
+					</p>
+					<p
+						className="tnum font-display font-medium text-2xl"
+						style={{ color: OUT }}
+					>
+						{formatINR(cov?.expenses ?? 0)}
+					</p>
+					<p className="text-muted-foreground text-xs">recurring / mo</p>
+				</div>
+			</div>
+
+			{/* incoming vs outgoing balance bar */}
+			<BalanceBar
+				income={cov?.passiveIncome ?? 0}
+				expense={cov?.expenses ?? 0}
+			/>
+
+			<div className="flex flex-wrap items-center justify-center gap-3 border-border border-t px-6 py-3 text-sm">
+				<span className="text-muted-foreground">
+					Imputed drawdown on growth
+				</span>
 				<button
 					type="button"
 					onClick={() => setDrawdown.mutate({ enabled: !enabled })}
-					className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${enabled ? "bg-[var(--covered)]" : "bg-muted"}`}
+					className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+					style={{ backgroundColor: enabled ? IN : "var(--muted)" }}
 					aria-pressed={enabled}
 					aria-label={
 						enabled ? "Disable imputed drawdown" : "Enable imputed drawdown"
 					}
 				>
 					<span
-						className={`absolute top-0.5 size-5 rounded-full bg-background transition-all ${enabled ? "left-[1.375rem]" : "left-0.5"}`}
+						className="absolute top-0.5 size-4 rounded-full bg-background transition-all"
+						style={{ left: enabled ? "1.125rem" : "0.125rem" }}
 					/>
 				</button>
-				<span className="text-sm">{enabled ? "On" : "Off"}</span>
-				<div className="flex items-center gap-2">
-					<Label htmlFor="rate" className="text-muted-foreground text-sm">
-						Rate
-					</Label>
-					<Input
-						id="rate"
-						type="number"
-						step="0.1"
-						value={ratePct}
-						disabled={!enabled}
-						onChange={(e) => setRatePct(e.target.value)}
-						onBlur={() => {
-							const r = Number(ratePct) / 100;
-							if (Number.isFinite(r) && r >= 0 && r <= 1)
-								setDrawdown.mutate({ rate: r });
-						}}
-						className="tnum w-20"
-					/>
-					<span className="text-muted-foreground text-sm">% / yr</span>
-				</div>
+				<Input
+					type="number"
+					step="0.1"
+					value={ratePct}
+					disabled={!enabled}
+					onChange={(e) => setRatePct(e.target.value)}
+					onBlur={() => {
+						const r = Number(ratePct) / 100;
+						if (Number.isFinite(r) && r >= 0 && r <= 1)
+							setDrawdown.mutate({ rate: r });
+					}}
+					className="tnum h-7 w-16"
+				/>
+				<span className="text-muted-foreground">% / yr</span>
 			</div>
-		</Section>
+		</section>
 	);
 }
 
-// ── Investments ──────────────────────────────────────────────────────────────────────────────────────
-function InvestmentsSection({
+function BalanceBar({ income, expense }: { income: number; expense: number }) {
+	const total = Math.max(1, income + expense);
+	const inPct = (income / total) * 100;
+	return (
+		<div className="flex h-1.5 w-full">
+			<div style={{ width: `${inPct}%`, backgroundColor: IN }} />
+			<div
+				style={{ width: `${100 - inPct}%`, backgroundColor: tint(OUT, 55) }}
+			/>
+		</div>
+	);
+}
+
+// ── Incoming column (investments) ───────────────────────────────────────────────────────────────────
+function IncomingColumn({
 	rows,
-	onChange,
+	contribution,
+	max,
+	enabled,
+	onDone,
 }: {
 	rows: Investment[];
-	onChange: () => void;
+	contribution: (inv: Investment) => number;
+	max: number;
+	enabled: boolean;
+	onDone: () => void;
 }) {
+	const [editing, setEditing] = useState<string | null>(null);
+	const [adding, setAdding] = useState(false);
 	const add = useMutation({
 		...orpc.plan.addInvestment.mutationOptions(),
-		onSuccess: onChange,
+		onSuccess: onDone,
+	});
+	const update = useMutation({
+		...orpc.plan.updateInvestment.mutationOptions(),
+		onSuccess: onDone,
 	});
 	const del = useMutation({
 		...orpc.plan.deleteInvestment.mutationOptions(),
-		onSuccess: onChange,
+		onSuccess: onDone,
 	});
 
 	return (
-		<Section
-			title="Investments"
-			hint="Income holdings contribute expected interest; growth holdings contribute via drawdown."
-		>
-			<ul className="flex flex-col divide-y divide-border">
-				{rows.length === 0 && (
-					<li className="py-3 text-muted-foreground text-sm">
-						Nothing yet — add your first holding below.
-					</li>
-				)}
-				{rows.map((inv) => {
-					const monthly = expectedMonthlyInterest(inv);
-					return (
-						<li key={inv.id} className="flex items-center gap-3 py-3">
-							<span
-								className={`inline-flex size-2 shrink-0 rounded-full ${inv.incomeClass === "income" ? "bg-[var(--covered)]" : "bg-[var(--uncovered)]"}`}
-							/>
-							<div className="min-w-0 flex-1">
-								<p className="truncate font-medium">{inv.name}</p>
-								<p className="text-muted-foreground text-xs">
-									{TYPE_LABEL[inv.type]}
-									{inv.platform ? ` · ${inv.platform}` : ""}
-									{inv.incomeClass === "growth" ? " · growth" : ""}
-								</p>
-							</div>
-							<div className="text-right">
-								{inv.incomeClass === "income" ? (
-									<>
-										<p className="tnum font-medium text-[var(--covered)]">
-											{formatINR(monthly)}
-											<span className="text-muted-foreground text-xs">
-												{" "}
-												/mo
-											</span>
-										</p>
-										<p className="text-muted-foreground text-xs">interest</p>
-									</>
-								) : (
-									<>
-										<p className="tnum font-medium">
-											{formatINR(inv.currentValue ?? 0)}
-										</p>
-										<p className="text-muted-foreground text-xs">value</p>
-									</>
-								)}
-							</div>
-							<IconDelete
-								onClick={() => del.mutate({ id: inv.id })}
-								label={`Delete ${inv.name}`}
+		<section className="flex flex-col">
+			<ColHeader tone={IN} label="Incoming" side="left" />
+			<ul className="flex flex-col">
+				{rows.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
+				{rows.map((inv) =>
+					editing === inv.id ? (
+						<li key={inv.id} className="border-border border-b py-2">
+							<InvestmentForm
+								initial={inv}
+								pending={update.isPending}
+								submitLabel="Save"
+								onCancel={() => setEditing(null)}
+								onDelete={() => {
+									del.mutate({ id: Number(inv.id) });
+									setEditing(null);
+								}}
+								onSubmit={(d) => {
+									update.mutate({ id: Number(inv.id), ...d });
+									setEditing(null);
+								}}
 							/>
 						</li>
-					);
-				})}
+					) : (
+						<IncomingRow
+							key={inv.id}
+							inv={inv}
+							amount={contribution(inv)}
+							pct={(contribution(inv) / max) * 100}
+							dimmed={inv.incomeClass === "growth" && !enabled}
+							onEdit={() => setEditing(inv.id)}
+							onDelete={() => del.mutate({ id: Number(inv.id) })}
+						/>
+					),
+				)}
 			</ul>
-			<AddInvestmentForm onAdd={(d) => add.mutate(d)} pending={add.isPending} />
-		</Section>
+			{adding ? (
+				<div className="border-border border-t py-2">
+					<InvestmentForm
+						pending={add.isPending}
+						submitLabel="Add"
+						onCancel={() => setAdding(false)}
+						onSubmit={(d) => {
+							add.mutate(d);
+							setAdding(false);
+						}}
+					/>
+				</div>
+			) : (
+				<AddButton onClick={() => setAdding(true)}>Add income source</AddButton>
+			)}
+		</section>
 	);
 }
 
-function AddInvestmentForm({
-	onAdd,
-	pending,
+function IncomingRow({
+	inv,
+	amount,
+	pct,
+	dimmed,
+	onEdit,
+	onDelete,
 }: {
-	onAdd: (d: InvestmentDraft) => void;
-	pending: boolean;
+	inv: Investment;
+	amount: number;
+	pct: number;
+	dimmed: boolean;
+	onEdit: () => void;
+	onDelete: () => void;
 }) {
-	const [cls, setCls] = useState<IncomeClass>("income");
-	const [name, setName] = useState("");
-	const [type, setType] = useState<InvestmentType>("bond");
-	const [platform, setPlatform] = useState("");
-	const [principal, setPrincipal] = useState("");
-	const [ratePct, setRatePct] = useState("");
-	const [monthly, setMonthly] = useState("");
-	const [currentValue, setCurrentValue] = useState("");
+	const meta =
+		inv.incomeClass === "income"
+			? `${TYPE_LABEL[inv.type]}${inv.platform ? ` · ${inv.platform}` : ""}`
+			: `growth${inv.platform ? ` · ${inv.platform}` : ""}${dimmed ? " · drawdown off" : ""}`;
+
+	return (
+		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
+			<div
+				className="pointer-events-none absolute inset-y-1 right-0 rounded-sm"
+				style={{ width: `${Math.max(pct, 1.5)}%`, background: tint(IN, 12) }}
+			/>
+			<RowActions onEdit={onEdit} onDelete={onDelete} />
+			<div className={`relative min-w-0 flex-1 ${dimmed ? "opacity-50" : ""}`}>
+				<p className="truncate font-medium">{inv.name}</p>
+				<p className="text-muted-foreground text-xs">{meta}</p>
+			</div>
+			<div className="relative text-right">
+				<p
+					className="tnum font-medium"
+					style={{ color: dimmed ? undefined : IN }}
+				>
+					{formatINR(amount)}
+				</p>
+				<p className="text-[0.65rem] text-muted-foreground">
+					{inv.incomeClass === "income" ? "interest /mo" : "drawdown /mo"}
+				</p>
+			</div>
+		</li>
+	);
+}
+
+// ── Outgoing column (recurring expenses) ────────────────────────────────────────────────────────────
+function OutgoingColumn({
+	rows,
+	max,
+	onDone,
+}: {
+	rows: RecurringExpense[];
+	max: number;
+	onDone: () => void;
+}) {
+	const [editing, setEditing] = useState<string | null>(null);
+	const [adding, setAdding] = useState(false);
+	const add = useMutation({
+		...orpc.plan.addRecurring.mutationOptions(),
+		onSuccess: onDone,
+	});
+	const update = useMutation({
+		...orpc.plan.updateRecurring.mutationOptions(),
+		onSuccess: onDone,
+	});
+	const del = useMutation({
+		...orpc.plan.deleteRecurring.mutationOptions(),
+		onSuccess: onDone,
+	});
+
+	return (
+		<section className="flex flex-col">
+			<ColHeader tone={OUT} label="Outgoing" side="right" />
+			<ul className="flex flex-col">
+				{rows.length === 0 && !adding && (
+					<Empty>No recurring expenses yet.</Empty>
+				)}
+				{rows.map((exp) =>
+					editing === exp.id ? (
+						<li key={exp.id} className="border-border border-b py-2">
+							<ExpenseForm
+								initial={exp}
+								pending={update.isPending}
+								submitLabel="Save"
+								onCancel={() => setEditing(null)}
+								onDelete={() => {
+									del.mutate({ id: Number(exp.id) });
+									setEditing(null);
+								}}
+								onSubmit={(d) => {
+									update.mutate({ id: Number(exp.id), ...d });
+									setEditing(null);
+								}}
+							/>
+						</li>
+					) : (
+						<OutgoingRow
+							key={exp.id}
+							exp={exp}
+							pct={(monthlyAmount(exp) / max) * 100}
+							onEdit={() => setEditing(exp.id)}
+							onDelete={() => del.mutate({ id: Number(exp.id) })}
+						/>
+					),
+				)}
+			</ul>
+			{adding ? (
+				<div className="border-border border-t py-2">
+					<ExpenseForm
+						pending={add.isPending}
+						submitLabel="Add"
+						onCancel={() => setAdding(false)}
+						onSubmit={(d) => {
+							add.mutate(d);
+							setAdding(false);
+						}}
+					/>
+				</div>
+			) : (
+				<AddButton onClick={() => setAdding(true)}>
+					Add recurring expense
+				</AddButton>
+			)}
+		</section>
+	);
+}
+
+function OutgoingRow({
+	exp,
+	pct,
+	onEdit,
+	onDelete,
+}: {
+	exp: RecurringExpense;
+	pct: number;
+	onEdit: () => void;
+	onDelete: () => void;
+}) {
+	return (
+		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
+			<div
+				className="pointer-events-none absolute inset-y-1 left-0 rounded-sm"
+				style={{ width: `${Math.max(pct, 1.5)}%`, background: tint(OUT, 12) }}
+			/>
+			<div className="relative text-left">
+				<p className="tnum font-medium" style={{ color: OUT }}>
+					{formatINR(monthlyAmount(exp))}
+				</p>
+				<p className="text-[0.65rem] text-muted-foreground">
+					{exp.cadence === "monthly"
+						? "/mo"
+						: `${formatINR(exp.amount)}${CADENCE_LABEL[exp.cadence] ?? ""}`}
+				</p>
+			</div>
+			<div className="relative min-w-0 flex-1 text-right">
+				<p className="truncate font-medium">{exp.name}</p>
+				{exp.category && (
+					<p className="text-muted-foreground text-xs">{exp.category}</p>
+				)}
+			</div>
+			<RowActions onEdit={onEdit} onDelete={onDelete} />
+		</li>
+	);
+}
+
+// ── forms (shared by add + edit) ────────────────────────────────────────────────────────────────────
+function InvestmentForm({
+	initial,
+	pending,
+	submitLabel,
+	onSubmit,
+	onCancel,
+	onDelete,
+}: {
+	initial?: Investment;
+	pending: boolean;
+	submitLabel: string;
+	onSubmit: (d: InvestmentDraft) => void;
+	onCancel?: () => void;
+	onDelete?: () => void;
+}) {
+	const [cls, setCls] = useState<IncomeClass>(initial?.incomeClass ?? "income");
+	const [name, setName] = useState(initial?.name ?? "");
+	const [type, setType] = useState<InvestmentType>(initial?.type ?? "bond");
+	const [platform, setPlatform] = useState(initial?.platform ?? "");
+	const [principal, setPrincipal] = useState(str(initial?.principal));
+	const [ratePct, setRatePct] = useState(
+		initial?.annualRate != null
+			? String(Math.round(initial.annualRate * 1000) / 10)
+			: "",
+	);
+	const [monthly, setMonthly] = useState(str(initial?.expectedMonthlyInterest));
+	const [currentValue, setCurrentValue] = useState(str(initial?.currentValue));
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
@@ -332,38 +557,25 @@ function AddInvestmentForm({
 		} else if (currentValue) {
 			d.currentValue = Number(currentValue);
 		}
-		onAdd(d);
-		setName("");
-		setPlatform("");
-		setPrincipal("");
-		setRatePct("");
-		setMonthly("");
-		setCurrentValue("");
+		onSubmit(d);
 	}
 
 	return (
-		<form
-			onSubmit={submit}
-			className="mt-4 flex flex-col gap-3 rounded-xl border border-border border-dashed p-4"
-		>
-			<div className="flex flex-wrap gap-2">
-				<Toggle
-					active={cls === "income"}
-					onClick={() => setCls("income")}
-					label="Income (pays interest)"
-				/>
-				<Toggle
-					active={cls === "growth"}
-					onClick={() => setCls("growth")}
-					label="Growth (appreciates)"
-				/>
+		<form onSubmit={submit} className="flex flex-col gap-2.5">
+			<div className="flex gap-2">
+				<Pill active={cls === "income"} onClick={() => setCls("income")}>
+					Income
+				</Pill>
+				<Pill active={cls === "growth"} onClick={() => setCls("growth")}>
+					Growth
+				</Pill>
 			</div>
-			<div className="grid gap-2 sm:grid-cols-2">
+			<div className="grid grid-cols-2 gap-2">
 				<Field label="Name">
 					<Input
 						value={name}
 						onChange={(e) => setName(e.target.value)}
-						placeholder="Wint Wealth bond"
+						placeholder="Wint bond"
 						required
 					/>
 				</Field>
@@ -377,233 +589,285 @@ function AddInvestmentForm({
 						}))}
 					/>
 				</Field>
-				<Field label="Platform / provider">
+				<Field label="Platform">
 					<Input
 						value={platform}
 						onChange={(e) => setPlatform(e.target.value)}
-						placeholder="SustVest, Wint, Groww…"
+						placeholder="SustVest…"
 					/>
 				</Field>
 				{cls === "income" ? (
 					<>
-						<Field label="Principal (₹)">
+						<Field label="Principal ₹">
 							<Input
 								type="number"
 								value={principal}
 								onChange={(e) => setPrincipal(e.target.value)}
-								placeholder="100000"
 								className="tnum"
+								placeholder="100000"
 							/>
 						</Field>
-						<Field label="Rate (% / yr)">
+						<Field label="Rate % / yr">
 							<Input
 								type="number"
 								step="0.1"
 								value={ratePct}
 								onChange={(e) => setRatePct(e.target.value)}
-								placeholder="11"
 								className="tnum"
+								placeholder="11"
 							/>
 						</Field>
-						<Field label="…or explicit ₹ interest / mo">
+						<Field label="…or ₹ interest / mo">
 							<Input
 								type="number"
 								value={monthly}
 								onChange={(e) => setMonthly(e.target.value)}
-								placeholder="for amortising P2P"
 								className="tnum"
+								placeholder="amortising P2P"
 							/>
 						</Field>
 					</>
 				) : (
-					<Field label="Current value (₹)">
+					<Field label="Current value ₹">
 						<Input
 							type="number"
 							value={currentValue}
 							onChange={(e) => setCurrentValue(e.target.value)}
-							placeholder="500000"
 							className="tnum"
+							placeholder="500000"
 						/>
 					</Field>
 				)}
 			</div>
-			<div>
-				<Button type="submit" disabled={pending || !name.trim()}>
-					Add investment
-				</Button>
-			</div>
+			<FormActions
+				pending={pending}
+				submitLabel={submitLabel}
+				disabled={!name.trim()}
+				onCancel={onCancel}
+				onDelete={onDelete}
+			/>
 		</form>
 	);
 }
 
-// ── Recurring expenses ─────────────────────────────────────────────────────────────────────────────
-function RecurringSection({
-	rows,
-	onChange,
-}: {
-	rows: RecurringExpense[];
-	onChange: () => void;
-}) {
-	const add = useMutation({
-		...orpc.plan.addRecurring.mutationOptions(),
-		onSuccess: onChange,
-	});
-	const del = useMutation({
-		...orpc.plan.deleteRecurring.mutationOptions(),
-		onSuccess: onChange,
-	});
-
-	return (
-		<Section
-			title="Recurring expenses"
-			hint="Rent, subscriptions, insurance — your baseline lifestyle. One-off spend does not belong here."
-		>
-			<ul className="flex flex-col divide-y divide-border">
-				{rows.length === 0 && (
-					<li className="py-3 text-muted-foreground text-sm">
-						Nothing yet — add rent, subscriptions, and other committed bills.
-					</li>
-				)}
-				{rows.map((exp) => (
-					<li key={exp.id} className="flex items-center gap-3 py-3">
-						<div className="min-w-0 flex-1">
-							<p className="truncate font-medium">{exp.name}</p>
-							<p className="text-muted-foreground text-xs">
-								{formatINR(exp.amount)}
-								{CADENCE_LABEL[exp.cadence] ?? ""}
-								{exp.category ? ` · ${exp.category}` : ""}
-							</p>
-						</div>
-						<div className="text-right">
-							<p className="tnum font-medium">
-								{formatINR(monthlyAmount(exp))}
-								<span className="text-muted-foreground text-xs"> /mo</span>
-							</p>
-						</div>
-						<IconDelete
-							onClick={() => del.mutate({ id: exp.id })}
-							label={`Delete ${exp.name}`}
-						/>
-					</li>
-				))}
-			</ul>
-			<AddRecurringForm onAdd={(d) => add.mutate(d)} pending={add.isPending} />
-		</Section>
-	);
-}
-
-function AddRecurringForm({
-	onAdd,
+function ExpenseForm({
+	initial,
 	pending,
+	submitLabel,
+	onSubmit,
+	onCancel,
+	onDelete,
 }: {
-	onAdd: (d: RecurringDraft) => void;
+	initial?: RecurringExpense;
 	pending: boolean;
+	submitLabel: string;
+	onSubmit: (d: RecurringDraft) => void;
+	onCancel?: () => void;
+	onDelete?: () => void;
 }) {
-	const [name, setName] = useState("");
-	const [amount, setAmount] = useState("");
-	const [cadence, setCadence] = useState<ExpenseCadence>("monthly");
+	const [name, setName] = useState(initial?.name ?? "");
+	const [amount, setAmount] = useState(str(initial?.amount));
+	const [category, setCategory] = useState(initial?.category ?? "");
+	const [cadence, setCadence] = useState<ExpenseCadence>(
+		(initial?.cadence as ExpenseCadence) ?? "monthly",
+	);
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
 		if (!name.trim() || !amount) return;
-		onAdd({ name: name.trim(), amount: Number(amount), cadence });
-		setName("");
-		setAmount("");
+		const d: RecurringDraft = {
+			name: name.trim(),
+			amount: Number(amount),
+			cadence,
+		};
+		if (category.trim()) d.category = category.trim();
+		onSubmit(d);
 	}
 
 	return (
-		<form
-			onSubmit={submit}
-			className="mt-4 flex flex-wrap items-end gap-2 rounded-xl border border-border border-dashed p-4"
-		>
-			<Field label="Name" className="min-w-40 flex-1">
-				<Input
-					value={name}
-					onChange={(e) => setName(e.target.value)}
-					placeholder="Rent"
-					required
-				/>
-			</Field>
-			<Field label="Amount (₹)">
-				<Input
-					type="number"
-					value={amount}
-					onChange={(e) => setAmount(e.target.value)}
-					placeholder="32000"
-					className="tnum w-32"
-				/>
-			</Field>
-			<Field label="Cadence">
-				<NativeSelect
-					value={cadence}
-					onChange={(v) => setCadence(v as ExpenseCadence)}
-					options={EXPENSE_CADENCES.map((c) => ({
-						value: c,
-						label: c.replace("_", "-"),
-					}))}
-				/>
-			</Field>
-			<Button type="submit" disabled={pending || !name.trim() || !amount}>
-				Add
-			</Button>
+		<form onSubmit={submit} className="flex flex-col gap-2.5">
+			<div className="grid grid-cols-2 gap-2">
+				<Field label="Name">
+					<Input
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+						placeholder="Rent"
+						required
+					/>
+				</Field>
+				<Field label="Category">
+					<Input
+						value={category}
+						onChange={(e) => setCategory(e.target.value)}
+						placeholder="rent, health…"
+					/>
+				</Field>
+				<Field label="Amount ₹">
+					<Input
+						type="number"
+						value={amount}
+						onChange={(e) => setAmount(e.target.value)}
+						className="tnum"
+						placeholder="12000"
+					/>
+				</Field>
+				<Field label="Cadence">
+					<NativeSelect
+						value={cadence}
+						onChange={(v) => setCadence(v as ExpenseCadence)}
+						options={EXPENSE_CADENCES.map((c) => ({
+							value: c,
+							label: c.replace("_", "-"),
+						}))}
+					/>
+				</Field>
+			</div>
+			<FormActions
+				pending={pending}
+				submitLabel={submitLabel}
+				disabled={!name.trim() || !amount}
+				onCancel={onCancel}
+				onDelete={onDelete}
+			/>
 		</form>
 	);
 }
 
-// ── shared bits ────────────────────────────────────────────────────────────────────────────────────
-function Section({
-	title,
-	hint,
-	children,
+// ── little shared bits ──────────────────────────────────────────────────────────────────────────────
+function ColHeader({
+	tone,
+	label,
+	side,
 }: {
-	title: string;
-	hint: string;
-	children: ReactNode;
+	tone: string;
+	label: string;
+	side: "left" | "right";
 }) {
 	return (
-		<section className="flex flex-col gap-3">
-			<div>
-				<h2 className="font-display font-medium text-xl">{title}</h2>
-				<p className="text-muted-foreground text-sm">{hint}</p>
-			</div>
-			{children}
-		</section>
+		<div
+			className={`flex items-center gap-2 border-border border-b-2 pb-2 ${side === "right" ? "flex-row-reverse" : ""}`}
+			style={{ borderColor: tint(tone, 40) }}
+		>
+			<span className="size-2 rounded-full" style={{ backgroundColor: tone }} />
+			<h2 className="font-display font-medium text-lg">{label}</h2>
+		</div>
 	);
 }
 
-function Field({
-	label,
-	children,
-	className,
+function RowActions({
+	onEdit,
+	onDelete,
 }: {
-	label: string;
-	children: ReactNode;
-	className?: string;
+	onEdit: () => void;
+	onDelete: () => void;
 }) {
 	return (
-		<div className={`flex flex-col gap-1 ${className ?? ""}`}>
+		<div className="relative flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+			<button
+				type="button"
+				onClick={onEdit}
+				aria-label="Edit"
+				className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+			>
+				<Pencil className="size-3.5" />
+			</button>
+			<button
+				type="button"
+				onClick={onDelete}
+				aria-label="Delete"
+				className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
+			>
+				<Trash2 className="size-3.5" />
+			</button>
+		</div>
+	);
+}
+
+function FormActions({
+	pending,
+	submitLabel,
+	disabled,
+	onCancel,
+	onDelete,
+}: {
+	pending: boolean;
+	submitLabel: string;
+	disabled: boolean;
+	onCancel?: () => void;
+	onDelete?: () => void;
+}) {
+	return (
+		<div className="flex items-center gap-2">
+			<Button type="submit" size="sm" disabled={pending || disabled}>
+				<Check className="size-3.5" /> {submitLabel}
+			</Button>
+			{onCancel && (
+				<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+					<X className="size-3.5" /> Cancel
+				</Button>
+			)}
+			{onDelete && (
+				<Button
+					type="button"
+					size="sm"
+					variant="ghost"
+					onClick={onDelete}
+					className="ml-auto text-muted-foreground hover:text-[var(--uncovered)]"
+				>
+					<Trash2 className="size-3.5" /> Delete
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function AddButton({
+	onClick,
+	children,
+}: {
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="mt-2 flex items-center gap-2 self-start rounded-lg px-2 py-1.5 text-muted-foreground text-sm transition-colors hover:bg-secondary hover:text-foreground"
+		>
+			<Plus className="size-4" /> {children}
+		</button>
+	);
+}
+
+function Empty({ children }: { children: ReactNode }) {
+	return <li className="py-4 text-muted-foreground text-sm">{children}</li>;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<div className="flex flex-col gap-1">
 			<span className="text-muted-foreground text-xs">{label}</span>
 			{children}
 		</div>
 	);
 }
 
-function Toggle({
+function Pill({
 	active,
 	onClick,
-	label,
+	children,
 }: {
 	active: boolean;
 	onClick: () => void;
-	label: string;
+	children: ReactNode;
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:bg-secondary"}`}
+			className={`rounded-full border px-3 py-1 text-sm transition-colors ${active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:bg-secondary"}`}
 		>
-			{label}
+			{children}
 		</button>
 	);
 }
@@ -632,21 +896,6 @@ function NativeSelect({
 	);
 }
 
-function IconDelete({
-	onClick,
-	label,
-}: {
-	onClick: () => void;
-	label: string;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-[var(--uncovered)]"
-		>
-			<Trash2 className="size-4" />
-		</button>
-	);
+function str(n: number | undefined): string {
+	return n != null ? String(n) : "";
 }
