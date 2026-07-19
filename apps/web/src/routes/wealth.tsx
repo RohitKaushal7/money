@@ -3,7 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+	Cell,
+	Pie,
+	PieChart,
+	ResponsiveContainer,
+	Scatter,
+	ScatterChart,
+	Tooltip,
+	XAxis,
+	YAxis,
+	ZAxis,
+} from "recharts";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
@@ -98,8 +109,31 @@ function WealthPage() {
 	);
 }
 
+type Datum = {
+	name: string;
+	value: number;
+	share: number;
+	rate: number | null;
+	monthly: number;
+	color: string;
+};
+type Tab = "allocation" | "return" | "rose" | "spread";
+const TABS: [Tab, string][] = [
+	["allocation", "Allocation"],
+	["return", "By return"],
+	["rose", "Rose"],
+	["spread", "Spread"],
+];
+const BANDS = [
+	{ label: "< 7%", lo: -1, hi: 0.07, color: "oklch(0.62 0.16 28)" },
+	{ label: "7–10%", lo: 0.07, hi: 0.1, color: "oklch(0.74 0.15 66)" },
+	{ label: "10–12%", lo: 0.1, hi: 0.12, color: "oklch(0.78 0.15 125)" },
+	{ label: "12%+", lo: 0.12, hi: 99, color: "oklch(0.64 0.14 155)" },
+];
+
 function Distribution({ w }: { w: WealthSummary }) {
-	const data = w.rollups.map((r, i) => ({
+	const [tab, setTab] = useState<Tab>("allocation");
+	const data: Datum[] = w.rollups.map((r, i) => ({
 		name: r.name,
 		value: r.value,
 		share: r.share,
@@ -109,6 +143,31 @@ function Distribution({ w }: { w: WealthSummary }) {
 	}));
 	return (
 		<section className="flex flex-col gap-4">
+			<div className="flex gap-1 rounded-lg bg-muted/50 p-1 text-sm">
+				{TABS.map(([k, label]) => (
+					<button
+						key={k}
+						type="button"
+						onClick={() => setTab(k)}
+						className={`flex-1 rounded-md px-2 py-1 transition-colors ${tab === k ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+					>
+						{label}
+					</button>
+				))}
+			</div>
+			{tab === "allocation" && (
+				<AllocationView data={data} total={w.totalValue} />
+			)}
+			{tab === "return" && <ReturnBands data={data} total={w.totalValue} />}
+			{tab === "rose" && <RoseView data={data} total={w.totalValue} />}
+			{tab === "spread" && <SpreadView data={data} />}
+		</section>
+	);
+}
+
+function AllocationView({ data, total }: { data: Datum[]; total: number }) {
+	return (
+		<>
 			<div className="relative mx-auto h-64 w-full max-w-sm">
 				<ResponsiveContainer width="100%" height="100%">
 					<PieChart>
@@ -137,7 +196,7 @@ function Distribution({ w }: { w: WealthSummary }) {
 						Total
 					</span>
 					<span className="tnum font-display font-medium text-2xl">
-						{formatCompactINR(w.totalValue)}
+						{formatCompactINR(total)}
 					</span>
 				</div>
 			</div>
@@ -158,7 +217,191 @@ function Distribution({ w }: { w: WealthSummary }) {
 					</li>
 				))}
 			</ul>
-		</section>
+		</>
+	);
+}
+
+function ReturnBands({ data, total }: { data: Datum[]; total: number }) {
+	const bands = BANDS.map((b) => {
+		const items = data.filter(
+			(d) => d.rate != null && d.rate >= b.lo && d.rate < b.hi,
+		);
+		const value = items.reduce((s, d) => s + d.value, 0);
+		return { ...b, value, share: total > 0 ? value / total : 0, items };
+	}).filter((b) => b.value > 0);
+	return (
+		<div className="flex flex-col gap-4 py-4">
+			<div className="flex h-7 w-full overflow-hidden rounded-md">
+				{bands.map((b) => (
+					<div
+						key={b.label}
+						style={{ width: `${b.share * 100}%`, backgroundColor: b.color }}
+						title={`${b.label}: ${Math.round(b.share * 100)}%`}
+					/>
+				))}
+			</div>
+			<ul className="flex flex-col gap-2.5">
+				{bands.map((b) => (
+					<li key={b.label} className="flex items-baseline gap-3">
+						<span
+							className="size-2.5 shrink-0 translate-y-0.5 rounded-full"
+							style={{ backgroundColor: b.color }}
+						/>
+						<span className="w-14 shrink-0 font-medium text-sm">{b.label}</span>
+						<span className="tnum w-9 shrink-0 text-muted-foreground text-sm">
+							{Math.round(b.share * 100)}%
+						</span>
+						<span className="tnum w-24 shrink-0 text-sm">
+							{formatINR(b.value)}
+						</span>
+						<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+							{b.items.map((i) => i.name).join(" · ")}
+						</span>
+					</li>
+				))}
+			</ul>
+			<p className="text-muted-foreground text-xs">
+				Red = lower return, green = higher — how much of your wealth sits at
+				each return level.
+			</p>
+		</div>
+	);
+}
+
+function polar(cx: number, cy: number, r: number, a: number): [number, number] {
+	return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+function annularPath(
+	cx: number,
+	cy: number,
+	rIn: number,
+	rOut: number,
+	a0: number,
+	a1: number,
+): string {
+	const large = a1 - a0 > Math.PI ? 1 : 0;
+	const [x0, y0] = polar(cx, cy, rIn, a0);
+	const [x1, y1] = polar(cx, cy, rOut, a0);
+	const [x2, y2] = polar(cx, cy, rOut, a1);
+	const [x3, y3] = polar(cx, cy, rIn, a1);
+	return `M ${x0} ${y0} L ${x1} ${y1} A ${rOut} ${rOut} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rIn} ${rIn} 0 ${large} 0 ${x0} ${y0} Z`;
+}
+
+function RoseView({ data, total }: { data: Datum[]; total: number }) {
+	const [active, setActive] = useState<number | null>(null);
+	const size = 264;
+	const cx = size / 2;
+	const cy = size / 2;
+	const innerR = 60;
+	const minOuter = 66;
+	const maxOuter = 124;
+	const maxRate = Math.max(0.0001, ...data.map((d) => d.rate ?? 0));
+	let a = -Math.PI / 2;
+	const segs = data.map((d, i) => {
+		const span = total > 0 ? (d.value / total) * Math.PI * 2 : 0;
+		const a0 = a;
+		const a1 = a + span;
+		a = a1;
+		const outerR = minOuter + ((d.rate ?? 0) / maxRate) * (maxOuter - minOuter);
+		return { d, i, path: annularPath(cx, cy, innerR, outerR, a0, a1) };
+	});
+	const act = active != null ? data[active] : null;
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="relative mx-auto" style={{ width: size, height: size }}>
+				<svg
+					width={size}
+					height={size}
+					viewBox={`0 0 ${size} ${size}`}
+					role="img"
+					aria-label="wealth by value and return"
+				>
+					<title>Wealth by value (angle) and return (reach)</title>
+					{segs.map((s) => (
+						<path
+							key={s.d.name}
+							d={s.path}
+							fill={s.d.color}
+							stroke="var(--background)"
+							strokeWidth={1.5}
+							opacity={active == null || active === s.i ? 1 : 0.35}
+							onMouseEnter={() => setActive(s.i)}
+							onMouseLeave={() => setActive(null)}
+						/>
+					))}
+				</svg>
+				<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+					{act ? (
+						<>
+							<span className="max-w-[7rem] truncate font-medium text-sm">
+								{act.name}
+							</span>
+							<span className="tnum font-display font-medium text-lg">
+								{formatCompactINR(act.value)}
+							</span>
+							<span className="text-muted-foreground text-xs">
+								{pct1(act.rate)} · {Math.round(act.share * 100)}%
+							</span>
+						</>
+					) : (
+						<>
+							<span className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+								Total
+							</span>
+							<span className="tnum font-display font-medium text-2xl">
+								{formatCompactINR(total)}
+							</span>
+						</>
+					)}
+				</div>
+			</div>
+			<p className="text-center text-muted-foreground text-xs">
+				Angle = share of wealth · reach = XIRR. Fat-and-short = lots of money at
+				low return.
+			</p>
+		</div>
+	);
+}
+
+function SpreadView({ data }: { data: Datum[] }) {
+	const points = data
+		.filter((d) => d.rate != null)
+		.map((d) => ({ ...d, ratePct: (d.rate ?? 0) * 100 }));
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="h-64 w-full">
+				<ResponsiveContainer width="100%" height="100%">
+					<ScatterChart margin={{ top: 12, right: 20, bottom: 16, left: 8 }}>
+						<XAxis
+							type="number"
+							dataKey="ratePct"
+							name="XIRR"
+							unit="%"
+							domain={[0, "dataMax"]}
+							tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+							tickLine={false}
+							axisLine={{ stroke: "var(--border)" }}
+						/>
+						<YAxis type="number" dataKey="value" hide domain={[0, "dataMax"]} />
+						<ZAxis type="number" dataKey="value" range={[140, 1500]} />
+						<Tooltip
+							cursor={{ strokeDasharray: "3 3" }}
+							isAnimationActive={false}
+							content={<DonutTip />}
+						/>
+						<Scatter data={points}>
+							{points.map((p) => (
+								<Cell key={p.name} fill={p.color} />
+							))}
+						</Scatter>
+					</ScatterChart>
+				</ResponsiveContainer>
+			</div>
+			<p className="text-center text-muted-foreground text-xs">
+				x = XIRR · bubble size + height = amount. Big bubbles on the left are
+				lots of money at low return.
+			</p>
+		</div>
 	);
 }
 
