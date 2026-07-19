@@ -41,7 +41,9 @@ export const spendingRouter = {
 	overview: publicProcedure.handler(async () => {
 		const rows = analyticsReady() ? await expenseRows() : [];
 		const recurring = await listRecurring();
-		return spendingTrends({ rows, recurring });
+		// cap the sparkline history to the last 24 months so the bars stay legible as history grows
+		const months = [...new Set(rows.map((r) => r.month))].sort().slice(-24);
+		return spendingTrends({ rows, recurring, months });
 	}),
 
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */
