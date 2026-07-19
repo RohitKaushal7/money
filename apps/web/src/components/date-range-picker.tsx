@@ -26,10 +26,10 @@ export interface DateRange {
 const PRESETS: { key: RangePreset; label: string }[] = [
 	{ key: "this-month", label: "This month" },
 	{ key: "this-quarter", label: "This quarter" },
-	{ key: "this-fy", label: "This FY" },
-	{ key: "last-fy", label: "Last FY" },
 	{ key: "last-12m", label: "Last 12 months" },
 	{ key: "last-24m", label: "Last 24 months" },
+	{ key: "this-fy", label: "This FY" },
+	{ key: "last-fy", label: "Last FY" },
 	{ key: "all", label: "All time" },
 	{ key: "custom", label: "Custom range" },
 ];
