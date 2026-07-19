@@ -11,14 +11,14 @@ export const Route = createFileRoute("/")({
 });
 
 function DashboardPage() {
-	const coverage = useQuery(orpc.plan.coverage.queryOptions());
+	const ladder = useQuery(orpc.plan.ladder.queryOptions());
 	const status = useQuery(orpc.analytics.status.queryOptions());
 	const summary = useQuery(orpc.analytics.summary.queryOptions());
 	const categories = useQuery(orpc.analytics.categoryBreakdown.queryOptions());
 	const recent = useQuery(orpc.analytics.recentTransactions.queryOptions());
 
-	const cov = coverage.data;
-	const planEmpty = !!cov && cov.passiveIncome === 0 && cov.expenses === 0;
+	const cov = ladder.data;
+	const planEmpty = !!cov && cov.total.income === 0 && cov.expenses === 0;
 	const statementReady = status.data?.ready ?? false;
 
 	return (
@@ -32,16 +32,16 @@ function DashboardPage() {
 				/>
 
 				{/* THE PLAN — the north-star KPI, driven by your investments + recurring expenses */}
-				{coverage.isLoading ? (
+				{ladder.isLoading ? (
 					<HeroSkeleton />
 				) : planEmpty ? (
 					<PlanEmpty />
 				) : cov ? (
 					<CoverageHero
-						interest={cov.interest}
-						drawdown={cov.drawdown}
+						interest={cov.total.income}
+						drawdown={0}
 						expenses={cov.expenses}
-						ratio={cov.ratio}
+						ratio={cov.total.ratio}
 					/>
 				) : null}
 
