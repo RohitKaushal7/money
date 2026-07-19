@@ -1,15 +1,14 @@
 import { CATEGORIES, type ImportReport } from "@money/shared";
 import { type AnalyticsWriter, applySchema } from "./ingest";
-import { SEED_RULES } from "./rules";
 import { sbiTransactionsSelect } from "./sbi";
 
 /**
  * The DuckDB rebuild (ADR-0002): from raw statement files → derived tables + views. Called by the ingest
  * runner, which holds the sole read-write connection (ADR-0003).
  *
- * Current scope (Slice 3): categories seed, idempotent transaction load, rule-based default splits, and
- * the cash-basis coverage-ratio view. Still to wire: SQLite ATTACH for user rules/overrides/manual splits,
- * investment cashflows/valuations, imputed drawdown, and net-worth snapshots.
+ * Rules, per-transaction overrides, and manual splits are sourced from the SQLite app DB, `ATTACH`ed
+ * read-only (ADR-0004) — so categorisation is editable data, not code. {@link retag} re-derives splits from
+ * them without re-importing the raw CSVs (the cheap "I edited a rule, apply it" path).
  */
 
 export interface RebuildFile {
@@ -31,17 +30,24 @@ async function seedCategories(writer: AnalyticsWriter): Promise<void> {
 	await writer.run(`INSERT INTO categories VALUES ${values}`);
 }
 
-async function seedRules(writer: AnalyticsWriter): Promise<void> {
+/**
+ * `ATTACH` the SQLite app DB read-only (ADR-0004) as `app`, so the rebuild can read user-editable `rules`,
+ * `transaction_overrides`, and `transaction_manual_splits`. The `sqlite` extension ships with DuckDB; INSTALL
+ * is idempotent and tolerated-if-offline (the bundled extension still LOADs).
+ */
+async function attachApp(
+	writer: AnalyticsWriter,
+	sqlitePath: string,
+): Promise<void> {
+	try {
+		await writer.run("INSTALL sqlite");
+	} catch {
+		// already present / offline with the bundled extension — LOAD below still succeeds
+	}
+	await writer.run("LOAD sqlite");
 	await writer.run(
-		`CREATE OR REPLACE TABLE _rules (priority INTEGER, match_type VARCHAR, pattern VARCHAR,
-		 assign_kind VARCHAR, assign_category_key VARCHAR, assign_investment_id INTEGER,
-		 min_amount DOUBLE, max_amount DOUBLE, rid INTEGER)`,
+		`ATTACH ${sqlStr(sqlitePath)} AS app (TYPE sqlite, READ_ONLY)`,
 	);
-	const values = SEED_RULES.map(
-		(r, i) =>
-			`(${r.priority}, ${sqlStr(r.matchType)}, ${sqlStr(r.pattern)}, ${sqlStr(r.kind)}, ${sqlStr(r.categoryKey)}, ${r.investmentId ?? "NULL"}, ${r.minAmount ?? "NULL"}, ${r.maxAmount ?? "NULL"}, ${i})`,
-	).join(", ");
-	await writer.run(`INSERT INTO _rules VALUES ${values}`);
 }
 
 async function count(writer: AnalyticsWriter, sql: string): Promise<number> {
@@ -83,27 +89,43 @@ async function loadFile(
 	};
 }
 
-/** Default one split per transaction from the best-matching seed rule (uncategorized when none match). */
+/**
+ * Derive splits from the ATTACHed app DB (ADR-0004):
+ *  1. `app.transaction_manual_splits` REPLACE the default split for their txn (interest vs principal);
+ *  2. every other txn gets one split from the best-matching **active**, amount-bounded `app.rules` row, then
+ *     `app.transaction_overrides` pins its category/kind (kind falls back to the `categories` table when the
+ *     override left it null). No match → uncategorized/transfer, so unknowns never inflate the KPI.
+ * Deletes existing splits first, so it is safe to re-run standalone — this is the cheap {@link retag} path.
+ */
 async function buildSplits(writer: AnalyticsWriter): Promise<void> {
+	await writer.run("DELETE FROM transaction_splits");
 	await writer.run(`
 		INSERT INTO transaction_splits (txn_id, seq, amount, kind, category_key, investment_id, cashflow_type)
-		WITH matched AS (
-			SELECT t.txn_id,
-				r.assign_kind, r.assign_category_key, r.assign_investment_id,
-				row_number() OVER (PARTITION BY t.txn_id ORDER BY r.priority ASC, r.rid ASC) AS rnk
-			FROM transactions t
-			JOIN _rules r
-				ON ((r.match_type = 'substring' AND t.narration ILIKE '%' || r.pattern || '%')
-					OR (r.match_type = 'regex' AND regexp_matches(t.narration, r.pattern)))
-				AND (r.min_amount IS NULL OR t.amount >= r.min_amount)
-				AND (r.max_amount IS NULL OR t.amount <= r.max_amount)
-		)
+		SELECT ms.txn_id, ms.seq, ms.amount, ms.kind, ms.category_key, ms.investment_id, ms.cashflow_type
+		FROM app.transaction_manual_splits ms
+		WHERE ms.txn_id IN (SELECT txn_id FROM transactions)
+		UNION ALL
 		SELECT t.txn_id, 0 AS seq, t.amount,
-			COALESCE(m.assign_kind, 'transfer') AS kind,
-			COALESCE(m.assign_category_key, 'uncategorized') AS category_key,
+			COALESCE(o.override_kind, oc.kind, m.assign_kind, 'transfer') AS kind,
+			COALESCE(o.override_category_key, m.assign_category_key, 'uncategorized') AS category_key,
 			m.assign_investment_id, NULL AS cashflow_type
 		FROM transactions t
-		LEFT JOIN matched m ON m.txn_id = t.txn_id AND m.rnk = 1`);
+		LEFT JOIN (
+			SELECT txn_id, assign_kind, assign_category_key, assign_investment_id FROM (
+				SELECT t2.txn_id, r.assign_kind, r.assign_category_key, r.assign_investment_id,
+					row_number() OVER (PARTITION BY t2.txn_id ORDER BY r.priority ASC, r.id ASC) AS rnk
+				FROM transactions t2
+				JOIN app.rules r
+					ON ((r.match_type = 'substring' AND t2.narration ILIKE '%' || r.pattern || '%')
+						OR (r.match_type = 'regex' AND regexp_matches(t2.narration, r.pattern)))
+					AND (r.min_amount IS NULL OR t2.amount >= r.min_amount)
+					AND (r.max_amount IS NULL OR t2.amount <= r.max_amount)
+					AND CAST(r.active AS INTEGER) = 1
+			) WHERE rnk = 1
+		) m ON m.txn_id = t.txn_id
+		LEFT JOIN app.transaction_overrides o ON o.txn_id = t.txn_id
+		LEFT JOIN categories oc ON oc.key = o.override_category_key
+		WHERE t.txn_id NOT IN (SELECT txn_id FROM app.transaction_manual_splits)`);
 }
 
 /** Cash-basis KPI views (imputed drawdown + settings wiring come later; ADR-0011). */
@@ -130,6 +152,8 @@ async function createViews(writer: AnalyticsWriter): Promise<void> {
 export interface RebuildOptions {
 	files: RebuildFile[];
 	accountId?: number;
+	/** Absolute path to the SQLite app DB to ATTACH for rules/overrides/manual-splits (ADR-0004). */
+	sqlitePath: string;
 }
 
 export async function rebuild(
@@ -139,7 +163,7 @@ export async function rebuild(
 	const accountId = options.accountId ?? 1;
 	await applySchema(writer);
 	await seedCategories(writer);
-	await seedRules(writer);
+	await attachApp(writer, options.sqlitePath);
 	const reports: ImportReport[] = [];
 	let batchId = 1;
 	for (const file of options.files) {
@@ -149,4 +173,18 @@ export async function rebuild(
 	await buildSplits(writer);
 	await createViews(writer);
 	return reports;
+}
+
+/**
+ * The cheap **re-tag**: re-derive splits + KPI views from the transactions already in DuckDB and the current
+ * ATTACHed app rules/overrides/splits — WITHOUT re-importing raw CSVs or touching the schema. For "I edited a
+ * rule/override, apply it everywhere" — milliseconds, not a full rebuild. Requires a prior full ingest.
+ */
+export async function retag(
+	writer: AnalyticsWriter,
+	sqlitePath: string,
+): Promise<void> {
+	await attachApp(writer, sqlitePath);
+	await buildSplits(writer);
+	await createViews(writer);
 }

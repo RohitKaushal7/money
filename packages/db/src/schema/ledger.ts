@@ -27,6 +27,9 @@ export const rules = sqliteTable(
 		assignKind: text("assign_kind").notNull(),
 		assignCategoryKey: text("assign_category_key").notNull(),
 		assignInvestmentId: integer("assign_investment_id"),
+		/** Signed-amount bounds (INR): the rule fires only when `minAmount <= amount <= maxAmount`. NULL = unbounded. */
+		minAmount: real("min_amount"),
+		maxAmount: real("max_amount"),
 		active: integer("active", { mode: "boolean" }).default(true).notNull(),
 		...timestamps,
 	},
