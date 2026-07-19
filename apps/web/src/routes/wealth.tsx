@@ -179,6 +179,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 							outerRadius="100%"
 							paddingAngle={1.5}
 							stroke="none"
+							isAnimationActive={false}
 						>
 							{data.map((d) => (
 								<Cell key={d.name} fill={d.color} />
