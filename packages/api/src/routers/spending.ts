@@ -39,18 +39,39 @@ export interface CategoryTxn {
 
 export const spendingRouter = {
 	/** Category spend trends vs plan budget: movers table + totals + budgeted-but-unspent footnote. */
-	overview: publicProcedure.handler(async () => {
-		const rows = analyticsReady() ? await expenseRows() : [];
-		const [recurringNative, rates] = await Promise.all([
-			listRecurring(),
-			loadRates(),
-		]);
-		// statement actuals are INR; normalise the (possibly foreign) plan budget to INR to match
-		const recurring = recurringNative.map((r) => recurringToInr(r, rates));
-		// cap the sparkline history to the last 24 months so the bars stay legible as history grows
-		const months = [...new Set(rows.map((r) => r.month))].sort().slice(-24);
-		return spendingTrends({ rows, recurring, months });
-	}),
+	overview: publicProcedure
+		.input(
+			z
+				.object({
+					/** inclusive YYYY-MM-DD lower bound */
+					from: z.string().optional(),
+					/** inclusive YYYY-MM-DD upper bound */
+					to: z.string().optional(),
+				})
+				.optional(),
+		)
+		.handler(async ({ input }) => {
+			const rows = analyticsReady() ? await expenseRows() : [];
+			const [recurringNative, rates] = await Promise.all([
+				listRecurring(),
+				loadRates(),
+			]);
+			// statement actuals are INR; normalise the (possibly foreign) plan budget to INR to match
+			const recurring = recurringNative.map((r) => recurringToInr(r, rates));
+			// scope to the requested date range (v_category_monthly.month is 'YYYY-MM'); cap to the last
+			// 24 months either way so the sparkline bars stay legible as history grows
+			const fromMonth = input?.from?.slice(0, 7);
+			const toMonth = input?.to?.slice(0, 7);
+			const months = [...new Set(rows.map((r) => r.month))]
+				.sort()
+				.filter(
+					(m) =>
+						(fromMonth == null || m >= fromMonth) &&
+						(toMonth == null || m <= toMonth),
+				)
+				.slice(-24);
+			return spendingTrends({ rows, recurring, months });
+		}),
 
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */
 	categoryTransactions: publicProcedure

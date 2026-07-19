@@ -3,6 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
+import {
+	type DateRange,
+	DateRangePicker,
+	resolveRange,
+} from "@/components/date-range-picker";
 import { useMoney } from "@/lib/currency";
 import { formatDay, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -15,21 +20,29 @@ const OUT = "var(--uncovered)"; // spending rising / over budget = the colour of
 const IN = "var(--covered)"; // spending falling / under budget = the colour of relief
 
 function SpendingPage() {
-	const q = useQuery(orpc.spending.overview.queryOptions());
+	const [range, setRange] = useState<DateRange>(() => resolveRange("last-12m"));
+	const q = useQuery(
+		orpc.spending.overview.queryOptions({
+			input: { from: range.from, to: range.to },
+		}),
+	);
 	const res = q.data as SpendingTrends | undefined;
 	const hasData = !!res && res.months.length > 0;
 
 	return (
 		<main className="h-full overflow-y-auto">
 			<div className="mx-auto flex max-w-4xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
-				<header className="flex flex-col gap-1">
-					<h1 className="font-display font-medium text-3xl tracking-tight">
-						Spending
-					</h1>
-					<p className="text-muted-foreground">
-						How much is going out, and which categories are creeping up — each
-						month against its own recent norm and your plan budget.
-					</p>
+				<header className="flex flex-wrap items-start justify-between gap-3">
+					<div className="flex flex-col gap-1">
+						<h1 className="font-display font-medium text-3xl tracking-tight">
+							Spending
+						</h1>
+						<p className="max-w-xl text-muted-foreground">
+							How much is going out, and which categories are creeping up — each
+							month against its own recent norm and your plan budget.
+						</p>
+					</div>
+					<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
 				</header>
 
 				{q.isLoading && <Muted>Loading…</Muted>}
@@ -140,7 +153,7 @@ function MoverRow({
 	);
 }
 
-/** Vertical mini-bars across the window, with a dashed plan-budget reference line. */
+/** Vertical mini-bars across the window, with a dashed plan-budget reference line and a hover label. */
 function Sparkline({
 	values,
 	budget,
@@ -151,32 +164,50 @@ function Sparkline({
 	months: string[];
 }) {
 	const { fmt } = useMoney();
+	const [hover, setHover] = useState<number | null>(null);
 	const max = Math.max(1, ...values, budget);
 	return (
 		<div
 			className="relative hidden h-9 items-end gap-[3px] sm:flex"
+			onMouseLeave={() => setHover(null)}
 			aria-hidden
 		>
 			{budget > 0 && (
 				<div
-					className="absolute inset-x-0 border-muted-foreground/60 border-t border-dashed"
+					className="pointer-events-none absolute inset-x-0 border-muted-foreground/60 border-t border-dashed"
 					style={{ bottom: `${(budget / max) * 100}%` }}
-					title={`budget ${fmt(budget)}`}
 				/>
 			)}
 			{values.map((v, i) => {
 				const last = i === values.length - 1;
+				const active = hover === i;
 				return (
+					// full-height column → a comfortable hit target for the thin bar it holds
+					// biome-ignore lint/a11y/noStaticElementInteractions: decorative aria-hidden sparkline; hover only surfaces a value label already shown numerically in the row
 					<div
 						key={months[i]}
-						title={`${formatMonth(months[i] ?? "")}: ${fmt(v)}`}
-						className="w-1.5 rounded-sm"
-						style={{
-							height: `${Math.max(4, (v / max) * 100)}%`,
-							backgroundColor: OUT,
-							opacity: last ? 1 : 0.35,
-						}}
-					/>
+						onMouseEnter={() => setHover(i)}
+						className="relative flex h-full w-1.5 cursor-default items-end"
+					>
+						<div
+							className="w-full rounded-sm transition-opacity"
+							style={{
+								height: `${Math.max(4, (v / max) * 100)}%`,
+								backgroundColor: OUT,
+								opacity: last || active ? 1 : 0.35,
+							}}
+						/>
+						{active && (
+							<div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[0.65rem] shadow-md">
+								<span className="text-muted-foreground">
+									{formatMonth(months[i] ?? "")}
+								</span>{" "}
+								<span className="tnum font-medium text-popover-foreground">
+									{fmt(v)}
+								</span>
+							</div>
+						)}
+					</div>
 				);
 			})}
 		</div>
