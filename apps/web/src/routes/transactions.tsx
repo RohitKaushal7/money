@@ -48,6 +48,17 @@ const CAT_GROUPS = KIND_ORDER.map((kind) => ({
 	cats: CATEGORIES.filter((c) => c.kind === kind),
 }));
 
+/** One colour per kind, so the category column reads at a glance. Tuned to the warm "data journal" palette. */
+const KIND_COLOR: Record<Kind, string> = {
+	passive_income: "var(--covered)", // green — the money that buys freedom
+	active_income: "oklch(0.66 0.12 235)", // blue — income, but earned
+	expense: "var(--uncovered)", // red — the denominator
+	investment: "oklch(0.64 0.15 300)", // violet — asset moves
+	transfer: "var(--muted-foreground)", // neutral — excluded from the KPI
+};
+const kindColor = (kind: string) =>
+	KIND_COLOR[kind as Kind] ?? "var(--muted-foreground)";
+
 /** contribution/coupon/… tags that link a manual split line to an investment cashflow (spec §4). */
 const CASHFLOW_TYPES = [
 	{ value: "", label: "— flow —" },
@@ -164,6 +175,18 @@ function TransactionsPage() {
 					onUncatOnly={onFilter(setUncatOnly)}
 					uncategorized={summaryQ.data?.uncategorized ?? 0}
 				/>
+
+				<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
+					{KIND_ORDER.map((k) => (
+						<span key={k} className="flex items-center gap-1.5">
+							<span
+								className="size-2 rounded-full"
+								style={{ background: KIND_COLOR[k] }}
+							/>
+							{KIND_LABEL[k]}
+						</span>
+					))}
+				</div>
 
 				<section className="flex flex-col">
 					{txnQ.isLoading && (
@@ -387,7 +410,12 @@ function TxnRow({
 							value={txn.categoryKey}
 							disabled={busy}
 							onChange={(e) => apply(e.target.value)}
-							className={`${SELECT_CLASS} min-w-0 flex-1`}
+							className={`${SELECT_CLASS} min-w-0 flex-1 font-medium`}
+							style={{
+								color: kindColor(txn.kind),
+								borderColor: tint(kindColor(txn.kind), 35),
+								background: tint(kindColor(txn.kind), 7),
+							}}
 						>
 							{CAT_GROUPS.map((g) => (
 								<optgroup key={g.kind} label={g.label}>

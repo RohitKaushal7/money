@@ -113,6 +113,14 @@ export const CATEGORIES: Category[] = [
 		label: "Self / inter-account transfer",
 		kind: "transfer",
 	},
+	// reimbursement: a credit that pays you back for a spend — NOT income. Kept neutral (transfer) so it
+	// never inflates income; if the reimbursed expense is also tracked in this statement, re-tag the row to
+	// `expense` instead to net it against spend (see issue 001 findings).
+	{
+		key: "reimbursement",
+		label: "Reimbursement (not income)",
+		kind: "transfer",
+	},
 	// uncategorised sits in `transfer` so unknowns never silently inflate income OR expenses;
 	// dashboards must surface the uncategorised total prominently for review.
 	{ key: "uncategorized", label: "Uncategorised", kind: "transfer" },
