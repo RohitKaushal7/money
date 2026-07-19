@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCompactINR, formatINR } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
@@ -28,6 +28,35 @@ function daysUntil(iso?: string): number | null {
 	const t = Date.parse(iso);
 	if (Number.isNaN(t)) return null;
 	return Math.round((t - Date.now()) / 86_400_000);
+}
+
+function DonutTip({
+	active,
+	payload,
+}: {
+	active?: boolean;
+	payload?: {
+		payload: {
+			name: string;
+			value: number;
+			share: number;
+			rate: number | null;
+			monthly: number;
+		};
+	}[];
+}) {
+	if (!active || !payload?.length) return null;
+	const d = payload[0]?.payload;
+	if (!d) return null;
+	return (
+		<div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
+			<p className="font-medium text-sm">{d.name}</p>
+			<p className="tnum mt-0.5 text-muted-foreground text-xs">
+				{formatINR(d.value)} · {Math.round(d.share * 100)}% · {pct1(d.rate)} ·{" "}
+				{formatINR(d.monthly)}/mo
+			</p>
+		</div>
+	);
 }
 
 function WealthPage() {
@@ -74,6 +103,8 @@ function Distribution({ w }: { w: WealthSummary }) {
 		name: r.name,
 		value: r.value,
 		share: r.share,
+		rate: r.rate,
+		monthly: r.monthly,
 		color: PALETTE[i % PALETTE.length],
 	}));
 	return (
@@ -94,6 +125,11 @@ function Distribution({ w }: { w: WealthSummary }) {
 								<Cell key={d.name} fill={d.color} />
 							))}
 						</Pie>
+						<Tooltip
+							cursor={false}
+							isAnimationActive={false}
+							content={<DonutTip />}
+						/>
 					</PieChart>
 				</ResponsiveContainer>
 				<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
