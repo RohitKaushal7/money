@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
 	ArrowLeftRight,
+	CreditCard,
 	LayoutGrid,
 	PiggyBank,
 	Receipt,
@@ -25,6 +26,7 @@ type NavItem = {
 		| "/spending"
 		| "/transactions"
 		| "/import"
+		| "/cards"
 		| "/tax"
 		| "/settings";
 };
@@ -37,6 +39,7 @@ const NAV: NavItem[] = [
 	{ label: "Spending", icon: TrendingUp, to: "/spending" },
 	{ label: "Transactions", icon: ArrowLeftRight, to: "/transactions" },
 	{ label: "Import", icon: Upload, to: "/import" },
+	{ label: "Cards", icon: CreditCard, to: "/cards" },
 	{ label: "Tax", icon: Receipt, to: "/tax" },
 	{ label: "Settings", icon: Settings, to: "/settings" },
 ];
