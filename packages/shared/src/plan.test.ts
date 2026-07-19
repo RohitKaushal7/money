@@ -6,6 +6,7 @@ import {
 	isMatured,
 	monthlyAmount,
 	monthlyReturn,
+	netIncomeOfTax,
 	wealthSummary,
 } from "./plan";
 import type { Investment, RecurringExpense } from "./types";
@@ -255,5 +256,38 @@ describe("wealthSummary", () => {
 		const w = wealthSummary({ investments, recurring, today: "2026-07-19" });
 		expect(w.requiredRoi).toBeCloseTo((50_000 * 12) / 1_160_000, 4);
 		expect(w.yearsLeft).toBeCloseTo(1_160_000 / (50_000 * 12), 4);
+	});
+});
+
+describe("netIncomeOfTax", () => {
+	test("scales an income holding's rate by (1 − marginal); value untouched", () => {
+		const n = netIncomeOfTax(
+			inv({ incomeClass: "income", currentValue: 1_000_000, annualRate: 0.07 }),
+			0.312,
+		);
+		expect(n.annualRate).toBeCloseTo(0.07 * 0.688, 6);
+		expect(n.currentValue).toBe(1_000_000);
+	});
+
+	test("leaves growth holdings alone", () => {
+		const g = inv({
+			incomeClass: "growth",
+			currentValue: 1_000_000,
+			annualRate: 0.12,
+		});
+		expect(netIncomeOfTax(g, 0.312)).toEqual(g);
+	});
+
+	test("scales an explicit expectedMonthlyInterest too", () => {
+		const n = netIncomeOfTax(
+			inv({ incomeClass: "income", expectedMonthlyInterest: 6000 }),
+			0.5,
+		);
+		expect(n.expectedMonthlyInterest).toBe(3000);
+	});
+
+	test("a zero/negative rate is a no-op", () => {
+		const i = inv({ incomeClass: "income", annualRate: 0.07 });
+		expect(netIncomeOfTax(i, 0)).toEqual(i);
 	});
 });

@@ -4,6 +4,7 @@ import {
 	coverageLadder,
 	INVESTMENT_TYPES,
 	type Investment,
+	netIncomeOfTax,
 	type RateMap,
 	type RecurringExpense,
 	toInr,
@@ -13,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { publicProcedure } from "../index";
 import { loadRates } from "./currency";
+import { loadAfterTaxEnabled, loadKpiTaxRate } from "./tax";
 
 /**
  * The **Plan** router (ADR-0011 revised / ADR-0014/0015) — reads and writes the SQLite plan (investments +
@@ -158,13 +160,19 @@ function todayISO(): string {
 export const planRouter = {
 	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). INR aggregates. */
 	ladder: publicProcedure.handler(async () => {
-		const [invs, recs, rates] = await Promise.all([
+		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
 			listInvestments(),
 			listRecurring(),
 			loadRates(),
+			loadAfterTaxEnabled(),
+			loadKpiTaxRate(),
 		]);
+		const mapInv = (i: Investment) => {
+			const inr = investmentToInr(i, rates);
+			return afterTax ? netIncomeOfTax(inr, taxRate) : inr;
+		};
 		return coverageLadder({
-			investments: invs.map((i) => investmentToInr(i, rates)),
+			investments: invs.map(mapInv),
 			recurring: recs.map((r) => recurringToInr(r, rates)),
 			today: todayISO(),
 		});
@@ -172,13 +180,19 @@ export const planRouter = {
 
 	/** Portfolio rollup: total wealth, grouped holdings + weighted rate, avg/required ROI, years-left. */
 	wealth: publicProcedure.handler(async () => {
-		const [invs, recs, rates] = await Promise.all([
+		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
 			listInvestments(),
 			listRecurring(),
 			loadRates(),
+			loadAfterTaxEnabled(),
+			loadKpiTaxRate(),
 		]);
+		const mapInv = (i: Investment) => {
+			const inr = investmentToInr(i, rates);
+			return afterTax ? netIncomeOfTax(inr, taxRate) : inr;
+		};
 		return wealthSummary({
-			investments: invs.map((i) => investmentToInr(i, rates)),
+			investments: invs.map(mapInv),
 			recurring: recs.map((r) => recurringToInr(r, rates)),
 			today: todayISO(),
 		});

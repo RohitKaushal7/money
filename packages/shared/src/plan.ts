@@ -81,6 +81,25 @@ export function monthlyReturn(inv: Investment): number {
 		: 0;
 }
 
+/**
+ * Net an income holding's expected **return** by a marginal tax rate (the after-tax KPI switch). Scales
+ * `annualRate` and `expectedMonthlyInterest` by `(1 − rate)`; leaves the holding's **value** (currentValue/
+ * principal) and all growth-class holdings untouched — interest is slab-taxed; growth is CG-taxed elsewhere.
+ */
+export function netIncomeOfTax(inv: Investment, rate: number): Investment {
+	if (inv.incomeClass !== "income" || rate <= 0) return inv;
+	const factor = 1 - rate;
+	return {
+		...inv,
+		annualRate:
+			inv.annualRate != null ? inv.annualRate * factor : inv.annualRate,
+		expectedMonthlyInterest:
+			inv.expectedMonthlyInterest != null
+				? inv.expectedMonthlyInterest * factor
+				: inv.expectedMonthlyInterest,
+	};
+}
+
 export interface LadderTier {
 	/** monthly INR feeding this tier */
 	income: number;
