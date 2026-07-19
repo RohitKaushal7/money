@@ -1,5 +1,7 @@
+import { useQuery } from "@tanstack/react-query";
 import { useMoney } from "@/lib/currency";
 import { formatPct, formatRatio } from "@/lib/format";
+import { orpc } from "@/utils/orpc";
 
 interface CoverageHeroProps {
 	/** expected monthly passive income (the total-tier ladder numerator; ADR-0015) */
@@ -17,6 +19,8 @@ interface CoverageHeroProps {
  */
 export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
 	const m = useMoney();
+	const kpi = useQuery(orpc.tax.getKpiConfig.queryOptions());
+	const afterTax = kpi.data?.enabled ?? false;
 	const passive = interest;
 	const covered = ratio != null && ratio >= 1;
 	const gap = Math.max(0, expenses - passive);
@@ -27,8 +31,13 @@ export function CoverageHero({ interest, expenses, ratio }: CoverageHeroProps) {
 		<section className="flex flex-col gap-8">
 			<div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
 				<div className="max-w-xl">
-					<p className="font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
+					<p className="flex items-center gap-2 font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
 						Passive-income coverage · monthly
+						{afterTax && (
+							<span className="rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] normal-case tracking-normal">
+								after-tax
+							</span>
+						)}
 					</p>
 					<div className="mt-3 flex items-baseline gap-4">
 						<span

@@ -1,5 +1,5 @@
 import { Button } from "@money/ui/components/button";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -18,12 +18,87 @@ function SettingsPage() {
 						Settings
 					</h1>
 					<p className="text-muted-foreground">
-						Currencies and display preferences.
+						Currencies, tax, and display preferences.
 					</p>
 				</header>
 				<Currencies />
+				<TaxKpi />
 			</div>
 		</main>
+	);
+}
+
+/** The after-tax KPI switch — nets interest-type passive income by the marginal rate before coverage. */
+function TaxKpi() {
+	const qc = useQueryClient();
+	const q = useQuery(orpc.tax.getKpiConfig.queryOptions());
+	const set = useMutation({
+		...orpc.tax.setKpiConfig.mutationOptions(),
+		onSuccess: () => qc.invalidateQueries(),
+		onError: (e) => toast.error(e.message),
+	});
+	const enabled = q.data?.enabled ?? true;
+	const rate = q.data?.rate ?? 0.312;
+	const [draft, setDraft] = useState("");
+	const shown = draft === "" ? (rate * 100).toFixed(1) : draft;
+	const dirty = draft !== "" && Number(draft) > 0;
+
+	return (
+		<section className="flex flex-col gap-4">
+			<div className="border-border border-b-2 pb-2">
+				<h2 className="font-display font-medium text-xl">After-tax KPI</h2>
+			</div>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<p className="max-w-md text-muted-foreground text-sm">
+					Net FD / bond / interest income by your marginal rate before the
+					coverage ratio. Rate follows your active-FY tax profile unless
+					overridden.
+				</p>
+				<button
+					type="button"
+					onClick={() => set.mutate({ enabled: !enabled })}
+					className={`rounded-full px-3 py-1.5 font-medium text-sm transition-colors ${
+						enabled
+							? "bg-[var(--covered)]/15 text-[var(--covered)]"
+							: "bg-muted text-muted-foreground"
+					}`}
+				>
+					{enabled ? "After-tax · on" : "After-tax · off"}
+				</button>
+			</div>
+			<div className="flex flex-wrap items-end gap-2">
+				<Field label="Marginal rate %">
+					<input
+						type="text"
+						inputMode="decimal"
+						value={shown}
+						onChange={(e) => setDraft(e.target.value)}
+						className="tnum w-24 rounded-md border border-border bg-background px-2 py-1 text-sm"
+					/>
+				</Field>
+				<Button
+					size="sm"
+					disabled={!dirty || set.isPending}
+					onClick={() => {
+						set.mutate({ rateOverride: Number(draft) / 100 });
+						setDraft("");
+					}}
+				>
+					Override
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={set.isPending}
+					onClick={() => {
+						set.mutate({ rateOverride: null });
+						setDraft("");
+					}}
+				>
+					Use profile rate
+				</Button>
+			</div>
+		</section>
 	);
 }
 
