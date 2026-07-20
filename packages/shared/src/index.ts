@@ -9,6 +9,7 @@
  * - `networth` — the net-worth log series + per-step annualised growth (issue 003).
  * - `reconcile` — expected-vs-actual matching for the statement bridge (ADR-0014 / issue 008).
  * - `spending` — category spend trends vs plan budget (issue 009).
+ * - `statements` — the generic CSV importer mapping contract (spec 2026-07-21).
  */
 
 export * from "./card-categories";
@@ -21,6 +22,7 @@ export * from "./networth";
 export * from "./plan";
 export * from "./reconcile";
 export * from "./spending";
+export * from "./statements";
 export * from "./tax";
 export * from "./tax-reference";
 export * from "./types";

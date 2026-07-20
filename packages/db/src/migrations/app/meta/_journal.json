@@ -15,6 +15,13 @@
       "when": 1784575611458,
       "tag": "0001_mean_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784581064823,
+      "tag": "0002_fat_post",
+      "breakpoints": true
     }
   ]
 }

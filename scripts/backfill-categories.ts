@@ -24,7 +24,7 @@ async function backfill(dir: string, uid: string): Promise<void> {
 	await runAppMigrations(url); // idempotent — ensures the categories table exists
 	const seeded = await seedAppDefaults(url);
 	console.log(
-		`[backfill] ${uid}: +${seeded.categories} categories, +${seeded.rules} rules`,
+		`[backfill] ${uid}: +${seeded.categories} categories, +${seeded.rules} rules, +${seeded.accounts} accounts, +${seeded.formats} formats`,
 	);
 }
 

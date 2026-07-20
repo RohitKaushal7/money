@@ -1,7 +1,15 @@
-import { CATEGORIES, type Kind } from "@money/shared";
+import {
+	CATEGORIES,
+	type Kind,
+	SBI_SEED_FORMAT,
+	statementHeaderSignature,
+} from "@money/shared";
+import { eq } from "drizzle-orm";
 
 import { createAppDb } from "./index";
+import { accounts } from "./schema/accounts";
 import { categories } from "./schema/categories";
+import { statementFormats } from "./schema/formats";
 import { rules } from "./schema/ledger";
 
 /**
@@ -87,15 +95,21 @@ export const GENERIC_SEED_RULES: SeedRuleRow[] = [
 ];
 
 /**
- * Seed a user's `app.db` with default categories + rules, **only where the table is empty** (idempotent).
- * Safe to run on provisioning and on the owner's already-populated db (his non-empty `rules` are left alone).
+ * Seed a user's `app.db` with default categories, rules, the primary account (id 1 — where the historic
+ * hard-coded `account_id=1` transactions post), and the SBI built-in statement format. Each is seeded **only
+ * where absent** (idempotent). Safe to run on provisioning and on the owner's already-populated db.
  */
-export async function seedAppDefaults(
-	url: string,
-): Promise<{ categories: number; rules: number }> {
+export async function seedAppDefaults(url: string): Promise<{
+	categories: number;
+	rules: number;
+	accounts: number;
+	formats: number;
+}> {
 	const db = createAppDb(url);
 	let seededCategories = 0;
 	let seededRules = 0;
+	let seededAccounts = 0;
+	let seededFormats = 0;
 
 	const [existingCategory] = await db
 		.select({ id: categories.id })
@@ -112,5 +126,43 @@ export async function seedAppDefaults(
 		seededRules = GENERIC_SEED_RULES.length;
 	}
 
-	return { categories: seededCategories, rules: seededRules };
+	// Account 1 is the anchor for the SBI format and the historic account_id=1 ledger — ensure it exists.
+	const [account1] = await db
+		.select({ id: accounts.id })
+		.from(accounts)
+		.where(eq(accounts.id, 1))
+		.limit(1);
+	if (!account1) {
+		await db
+			.insert(accounts)
+			.values({ id: 1, name: "Primary account", kind: "savings" });
+		seededAccounts = 1;
+	}
+
+	// SBI built-in format (the original hard-coded parser as a seeded mapping).
+	const [sbiFormat] = await db
+		.select({ id: statementFormats.id })
+		.from(statementFormats)
+		.where(eq(statementFormats.builtin, SBI_SEED_FORMAT.builtin))
+		.limit(1);
+	if (!sbiFormat) {
+		const { quirks, ...mapping } = SBI_SEED_FORMAT.mapping;
+		await db.insert(statementFormats).values({
+			builtin: SBI_SEED_FORMAT.builtin,
+			name: SBI_SEED_FORMAT.name,
+			system: SBI_SEED_FORMAT.system,
+			accountId: SBI_SEED_FORMAT.accountId,
+			headerSignature: statementHeaderSignature(SBI_SEED_FORMAT.headers),
+			...mapping,
+			quirks: JSON.stringify(quirks),
+		});
+		seededFormats = 1;
+	}
+
+	return {
+		categories: seededCategories,
+		rules: seededRules,
+		accounts: seededAccounts,
+		formats: seededFormats,
+	};
 }
