@@ -13,7 +13,7 @@ import {
 	cardRewardRules,
 	cardSpendProfile,
 	cards,
-	db,
+	createControlDb,
 	settings,
 } from "@money/db";
 import { eq } from "drizzle-orm";
@@ -21,6 +21,8 @@ import { parse as parseYaml } from "yaml";
 import { mapCategory, parseFee, parseRate } from "./cards-parse";
 
 // ── I/O below (the pure parse helpers live in ./cards-parse and are unit-tested there) ────────────────
+
+const db = createControlDb();
 
 const INFO_DIR = fileURLToPath(new URL("../packages/info", import.meta.url));
 

@@ -19,9 +19,3 @@ export function createAppDb(url: string) {
 
 export type ControlDb = ReturnType<typeof createControlDb>;
 export type AppDb = ReturnType<typeof createAppDb>;
-
-/** Back-compat singleton (control DB). Removed in a later task once every router uses context dbs. */
-export const db = createControlDb();
-
-/** @deprecated Temporary alias for `createControlDb`, kept only so `@money/auth` keeps compiling. Remove in the routing-switch task. */
-export const createDb = createControlDb;

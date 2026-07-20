@@ -1,33 +1,32 @@
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { type AnalyticsReader, openReadOnly } from "@money/analytics";
-import { env } from "@money/env/server";
+import {
+	type AnalyticsReader,
+	openReadOnly,
+	userDuckdbPath,
+} from "@money/analytics";
+import { dataDir } from "./paths";
 
 /**
- * Read-only access to the analytical DuckDB from the API (ADR-0003). The API NEVER opens it read-write;
- * writes happen only through the ingest runner. A short-lived connection is opened per call so the ingest
- * process can acquire the single-writer lock between requests.
+ * Read-only access to a USER's analytical DuckDB (ADR-0003). The API NEVER opens it read-write; writes happen
+ * only through the ingest runner. A short-lived connection is opened per call so the ingest process can
+ * acquire the single-writer lock between requests.
  */
 
-/** Resolve the DuckDB path: `ANALYTICS_DB_PATH` env override, else `<repo-root>/data/analytics.duckdb`. */
-function analyticsDbPath(): string {
-	if (env.ANALYTICS_DB_PATH) return env.ANALYTICS_DB_PATH;
-	// this file is packages/api/src/analytics.ts → repo root is three levels up
-	return fileURLToPath(
-		new URL("../../../data/analytics.duckdb", import.meta.url),
-	);
+function dbPath(uid: string): string {
+	return userDuckdbPath(dataDir(), uid);
 }
 
-/** Whether an analytical DB exists yet (i.e. `bun run ingest` has produced one). */
-export function analyticsReady(): boolean {
-	return existsSync(analyticsDbPath());
+/** Whether a user's analytical DB exists yet (i.e. their ingest has produced one). */
+export function analyticsReady(uid: string): boolean {
+	return existsSync(dbPath(uid));
 }
 
-/** Open a read-only reader, run `fn`, and always close. Throws if no DB exists — guard with {@link analyticsReady}. */
+/** Open a read-only reader on the user's DuckDB, run `fn`, always close. Guard with `analyticsReady(uid)`. */
 export async function withReader<T>(
+	uid: string,
 	fn: (reader: AnalyticsReader) => Promise<T>,
 ): Promise<T> {
-	const reader = await openReadOnly({ dbPath: analyticsDbPath() });
+	const reader = await openReadOnly({ dbPath: dbPath(uid) });
 	try {
 		return await fn(reader);
 	} finally {

@@ -1,4 +1,4 @@
-import { currencies, db, settings } from "@money/db";
+import { type AppDb, type ControlDb, currencies, settings } from "@money/db";
 import {
 	BASE_CURRENCY,
 	type CurrencyConfig,
@@ -24,8 +24,8 @@ const DISPLAY_KEY = "display_currency";
 const FRANKFURTER = "https://api.frankfurter.dev/v1/latest";
 
 /** Read the active display currency (defaults to INR). */
-export async function loadDisplay(): Promise<string> {
-	const [row] = await db
+export async function loadDisplay(appDb: AppDb): Promise<string> {
+	const [row] = await appDb
 		.select()
 		.from(settings)
 		.where(eq(settings.key, DISPLAY_KEY));
@@ -33,8 +33,8 @@ export async function loadDisplay(): Promise<string> {
 }
 
 /** `code → rateToInr` map for normalising foreign amounts to INR. */
-export async function loadRates(): Promise<RateMap> {
-	const rows = await db.select().from(currencies);
+export async function loadRates(controlDb: ControlDb): Promise<RateMap> {
+	const rows = await controlDb.select().from(currencies);
 	return ratesOf(
 		rows.map((r) => ({
 			code: r.code,
@@ -45,10 +45,13 @@ export async function loadRates(): Promise<RateMap> {
 	);
 }
 
-export async function loadConfig(): Promise<CurrencyConfig> {
+export async function loadConfig(
+	controlDb: ControlDb,
+	appDb: AppDb,
+): Promise<CurrencyConfig> {
 	const [rows, display] = await Promise.all([
-		db.select().from(currencies),
-		loadDisplay(),
+		controlDb.select().from(currencies),
+		loadDisplay(appDb),
 	]);
 	return {
 		base: BASE_CURRENCY,
@@ -88,24 +91,28 @@ async function fetchRateToInr(code: string): Promise<number | null> {
 
 export const currencyRouter = {
 	/** The full currency config: every currency + the active display currency. */
-	config: publicProcedure.handler(() => loadConfig()),
+	config: publicProcedure.handler(({ context }) =>
+		loadConfig(context.controlDb, context.appDb),
+	),
 
 	/** Switch the active display currency (must be an enabled currency). */
-	setDisplay: publicProcedure.input(codeInput).handler(async ({ input }) => {
-		const [cur] = await db
-			.select()
-			.from(currencies)
-			.where(eq(currencies.code, input.code));
-		if (!cur || !cur.enabled) throw new Error("currency not enabled");
-		await db
-			.insert(settings)
-			.values({ key: DISPLAY_KEY, value: input.code })
-			.onConflictDoUpdate({
-				target: settings.key,
-				set: { value: input.code },
-			});
-		return loadConfig();
-	}),
+	setDisplay: publicProcedure
+		.input(codeInput)
+		.handler(async ({ context, input }) => {
+			const [cur] = await context.controlDb
+				.select()
+				.from(currencies)
+				.where(eq(currencies.code, input.code));
+			if (!cur || !cur.enabled) throw new Error("currency not enabled");
+			await context.appDb
+				.insert(settings)
+				.values({ key: DISPLAY_KEY, value: input.code })
+				.onConflictDoUpdate({
+					target: settings.key,
+					set: { value: input.code },
+				});
+			return loadConfig(context.controlDb, context.appDb);
+		}),
 
 	/** Add or update a currency (symbol / manual rate / enabled). INR's rate is pinned to 1. */
 	upsert: publicProcedure
@@ -116,10 +123,10 @@ export const currencyRouter = {
 				enabled: z.boolean().optional(),
 			}),
 		)
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const rateToInr =
 				input.code === BASE_CURRENCY ? 1 : (input.rateToInr ?? undefined);
-			await db
+			await context.controlDb
 				.insert(currencies)
 				.values({
 					code: input.code,
@@ -135,35 +142,38 @@ export const currencyRouter = {
 						...(input.enabled != null ? { enabled: input.enabled } : {}),
 					},
 				});
-			return loadConfig();
+			return loadConfig(context.controlDb, context.appDb);
 		}),
 
 	/** Set a manual INR-per-unit rate for one currency. */
 	setRate: publicProcedure
 		.input(codeInput.extend({ rateToInr: z.number().positive() }))
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			if (input.code === BASE_CURRENCY) throw new Error("INR is the base (=1)");
-			await db
+			await context.controlDb
 				.update(currencies)
 				.set({ rateToInr: input.rateToInr })
 				.where(eq(currencies.code, input.code));
-			return loadConfig();
+			return loadConfig(context.controlDb, context.appDb);
 		}),
 
 	/** Refresh every non-INR currency's rate from frankfurter.dev (ECB). Skips any that fail. */
-	refresh: publicProcedure.handler(async () => {
-		const rows = await db.select().from(currencies);
+	refresh: publicProcedure.handler(async ({ context }) => {
+		const rows = await context.controlDb.select().from(currencies);
 		const updated: string[] = [];
 		for (const row of rows) {
 			if (row.code === BASE_CURRENCY) continue;
 			const rate = await fetchRateToInr(row.code);
 			if (rate == null) continue;
-			await db
+			await context.controlDb
 				.update(currencies)
 				.set({ rateToInr: rate })
 				.where(eq(currencies.code, row.code));
 			updated.push(row.code);
 		}
-		return { updated, config: await loadConfig() };
+		return {
+			updated,
+			config: await loadConfig(context.controlDb, context.appDb),
+		};
 	}),
 };

@@ -1,4 +1,4 @@
-import { db, settings, taxProfiles } from "@money/db";
+import { type AppDb, settings, taxProfiles } from "@money/db";
 import {
 	breakevenDeduction,
 	type CapitalGains,
@@ -90,11 +90,12 @@ function toInputs(row: ProfileRow | undefined, ledgerRent: number): TaxInputs {
 /** Σ taxable passive income + Σ salary/rent over an FY's Apr–Mar window (DuckDB, read-only). */
 async function ledgerIncome(
 	fy: string,
+	uid: string,
 ): Promise<{ passive: number; salary: number; rent: number }> {
-	if (!analyticsReady()) return { passive: 0, salary: 0, rent: 0 };
+	if (!analyticsReady(uid)) return { passive: 0, salary: 0, rent: 0 };
 	const { start, endExclusive } = fyBounds(fyStartYear(fy));
 	const keyList = TAXABLE_PASSIVE_KEYS.map((k) => `'${k}'`).join(",");
-	return withReader(async (reader) => {
+	return withReader(uid, async (reader) => {
 		const [row] = await reader.query<{
 			passive: number;
 			salary: number;
@@ -117,8 +118,11 @@ async function ledgerIncome(
 	});
 }
 
-async function loadProfile(fy: string): Promise<ProfileRow | undefined> {
-	const [row] = await db
+async function loadProfile(
+	fy: string,
+	appDb: AppDb,
+): Promise<ProfileRow | undefined> {
+	const [row] = await appDb
 		.select()
 		.from(taxProfiles)
 		.where(eq(taxProfiles.fy, fy));
@@ -126,8 +130,11 @@ async function loadProfile(fy: string): Promise<ProfileRow | undefined> {
 }
 
 /** The marginal rate the after-tax KPI uses: override → active-FY profile → default 31.2%. */
-export async function loadKpiTaxRate(): Promise<number> {
-	const [override] = await db
+export async function loadKpiTaxRate(
+	appDb: AppDb,
+	uid: string,
+): Promise<number> {
+	const [override] = await appDb
 		.select()
 		.from(settings)
 		.where(eq(settings.key, RATE_OVERRIDE_KEY));
@@ -136,12 +143,12 @@ export async function loadKpiTaxRate(): Promise<number> {
 	}
 	const fy = currentFy();
 	try {
-		const row = await loadProfile(fy);
+		const row = await loadProfile(fy, appDb);
 		if (!row) return DEFAULT_MARGINAL_RATE;
-		const { rent } = await ledgerIncome(fy);
+		const { rent } = await ledgerIncome(fy, uid);
 		const inputs = toInputs(row, rent);
 		if (row.otherIncome == null) {
-			inputs.otherIncome = (await ledgerIncome(fy)).passive;
+			inputs.otherIncome = (await ledgerIncome(fy, uid)).passive;
 		}
 		const regime =
 			(row.regimeChoice as "old" | "new" | null) ??
@@ -153,8 +160,8 @@ export async function loadKpiTaxRate(): Promise<number> {
 }
 
 /** Whether the after-tax KPI switch is on (default true). */
-export async function loadAfterTaxEnabled(): Promise<boolean> {
-	const [row] = await db
+export async function loadAfterTaxEnabled(appDb: AppDb): Promise<boolean> {
+	const [row] = await appDb
 		.select()
 		.from(settings)
 		.where(eq(settings.key, AFTER_TAX_KEY));
@@ -188,8 +195,11 @@ export const taxRouter = {
 	/** Ledger-derived income suggestions for a FY (passive auto-summed; salary is a hint only). */
 	suggestIncome: publicProcedure
 		.input(z.object({ fy: z.string() }))
-		.handler(async ({ input }) => {
-			const { passive, salary, rent } = await ledgerIncome(input.fy);
+		.handler(async ({ context, input }) => {
+			const { passive, salary, rent } = await ledgerIncome(
+				input.fy,
+				context.uid,
+			);
 			return {
 				fy: input.fy,
 				passive,
@@ -202,7 +212,10 @@ export const taxRouter = {
 	/** The stored profile for a FY (or null). */
 	get: publicProcedure
 		.input(z.object({ fy: z.string() }))
-		.handler(async ({ input }) => (await loadProfile(input.fy)) ?? null),
+		.handler(
+			async ({ context, input }) =>
+				(await loadProfile(input.fy, context.appDb)) ?? null,
+		),
 
 	/** Upsert the confirmed profile. */
 	upsert: publicProcedure
@@ -221,22 +234,22 @@ export const taxRouter = {
 				notes: z.string().nullish(),
 			}),
 		)
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const values = defined(input);
-			await db
+			await context.appDb
 				.insert(taxProfiles)
 				.values({ ...values, fy: input.fy })
 				.onConflictDoUpdate({ target: taxProfiles.fy, set: values });
-			return (await loadProfile(input.fy)) ?? null;
+			return (await loadProfile(input.fy, context.appDb)) ?? null;
 		}),
 
 	/** Old-vs-new comparison + breakeven + LTCG headroom for a FY. */
 	compute: publicProcedure
 		.input(z.object({ fy: z.string() }))
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const [row, ledger] = await Promise.all([
-				loadProfile(input.fy),
-				ledgerIncome(input.fy),
+				loadProfile(input.fy, context.appDb),
+				ledgerIncome(input.fy, context.uid),
 			]);
 			const inputs = toInputs(row, ledger.rent);
 			// fall back to the ledger's taxable passive sum when the profile hasn't stored otherIncome yet
@@ -255,18 +268,18 @@ export const taxRouter = {
 	/** Pin the regime so a closed FY stays locked. */
 	finalize: publicProcedure
 		.input(z.object({ fy: z.string(), regimeChoice: z.enum(["old", "new"]) }))
-		.handler(async ({ input }) => {
-			await db
+		.handler(async ({ context, input }) => {
+			await context.appDb
 				.update(taxProfiles)
 				.set({ regimeChoice: input.regimeChoice })
 				.where(eq(taxProfiles.fy, input.fy));
-			return (await loadProfile(input.fy)) ?? null;
+			return (await loadProfile(input.fy, context.appDb)) ?? null;
 		}),
 
 	/** The after-tax KPI knobs (switch + effective rate). */
-	getKpiConfig: publicProcedure.handler(async () => ({
-		enabled: await loadAfterTaxEnabled(),
-		rate: await loadKpiTaxRate(),
+	getKpiConfig: publicProcedure.handler(async ({ context }) => ({
+		enabled: await loadAfterTaxEnabled(context.appDb),
+		rate: await loadKpiTaxRate(context.appDb, context.uid),
 	})),
 
 	/** Toggle the switch and/or set a manual rate override (null clears it). */
@@ -277,9 +290,9 @@ export const taxRouter = {
 				rateOverride: z.number().positive().nullish(),
 			}),
 		)
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			if (input.enabled != null) {
-				await db
+				await context.appDb
 					.insert(settings)
 					.values({ key: AFTER_TAX_KEY, value: input.enabled })
 					.onConflictDoUpdate({
@@ -289,9 +302,11 @@ export const taxRouter = {
 			}
 			if (input.rateOverride !== undefined) {
 				if (input.rateOverride === null) {
-					await db.delete(settings).where(eq(settings.key, RATE_OVERRIDE_KEY));
+					await context.appDb
+						.delete(settings)
+						.where(eq(settings.key, RATE_OVERRIDE_KEY));
 				} else {
-					await db
+					await context.appDb
 						.insert(settings)
 						.values({ key: RATE_OVERRIDE_KEY, value: input.rateOverride })
 						.onConflictDoUpdate({
@@ -301,8 +316,8 @@ export const taxRouter = {
 				}
 			}
 			return {
-				enabled: await loadAfterTaxEnabled(),
-				rate: await loadKpiTaxRate(),
+				enabled: await loadAfterTaxEnabled(context.appDb),
+				rate: await loadKpiTaxRate(context.appDb, context.uid),
 			};
 		}),
 };

@@ -1,4 +1,4 @@
-import { db, transactionOverrides } from "@money/db";
+import { type AppDb, transactionOverrides } from "@money/db";
 import { reconcile, type StatementCredit } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
@@ -21,8 +21,11 @@ function todayISO(): string {
 }
 
 /** Pull month M's positive credits + their primary-split kind from the analytical DB (read-only). */
-async function monthCredits(month: string): Promise<StatementCredit[]> {
-	return withReader((reader) =>
+async function monthCredits(
+	month: string,
+	uid: string,
+): Promise<StatementCredit[]> {
+	return withReader(uid, (reader) =>
 		reader.query<StatementCredit>(
 			`SELECT t.txn_id AS "txnId",
 				CAST(t.txn_date AS VARCHAR) AS date,
@@ -46,8 +49,9 @@ async function monthCredits(month: string): Promise<StatementCredit[]> {
  */
 async function applyOverrides(
 	credits: StatementCredit[],
+	appDb: AppDb,
 ): Promise<StatementCredit[]> {
-	const rows = await db.select().from(transactionOverrides);
+	const rows = await appDb.select().from(transactionOverrides);
 	if (rows.length === 0) return credits;
 	const byTxn = new Map(rows.map((r) => [r.txnId, r]));
 	return credits.map((c) => {
@@ -71,20 +75,24 @@ const monthInput = z.object({
 
 export const reconcileRouter = {
 	/** Expected-vs-actual for a month: received/pending/missed events + unrecognised-credit suggestions. */
-	month: publicProcedure.input(monthInput).handler(async ({ input }) => {
-		const today = todayISO();
-		const month = input.month ?? today.slice(0, 7);
-		const investments = await listInvestments();
-		// No statement ingested yet → still show the expected side (all pending/missed); no credits, no matches.
-		const raw = analyticsReady() ? await monthCredits(month) : [];
-		const credits = await applyOverrides(raw);
-		return reconcile({ investments, credits, month, today });
-	}),
+	month: publicProcedure
+		.input(monthInput)
+		.handler(async ({ context, input }) => {
+			const today = todayISO();
+			const month = input.month ?? today.slice(0, 7);
+			const investments = await listInvestments(context.appDb);
+			// No statement ingested yet → still show the expected side (all pending/missed); no credits, no matches.
+			const raw = analyticsReady(context.uid)
+				? await monthCredits(month, context.uid)
+				: [];
+			const credits = await applyOverrides(raw, context.appDb);
+			return reconcile({ investments, credits, month, today });
+		}),
 
 	/** Statement months available to reconcile (newest first), for the picker. */
-	months: publicProcedure.handler(async (): Promise<string[]> => {
-		if (!analyticsReady()) return [];
-		const rows = await withReader((reader) =>
+	months: publicProcedure.handler(async ({ context }): Promise<string[]> => {
+		if (!analyticsReady(context.uid)) return [];
+		const rows = await withReader(context.uid, (reader) =>
 			reader.query<{ month: string }>(
 				"SELECT DISTINCT month FROM transactions ORDER BY month DESC",
 			),

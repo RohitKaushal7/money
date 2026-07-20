@@ -1,4 +1,4 @@
-import { db, transactionOverrides } from "@money/db";
+import { transactionOverrides } from "@money/db";
 import { CATEGORY_BY_KEY } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -15,7 +15,9 @@ import { publicProcedure } from "../index";
  */
 export const overridesRouter = {
 	/** All current overrides (txnId → category/kind). */
-	list: publicProcedure.handler(() => db.select().from(transactionOverrides)),
+	list: publicProcedure.handler(({ context }) =>
+		context.appDb.select().from(transactionOverrides),
+	),
 
 	/** Pin a transaction to a category (kind derived from the taxonomy). Upserts on txnId. */
 	set: publicProcedure
@@ -26,9 +28,9 @@ export const overridesRouter = {
 				note: z.string().optional(),
 			}),
 		)
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const kind = CATEGORY_BY_KEY.get(input.categoryKey)?.kind ?? null;
-			await db
+			await context.appDb
 				.insert(transactionOverrides)
 				.values({
 					txnId: input.txnId,
@@ -50,8 +52,8 @@ export const overridesRouter = {
 	/** Remove a transaction's override (revert to the rule-assigned category). */
 	clear: publicProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
-		.handler(async ({ input }) => {
-			await db
+		.handler(async ({ context, input }) => {
+			await context.appDb
 				.delete(transactionOverrides)
 				.where(eq(transactionOverrides.txnId, input.txnId));
 			return { ok: true };

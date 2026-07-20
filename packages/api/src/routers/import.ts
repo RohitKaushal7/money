@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
 	existsSync,
+	mkdirSync,
 	readdirSync,
 	rmSync,
 	statSync,
@@ -8,27 +9,21 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fromRoot, RAW_DIR_RELATIVE_PATH } from "@money/analytics";
+import { userRawDir } from "@money/analytics";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { publicProcedure } from "../index";
-import {
-	ingestErrorMessage,
-	REPO_ROOT,
-	runDryRun,
-	runRebuild,
-} from "../ingest-runner";
+import { ingestErrorMessage, runDryRun, runRebuild } from "../ingest-runner";
+import { dataDir } from "../paths";
 
 /**
  * Paste-CSV import (ADR-0013): the browser posts statement text, the API persists it as an immutable raw
- * file under `data/raw/` (ADR-0002) and spawns the ingest runner — it NEVER opens DuckDB read-write itself.
- * `dryRun` previews new-vs-duplicate counts before anything is written.
+ * file under the user's `raw/` dir (ADR-0002) and spawns the ingest runner — it NEVER opens DuckDB
+ * read-write itself. `dryRun` previews new-vs-duplicate counts before anything is written.
  *
  * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard; must become `protectedProcedure`
  * before any non-tailnet exposure (ADR-0006) — this ingests financial data.
  */
-
-const RAW_DIR = fromRoot(REPO_ROOT, RAW_DIR_RELATIVE_PATH);
 
 /** Stable short digest of the CSV content — re-pasting identical content maps to the same raw filename. */
 function contentHash(csv: string): string {
@@ -52,12 +47,12 @@ export interface DryRunCounts {
 	rowsConflict: number;
 }
 
-/** Write the CSV to a temp file and count new/duplicate rows via the runner. Never touches `data/raw`. */
-async function previewCsv(csv: string): Promise<DryRunCounts> {
+/** Write the CSV to a temp file and count new/duplicate rows via the runner. Never touches the raw dir. */
+async function previewCsv(csv: string, uid: string): Promise<DryRunCounts> {
 	const tmp = join(tmpdir(), `money-import-${contentHash(csv)}.csv`);
 	writeFileSync(tmp, csv);
 	try {
-		const r = await runDryRun(tmp);
+		const r = await runDryRun(uid, tmp);
 		if (!r.ok || r.result?.mode !== "dryrun") {
 			throw new ORPCError("BAD_REQUEST", {
 				message: `Could not parse that CSV: ${ingestErrorMessage(r)}`,
@@ -76,57 +71,64 @@ async function previewCsv(csv: string): Promise<DryRunCounts> {
 
 export const importRouter = {
 	/** Preview: how many rows are new vs already imported. Writes nothing. */
-	dryRun: publicProcedure.input(csvInput).handler(({ input }) => {
+	dryRun: publicProcedure.input(csvInput).handler(({ context, input }) => {
 		if (!looksLikeStatement(input.csv)) {
 			throw new ORPCError("BAD_REQUEST", {
 				message:
 					"That doesn't look like an SBI statement export (no Date/Balance header).",
 			});
 		}
-		return previewCsv(input.csv);
+		return previewCsv(input.csv, context.uid);
 	}),
 
 	/**
-	 * Persist the pasted CSV as an immutable `data/raw/pasted-<hash>.csv` (re-pasting identical content is a
-	 * no-op) and rebuild. Validates the parse FIRST so a bad file never lands in `data/raw` (it would poison
+	 * Persist the pasted CSV as an immutable `raw/pasted-<hash>.csv` (re-pasting identical content is a
+	 * no-op) and rebuild. Validates the parse FIRST so a bad file never lands in the raw dir (it would poison
 	 * every future rebuild); rolls the file back if the rebuild itself fails.
 	 */
-	commit: publicProcedure.input(csvInput).handler(async ({ input }) => {
-		if (!looksLikeStatement(input.csv)) {
-			throw new ORPCError("BAD_REQUEST", {
-				message:
-					"That doesn't look like an SBI statement export (no Date/Balance header).",
-			});
-		}
-		const counts = await previewCsv(input.csv);
-		const file = `pasted-${contentHash(input.csv)}.csv`;
-		const dest = join(RAW_DIR, file);
-		const alreadyPresent = existsSync(dest);
-		if (!alreadyPresent) writeFileSync(dest, input.csv);
-		const r = await runRebuild();
-		if (!r.ok) {
-			if (!alreadyPresent) rmSync(dest, { force: true }); // rollback
-			throw new ORPCError("INTERNAL_SERVER_ERROR", {
-				message: `Import rebuild failed: ${ingestErrorMessage(r)}`,
-			});
-		}
-		return {
-			file,
-			alreadyPresent,
-			...counts,
-			transactions: Number(r.result?.transactions ?? 0),
-			uncategorized: Number(r.result?.uncategorized ?? 0),
-		};
-	}),
+	commit: publicProcedure
+		.input(csvInput)
+		.handler(async ({ context, input }) => {
+			if (!looksLikeStatement(input.csv)) {
+				throw new ORPCError("BAD_REQUEST", {
+					message:
+						"That doesn't look like an SBI statement export (no Date/Balance header).",
+				});
+			}
+			const rawDir = userRawDir(dataDir(), context.uid);
+			const counts = await previewCsv(input.csv, context.uid);
+			const file = `pasted-${contentHash(input.csv)}.csv`;
+			const dest = join(rawDir, file);
+			const alreadyPresent = existsSync(dest);
+			if (!alreadyPresent) {
+				mkdirSync(rawDir, { recursive: true });
+				writeFileSync(dest, input.csv);
+			}
+			const r = await runRebuild(context.uid);
+			if (!r.ok) {
+				if (!alreadyPresent) rmSync(dest, { force: true }); // rollback
+				throw new ORPCError("INTERNAL_SERVER_ERROR", {
+					message: `Import rebuild failed: ${ingestErrorMessage(r)}`,
+				});
+			}
+			return {
+				file,
+				alreadyPresent,
+				...counts,
+				transactions: Number(r.result?.transactions ?? 0),
+				uncategorized: Number(r.result?.uncategorized ?? 0),
+			};
+		}),
 
 	/** Raw statement files currently feeding the rebuild. */
-	listRaw: publicProcedure.handler(() => {
-		if (!existsSync(RAW_DIR)) return [];
-		return readdirSync(RAW_DIR)
+	listRaw: publicProcedure.handler(({ context }) => {
+		const rawDir = userRawDir(dataDir(), context.uid);
+		if (!existsSync(rawDir)) return [];
+		return readdirSync(rawDir)
 			.filter((f) => f.toLowerCase().endsWith(".csv"))
 			.sort()
 			.map((f) => {
-				const s = statSync(join(RAW_DIR, f));
+				const s = statSync(join(rawDir, f));
 				return { name: f, bytes: s.size, modified: s.mtime.toISOString() };
 			});
 	}),
@@ -134,7 +136,7 @@ export const importRouter = {
 	/** Remove a raw file (undo an import) and rebuild without it. */
 	remove: publicProcedure
 		.input(z.object({ name: z.string().min(1) }))
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const { name } = input;
 			if (
 				name.includes("/") ||
@@ -143,12 +145,13 @@ export const importRouter = {
 			) {
 				throw new ORPCError("BAD_REQUEST", { message: "Invalid file name." });
 			}
-			const target = join(RAW_DIR, name);
+			const rawDir = userRawDir(dataDir(), context.uid);
+			const target = join(rawDir, name);
 			if (!existsSync(target)) {
 				throw new ORPCError("NOT_FOUND", { message: "No such raw file." });
 			}
 			rmSync(target, { force: true });
-			const r = await runRebuild();
+			const r = await runRebuild(context.uid);
 			if (!r.ok) {
 				throw new ORPCError("INTERNAL_SERVER_ERROR", {
 					message: `Rebuild after removal failed: ${ingestErrorMessage(r)}`,

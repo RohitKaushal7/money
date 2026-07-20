@@ -1,4 +1,9 @@
-import { db, investments, networthLogs } from "@money/db";
+import {
+	type AppDb,
+	type ControlDb,
+	investments,
+	networthLogs,
+} from "@money/db";
 import { type NetworthLog, networthSeries, toInr } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -38,9 +43,9 @@ const dateInput = z
 	.regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 
 /** Sum, per account, of the balance of its most recent statement row = the cash leg of net worth. */
-async function cashOnHand(): Promise<number> {
-	if (!analyticsReady()) return 0;
-	return withReader(async (reader) => {
+async function cashOnHand(uid: string): Promise<number> {
+	if (!analyticsReady(uid)) return 0;
+	return withReader(uid, async (reader) => {
 		const rows = await reader.query<{ cash: number }>(
 			`SELECT COALESCE(SUM(latest_balance), 0) AS cash FROM (
 			   SELECT account_id, last(balance ORDER BY txn_date) AS latest_balance
@@ -52,24 +57,28 @@ async function cashOnHand(): Promise<number> {
 }
 
 /** Σ current_value (normalised to INR) across live investments — matured principal still counts as wealth. */
-async function investmentValue(): Promise<number> {
+async function investmentValue(
+	appDb: AppDb,
+	controlDb: ControlDb,
+): Promise<number> {
 	const [rows, rates] = await Promise.all([
-		db
+		appDb
 			.select({ v: investments.currentValue, currency: investments.currency })
 			.from(investments)
 			.where(eq(investments.active, true)),
-		loadRates(),
+		loadRates(controlDb),
 	]);
 	return rows.reduce((sum, r) => sum + toInr(r.v ?? 0, r.currency, rates), 0);
 }
 
 async function upsertLog(
+	appDb: AppDb,
 	asOf: string,
 	value: number,
 	source: "manual" | "computed",
 	note?: string,
 ): Promise<void> {
-	await db
+	await appDb
 		.insert(networthLogs)
 		.values({ asOf, value, source, note })
 		.onConflictDoUpdate({
@@ -80,20 +89,26 @@ async function upsertLog(
 
 export const networthRouter = {
 	/** The full chronological series with per-step annualised growth + the headline CAGR. */
-	list: publicProcedure.handler(async () => {
-		const rows = await db.select().from(networthLogs);
+	list: publicProcedure.handler(async ({ context }) => {
+		const rows = await context.appDb.select().from(networthLogs);
 		return networthSeries(rows.map(toLog));
 	}),
 
 	/** Compute today's net worth (cash + Σ current_value) and log it (source = computed; upserts today). */
-	logToday: publicProcedure.handler(async () => {
+	logToday: publicProcedure.handler(async ({ context }) => {
 		const [cash, invested] = await Promise.all([
-			cashOnHand(),
-			investmentValue(),
+			cashOnHand(context.uid),
+			investmentValue(context.appDb, context.controlDb),
 		]);
 		const asOf = todayISO();
 		const value = Math.round((cash + invested) * 100) / 100;
-		await upsertLog(asOf, value, "computed", "auto: cash + Σ current_value");
+		await upsertLog(
+			context.appDb,
+			asOf,
+			value,
+			"computed",
+			"auto: cash + Σ current_value",
+		);
 		return { asOf, value, cash, invested };
 	}),
 
@@ -106,16 +121,24 @@ export const networthRouter = {
 				note: z.string().optional(),
 			}),
 		)
-		.handler(async ({ input }) => {
-			await upsertLog(input.asOf, input.value, "manual", input.note);
+		.handler(async ({ context, input }) => {
+			await upsertLog(
+				context.appDb,
+				input.asOf,
+				input.value,
+				"manual",
+				input.note,
+			);
 			return { ok: true };
 		}),
 
 	/** Delete a logged point by id. */
 	remove: publicProcedure
 		.input(z.object({ id: z.coerce.number().int().positive() }))
-		.handler(async ({ input }) => {
-			await db.delete(networthLogs).where(eq(networthLogs.id, input.id));
+		.handler(async ({ context, input }) => {
+			await context.appDb
+				.delete(networthLogs)
+				.where(eq(networthLogs.id, input.id));
 			return { ok: true };
 		}),
 };

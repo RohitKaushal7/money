@@ -1,4 +1,4 @@
-import { db, transactionManualSplits } from "@money/db";
+import { transactionManualSplits } from "@money/db";
 import { CATEGORY_BY_KEY } from "@money/shared";
 import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
@@ -28,8 +28,8 @@ export const splitsRouter = {
 	/** The manual split lines for a transaction (empty = uses the default rule-derived split). */
 	get: publicProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
-		.handler(({ input }) =>
-			db
+		.handler(({ context, input }) =>
+			context.appDb
 				.select()
 				.from(transactionManualSplits)
 				.where(eq(transactionManualSplits.txnId, input.txnId))
@@ -44,9 +44,9 @@ export const splitsRouter = {
 				lines: z.array(lineSchema).min(1),
 			}),
 		)
-		.handler(async ({ input }) => {
-			if (analyticsReady()) {
-				const [txn] = await withReader((reader) =>
+		.handler(async ({ context, input }) => {
+			if (analyticsReady(context.uid)) {
+				const [txn] = await withReader(context.uid, (reader) =>
 					reader.query<{ amount: number }>(
 						"SELECT amount FROM transactions WHERE txn_id = ?",
 						[input.txnId],
@@ -62,10 +62,10 @@ export const splitsRouter = {
 					});
 				}
 			}
-			await db
+			await context.appDb
 				.delete(transactionManualSplits)
 				.where(eq(transactionManualSplits.txnId, input.txnId));
-			await db.insert(transactionManualSplits).values(
+			await context.appDb.insert(transactionManualSplits).values(
 				input.lines.map((l, i) => ({
 					txnId: input.txnId,
 					seq: i,
@@ -82,8 +82,8 @@ export const splitsRouter = {
 	/** Remove all manual lines (revert to the default rule-derived split at the next re-tag). */
 	clear: publicProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
-		.handler(async ({ input }) => {
-			await db
+		.handler(async ({ context, input }) => {
+			await context.appDb
 				.delete(transactionManualSplits)
 				.where(eq(transactionManualSplits.txnId, input.txnId));
 			return { ok: true };

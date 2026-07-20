@@ -1,5 +1,5 @@
 import type { SqlParam } from "@money/analytics";
-import { db, transactionManualSplits, transactionOverrides } from "@money/db";
+import { transactionManualSplits, transactionOverrides } from "@money/db";
 import { CATEGORY_BY_KEY, type CoverageRatioPoint } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
@@ -39,11 +39,13 @@ export interface TransactionRow {
 
 export const analyticsRouter = {
 	/** Whether an ingest has produced an analytical DB yet. */
-	status: publicProcedure.handler(() => ({ ready: analyticsReady() })),
+	status: publicProcedure.handler(({ context }) => ({
+		ready: analyticsReady(context.uid),
+	})),
 
 	/** Headline totals + the uncategorised backlog (the review signal). */
-	summary: publicProcedure.handler(async () => {
-		if (!analyticsReady()) {
+	summary: publicProcedure.handler(async ({ context }) => {
+		if (!analyticsReady(context.uid)) {
 			return {
 				ready: false,
 				transactions: 0,
@@ -51,7 +53,7 @@ export const analyticsRouter = {
 				months: [] as string[],
 			};
 		}
-		return withReader(async (reader) => {
+		return withReader(context.uid, async (reader) => {
 			const [txns] = await reader.query<{ n: number }>(
 				"SELECT count(*) AS n FROM transactions",
 			);
@@ -72,9 +74,9 @@ export const analyticsRouter = {
 
 	/** The north-star KPI per month (cash-basis; imputed drawdown wiring is later, ADR-0011). */
 	coverageRatio: publicProcedure.handler(
-		async (): Promise<CoverageRatioPoint[]> => {
-			if (!analyticsReady()) return [];
-			return withReader((reader) =>
+		async ({ context }): Promise<CoverageRatioPoint[]> => {
+			if (!analyticsReady(context.uid)) return [];
+			return withReader(context.uid, (reader) =>
 				reader.query<CoverageRatioPoint>(
 					`SELECT month,
 					passive_income_cash AS "passiveIncomeCash",
@@ -89,9 +91,9 @@ export const analyticsRouter = {
 
 	/** Category × month × kind breakdown (the old pivot / "where's my money"). */
 	categoryBreakdown: publicProcedure.handler(
-		async (): Promise<CategoryRow[]> => {
-			if (!analyticsReady()) return [];
-			return withReader((reader) =>
+		async ({ context }): Promise<CategoryRow[]> => {
+			if (!analyticsReady(context.uid)) return [];
+			return withReader(context.uid, (reader) =>
 				reader.query<CategoryRow>(
 					`SELECT month, category_key AS "categoryKey", kind, amount, n
 				FROM v_category_monthly ORDER BY month, kind, category_key`,
@@ -102,9 +104,9 @@ export const analyticsRouter = {
 
 	/** Most recent transactions with their primary split's category/kind. */
 	recentTransactions: publicProcedure.handler(
-		async (): Promise<TransactionRow[]> => {
-			if (!analyticsReady()) return [];
-			return withReader((reader) =>
+		async ({ context }): Promise<TransactionRow[]> => {
+			if (!analyticsReady(context.uid)) return [];
+			return withReader(context.uid, (reader) =>
 				reader.query<TransactionRow>(
 					`SELECT t.txn_id AS "txnId", t.txn_date AS "date", t.narration, t.amount, t.balance,
 					s.kind, s.category_key AS "categoryKey"
@@ -140,8 +142,8 @@ export const analyticsRouter = {
 				offset: z.number().int().min(0).optional(),
 			}),
 		)
-		.handler(async ({ input }) => {
-			if (!analyticsReady()) {
+		.handler(async ({ context, input }) => {
+			if (!analyticsReady(context.uid)) {
 				return { transactions: [], total: 0, pendingRetag: 0 };
 			}
 			const limit = input.limit ?? 100;
@@ -149,8 +151,8 @@ export const analyticsRouter = {
 
 			// Overlay sources from SQLite (small tables — read whole, index in JS).
 			const [overrides, manualSplits] = await Promise.all([
-				db.select().from(transactionOverrides),
-				db.select().from(transactionManualSplits),
+				context.appDb.select().from(transactionOverrides),
+				context.appDb.select().from(transactionManualSplits),
 			]);
 			const overrideByTxn = new Map(overrides.map((o) => [o.txnId, o]));
 			const manualByTxn = new Map<string, typeof manualSplits>();
@@ -160,7 +162,7 @@ export const analyticsRouter = {
 				manualByTxn.set(m.txnId, arr);
 			}
 
-			return withReader(async (reader) => {
+			return withReader(context.uid, async (reader) => {
 				const where: string[] = [];
 				const params: SqlParam[] = [];
 				if (input.month) {

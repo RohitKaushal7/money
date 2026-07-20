@@ -1,4 +1,4 @@
-import { db, investments, recurringExpenses } from "@money/db";
+import { type AppDb, investments, recurringExpenses } from "@money/db";
 import {
 	CADENCES,
 	coverageLadder,
@@ -103,13 +103,13 @@ function toRecurring(r: RecurringRow): RecurringExpense {
 	};
 }
 
-export async function listInvestments(): Promise<Investment[]> {
-	const rows = await db.select().from(investments);
+export async function listInvestments(appDb: AppDb): Promise<Investment[]> {
+	const rows = await appDb.select().from(investments);
 	return rows.map(toInvestment);
 }
 
-export async function listRecurring(): Promise<RecurringExpense[]> {
-	const rows = await db.select().from(recurringExpenses);
+export async function listRecurring(appDb: AppDb): Promise<RecurringExpense[]> {
+	const rows = await appDb.select().from(recurringExpenses);
 	return rows.map(toRecurring);
 }
 
@@ -159,13 +159,13 @@ function todayISO(): string {
 
 export const planRouter = {
 	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). INR aggregates. */
-	ladder: publicProcedure.handler(async () => {
+	ladder: publicProcedure.handler(async ({ context }) => {
 		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
-			listInvestments(),
-			listRecurring(),
-			loadRates(),
-			loadAfterTaxEnabled(),
-			loadKpiTaxRate(),
+			listInvestments(context.appDb),
+			listRecurring(context.appDb),
+			loadRates(context.controlDb),
+			loadAfterTaxEnabled(context.appDb),
+			loadKpiTaxRate(context.appDb, context.uid),
 		]);
 		const mapInv = (i: Investment) => {
 			const inr = investmentToInr(i, rates);
@@ -179,13 +179,13 @@ export const planRouter = {
 	}),
 
 	/** Portfolio rollup: total wealth, grouped holdings + weighted rate, avg/required ROI, years-left. */
-	wealth: publicProcedure.handler(async () => {
+	wealth: publicProcedure.handler(async ({ context }) => {
 		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
-			listInvestments(),
-			listRecurring(),
-			loadRates(),
-			loadAfterTaxEnabled(),
-			loadKpiTaxRate(),
+			listInvestments(context.appDb),
+			listRecurring(context.appDb),
+			loadRates(context.controlDb),
+			loadAfterTaxEnabled(context.appDb),
+			loadKpiTaxRate(context.appDb, context.uid),
 		]);
 		const mapInv = (i: Investment) => {
 			const inr = investmentToInr(i, rates);
@@ -198,21 +198,28 @@ export const planRouter = {
 		});
 	}),
 
-	investments: publicProcedure.handler(() => listInvestments()),
-	recurring: publicProcedure.handler(() => listRecurring()),
+	investments: publicProcedure.handler(({ context }) =>
+		listInvestments(context.appDb),
+	),
+	recurring: publicProcedure.handler(({ context }) =>
+		listRecurring(context.appDb),
+	),
 
 	addInvestment: publicProcedure
 		.input(investmentInput)
-		.handler(async ({ input }) => {
-			const [row] = await db.insert(investments).values(input).returning();
+		.handler(async ({ context, input }) => {
+			const [row] = await context.appDb
+				.insert(investments)
+				.values(input)
+				.returning();
 			if (!row) throw new Error("insert failed");
 			return toInvestment(row);
 		}),
 	updateInvestment: publicProcedure
 		.input(investmentInput.partial().merge(idInput))
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
-			const [row] = await db
+			const [row] = await context.appDb
 				.update(investments)
 				.set(rest)
 				.where(eq(investments.id, id))
@@ -221,15 +228,17 @@ export const planRouter = {
 		}),
 	deleteInvestment: publicProcedure
 		.input(idInput)
-		.handler(async ({ input }) => {
-			await db.delete(investments).where(eq(investments.id, input.id));
+		.handler(async ({ context, input }) => {
+			await context.appDb
+				.delete(investments)
+				.where(eq(investments.id, input.id));
 			return { ok: true };
 		}),
 
 	addRecurring: publicProcedure
 		.input(recurringInput)
-		.handler(async ({ input }) => {
-			const [row] = await db
+		.handler(async ({ context, input }) => {
+			const [row] = await context.appDb
 				.insert(recurringExpenses)
 				.values(input)
 				.returning();
@@ -238,19 +247,21 @@ export const planRouter = {
 		}),
 	updateRecurring: publicProcedure
 		.input(recurringInput.partial().merge(idInput))
-		.handler(async ({ input }) => {
+		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
-			const [row] = await db
+			const [row] = await context.appDb
 				.update(recurringExpenses)
 				.set(rest)
 				.where(eq(recurringExpenses.id, id))
 				.returning();
 			return row ? toRecurring(row) : null;
 		}),
-	deleteRecurring: publicProcedure.input(idInput).handler(async ({ input }) => {
-		await db
-			.delete(recurringExpenses)
-			.where(eq(recurringExpenses.id, input.id));
-		return { ok: true };
-	}),
+	deleteRecurring: publicProcedure
+		.input(idInput)
+		.handler(async ({ context, input }) => {
+			await context.appDb
+				.delete(recurringExpenses)
+				.where(eq(recurringExpenses.id, input.id));
+			return { ok: true };
+		}),
 };

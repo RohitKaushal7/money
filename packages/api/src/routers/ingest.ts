@@ -12,8 +12,8 @@ import { ingestErrorMessage, runRetag } from "../ingest-runner";
  * before any non-tailnet exposure (ADR-0006).
  */
 export const ingestRouter = {
-	retag: publicProcedure.handler(async () => {
-		const r = await runRetag();
+	retag: publicProcedure.handler(async ({ context }) => {
+		const r = await runRetag(context.uid);
 		if (!r.ok) {
 			throw new ORPCError("INTERNAL_SERVER_ERROR", {
 				message: `Re-tag failed: ${ingestErrorMessage(r)}`,

@@ -18,8 +18,8 @@ import { listRecurring, recurringToInr } from "./plan";
  */
 
 /** Expense category × month magnitudes from the analytical DB (read-only). */
-async function expenseRows(): Promise<SpendingRow[]> {
-	return withReader((reader) =>
+async function expenseRows(uid: string): Promise<SpendingRow[]> {
+	return withReader(uid, (reader) =>
 		reader.query<SpendingRow>(
 			`SELECT month, category_key AS "categoryKey", kind, amount, n
 			FROM v_category_monthly
@@ -50,11 +50,13 @@ export const spendingRouter = {
 				})
 				.optional(),
 		)
-		.handler(async ({ input }) => {
-			const rows = analyticsReady() ? await expenseRows() : [];
+		.handler(async ({ context, input }) => {
+			const rows = analyticsReady(context.uid)
+				? await expenseRows(context.uid)
+				: [];
 			const [recurringNative, rates] = await Promise.all([
-				listRecurring(),
-				loadRates(),
+				listRecurring(context.appDb),
+				loadRates(context.controlDb),
 			]);
 			// statement actuals are INR; normalise the (possibly foreign) plan budget to INR to match
 			const recurring = recurringNative.map((r) => recurringToInr(r, rates));
@@ -76,9 +78,9 @@ export const spendingRouter = {
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */
 	categoryTransactions: publicProcedure
 		.input(z.object({ categoryKey: z.string().min(1) }))
-		.handler(async ({ input }): Promise<CategoryTxn[]> => {
-			if (!analyticsReady()) return [];
-			return withReader((reader) =>
+		.handler(async ({ context, input }): Promise<CategoryTxn[]> => {
+			if (!analyticsReady(context.uid)) return [];
+			return withReader(context.uid, (reader) =>
 				reader.query<CategoryTxn>(
 					`SELECT t.txn_id AS "txnId",
 						CAST(t.txn_date AS VARCHAR) AS date,

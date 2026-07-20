@@ -3,14 +3,12 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Spawns `scripts/ingest.ts` — the SOLE DuckDB read-write owner (ADR-0003) — so the API can trigger an
- * import / re-tag WITHOUT ever opening DuckDB read-write itself. This module deliberately does **not**
- * import `@money/analytics/ingest`; it shells out to the sanctioned script, keeping the API's read-only
- * boundary intact (the ADR-0003 grep guard still passes). Uses `node:child_process` (not the `Bun` global)
- * so `@money/api` type-checks cleanly under every consumer's tsconfig (web included).
+ * import / re-tag WITHOUT ever opening DuckDB read-write itself. Shells out to the sanctioned script (never
+ * imports `@money/analytics/ingest`), keeping the API's read-only boundary intact. Uses `node:child_process`
+ * (not the `Bun` global) so `@money/api` type-checks under every consumer's tsconfig (web included).
  *
- * A module-level mutex serialises every spawn: DuckDB permits a single writer, so two runs (e.g. an import
- * arriving while a re-tag is mid-flight) must never overlap. Dry-runs are read-only but go through the same
- * queue so they observe a consistent, non-mid-rebuild view.
+ * A PER-USER mutex serialises a user's runs (DuckDB is single-writer per file); different users run
+ * concurrently (separate files).
  */
 
 /** Repo root (trailing slash), resolved from this file at `packages/api/src/ingest-runner.ts`. */
@@ -36,20 +34,26 @@ interface ProcEvents {
 	on(event: "close", cb: (code: number | null) => void): void;
 }
 
-// Serialisation queue: each run is chained after the previous one settles (success OR failure).
-let tail: Promise<unknown> = Promise.resolve();
+// Per-user serialisation: each user's run is chained after that user's previous run settles (success OR failure).
+const tails = new Map<string, Promise<unknown>>();
 
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-	const run = tail.then(fn, fn);
-	tail = run.then(
-		() => undefined,
-		() => undefined,
+function withLock<T>(uid: string, fn: () => Promise<T>): Promise<T> {
+	const prev = tails.get(uid) ?? Promise.resolve();
+	const run = prev.then(fn, fn);
+	tails.set(
+		uid,
+		run.then(
+			() => undefined,
+			() => undefined,
+		),
 	);
 	return run;
 }
 
-async function spawnIngest(args: string[]): Promise<IngestResult> {
-	const proc = spawn("bun", [INGEST_SCRIPT, ...args], { cwd: REPO_ROOT });
+async function spawnIngest(uid: string, args: string[]): Promise<IngestResult> {
+	const proc = spawn("bun", [INGEST_SCRIPT, "--user", uid, ...args], {
+		cwd: REPO_ROOT,
+	});
 	let stdout = "";
 	let stderr = "";
 	proc.stdout?.on("data", (d: unknown) => {
@@ -78,19 +82,19 @@ async function spawnIngest(args: string[]): Promise<IngestResult> {
 	return { ok: exitCode === 0, result, stdout, stderr, exitCode };
 }
 
-/** Full rebuild from `data/raw/*.csv` (idempotent). */
-export function runRebuild(): Promise<IngestResult> {
-	return withLock(() => spawnIngest([]));
+/** Full rebuild from the user's `raw/*.csv` (idempotent). */
+export function runRebuild(uid: string): Promise<IngestResult> {
+	return withLock(uid, () => spawnIngest(uid, []));
 }
 
-/** Cheap re-tag: re-derive splits from the current SQLite rules/overrides, no CSV re-import (~0.3s). */
-export function runRetag(): Promise<IngestResult> {
-	return withLock(() => spawnIngest(["--retag"]));
+/** Cheap re-tag: re-derive splits from the user's SQLite rules/overrides, no CSV re-import (~0.3s). */
+export function runRetag(uid: string): Promise<IngestResult> {
+	return withLock(uid, () => spawnIngest(uid, ["--retag"]));
 }
 
 /** Parse one CSV and report new/duplicate counts without writing (import preview). */
-export function runDryRun(csvPath: string): Promise<IngestResult> {
-	return withLock(() => spawnIngest(["--dry-run", csvPath]));
+export function runDryRun(uid: string, csvPath: string): Promise<IngestResult> {
+	return withLock(uid, () => spawnIngest(uid, ["--dry-run", csvPath]));
 }
 
 /** A short, user-facing error string distilled from a failed run (last non-empty stderr/stdout line). */
