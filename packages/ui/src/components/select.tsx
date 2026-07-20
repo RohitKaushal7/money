@@ -52,10 +52,15 @@ export function Select({
 	style,
 	...rest
 }: SelectProps) {
+	const items = flatItems(options, groups);
+	// base-ui shows the placeholder only for a null value; coerce an unmatched "" (a command-style picker
+	// that always resets, e.g. "File under…") to null so the placeholder shows instead of a blank trigger.
+	const rootValue =
+		value === "" && !items.some((i) => i.value === "") ? null : value;
 	return (
 		<SelectPrimitive.Root
-			items={flatItems(options, groups)}
-			value={value}
+			items={items}
+			value={rootValue}
 			onValueChange={(v) => onValueChange(v as string)}
 			disabled={disabled}
 		>
