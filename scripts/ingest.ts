@@ -17,17 +17,27 @@
  * parse the outcome without scraping the human logs.
  */
 
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	openReadOnly,
+	rowToStatementMapping,
+	splitCsvHeader,
+	statementHeaderSignature,
 	userAppDbPath,
 	userDuckdbPath,
 	userRawDir,
 } from "@money/analytics";
 import { openReadWrite } from "@money/analytics/ingest";
-import { dryRun, rebuild, retag } from "@money/analytics/rebuild";
+import {
+	dryRun,
+	type RebuildFile,
+	rebuild,
+	retag,
+} from "@money/analytics/rebuild";
+import { createAppDb } from "@money/db";
+import { importFiles, statementFormats } from "@money/db/schema/app";
 import { env } from "@money/env/server";
 
 const argv = process.argv.slice(2);
@@ -53,9 +63,66 @@ function emit(result: Record<string, unknown>): void {
 	console.log(`[ingest:result] ${JSON.stringify(result)}`);
 }
 
+type FormatRow = typeof statementFormats.$inferSelect;
+
+/**
+ * Load this user's statement formats + per-file bindings from `app.db`. Each raw file is parsed with the
+ * format its `import_files` row points to; unbound (legacy pre-backfill) files fall back to the SBI built-in,
+ * since every historic raw file is an SBI export.
+ */
+async function loadFormatIndex(): Promise<{
+	byId: Map<number, FormatRow>;
+	bySignature: Map<string, FormatRow>;
+	bindingByName: Map<string, number>;
+	sbi: FormatRow | null;
+}> {
+	const db = createAppDb(`file:${SQLITE_PATH}`);
+	const formats = await db.select().from(statementFormats);
+	const bindings = await db.select().from(importFiles);
+	return {
+		byId: new Map(formats.map((f) => [f.id, f])),
+		bySignature: new Map(formats.map((f) => [f.headerSignature, f])),
+		bindingByName: new Map(bindings.map((b) => [b.filename, b.formatId])),
+		sbi: formats.find((f) => f.builtin === "sbi") ?? null,
+	};
+}
+
+/** The header signature of a CSV file's first line (for signature-based format detection). */
+function fileHeaderSignature(path: string): string | null {
+	try {
+		const firstLine = readFileSync(path, "utf8").split(/\r?\n/, 1)[0] ?? "";
+		return statementHeaderSignature(splitCsvHeader(firstLine));
+	} catch {
+		return null;
+	}
+}
+
+/** Turn a resolved format row + raw file into a {@link RebuildFile} the engine can parse. */
+function toRebuildFile(
+	path: string,
+	name: string,
+	format: FormatRow,
+): RebuildFile {
+	return {
+		path,
+		name,
+		mapping: rowToStatementMapping(format),
+		accountId: format.accountId,
+	};
+}
+
 /** Import preview: count new vs duplicate rows for one CSV against the user's live DB, writing nothing. */
 async function dryRunMode(csvPath: string): Promise<void> {
-	const file = { path: csvPath, name: "dry-run" };
+	const index = await loadFormatIndex();
+	const sig = fileHeaderSignature(csvPath);
+	const format = (sig ? index.bySignature.get(sig) : undefined) ?? index.sbi;
+	if (!format) {
+		console.error(
+			"[ingest] no statement format found (seed the SBI built-in).",
+		);
+		process.exit(1);
+	}
+	const file = toRebuildFile(csvPath, "dry-run", format);
 	if (existsSync(DB_PATH)) {
 		// Live DB present: read it read-only so a concurrent full ingest is never blocked.
 		const reader = await openReadOnly({ dbPath: DB_PATH });
@@ -117,16 +184,35 @@ async function main(): Promise<void> {
 			emit({ mode: "rebuild", transactions: 0, uncategorized: 0, reports: [] });
 			return;
 		}
-		const files = readdirSync(RAW_DIR)
+		const names = readdirSync(RAW_DIR)
 			.filter((name) => name.toLowerCase().endsWith(".csv"))
-			.sort()
-			.map((name) => ({ path: `${RAW_DIR}/${name}`, name }));
-		if (files.length === 0) {
+			.sort();
+		if (names.length === 0) {
 			console.log(
 				`[ingest] no .csv files in ${RAW_DIR}/ — drop statement export(s) there first.`,
 			);
 			emit({ mode: "rebuild", transactions: 0, uncategorized: 0, reports: [] });
 			return;
+		}
+		// Resolve each raw file to its format via the import_files binding; unbound → SBI fallback.
+		const index = await loadFormatIndex();
+		const files: RebuildFile[] = [];
+		for (const name of names) {
+			const path = `${RAW_DIR}/${name}`;
+			const boundId = index.bindingByName.get(name);
+			const format =
+				(boundId ? index.byId.get(boundId) : undefined) ?? index.sbi;
+			if (!format) {
+				throw new Error(
+					`No format for raw file "${name}" and no SBI built-in to fall back to — run backfill/seed first.`,
+				);
+			}
+			if (!boundId) {
+				console.log(
+					`[ingest] ${name}: no format binding — using SBI fallback.`,
+				);
+			}
+			files.push(toRebuildFile(path, name, format));
 		}
 		console.log(
 			`[ingest] rebuilding ${DB_PATH} from ${files.length} raw file(s)…`,

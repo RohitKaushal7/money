@@ -53,6 +53,79 @@ export function statementHeaderSignature(headers: string[]): string {
 	return headers.map((h) => h.trim()).join(UNIT_SEP);
 }
 
+/**
+ * Split a single CSV header line into column names, honouring double-quoted fields (`"a,b",c` → `["a,b","c"]`)
+ * and `""` escapes. Data rows are parsed by DuckDB `read_csv`; this is only for reading the header to build a
+ * signature / offer column choices in the wizard.
+ */
+export function splitCsvHeader(line: string): string[] {
+	const out: string[] = [];
+	let field = "";
+	let quoted = false;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if (quoted) {
+			if (ch === '"') {
+				if (line[i + 1] === '"') {
+					field += '"';
+					i++;
+				} else quoted = false;
+			} else field += ch;
+		} else if (ch === '"') {
+			quoted = true;
+		} else if (ch === ",") {
+			out.push(field);
+			field = "";
+		} else if (ch !== "\r") {
+			field += ch;
+		}
+	}
+	out.push(field);
+	return out.map((f) => f.trim());
+}
+
+/** A DB `statement_formats` row's mapping fields (camelCase; `quirks` still JSON-encoded). */
+export type StatementMappingRow = {
+	dateCol: string;
+	dateFmt: string;
+	amountMode: string;
+	amountCol?: string | null;
+	signConvention?: string | null;
+	debitCol?: string | null;
+	creditCol?: string | null;
+	indicatorCol?: string | null;
+	creditToken?: string | null;
+	narrationCol: string;
+	refCol?: string | null;
+	balanceCol?: string | null;
+	valueDateCol?: string | null;
+	anchor: string;
+	quirks: string;
+};
+
+/** Convert a stored `statement_formats` row into the engine's `StatementMapping` (parsing `quirks`). */
+export function rowToStatementMapping(
+	row: StatementMappingRow,
+): StatementMapping {
+	return {
+		dateCol: row.dateCol,
+		dateFmt: row.dateFmt,
+		amountMode: row.amountMode as AmountMode,
+		amountCol: row.amountCol,
+		signConvention: row.signConvention as SignConvention | null,
+		debitCol: row.debitCol,
+		creditCol: row.creditCol,
+		indicatorCol: row.indicatorCol,
+		creditToken: row.creditToken,
+		narrationCol: row.narrationCol,
+		refCol: row.refCol,
+		balanceCol: row.balanceCol,
+		valueDateCol: row.valueDateCol,
+		anchor: row.anchor as StatementAnchor,
+		quirks: parseStatementQuirks(row.quirks),
+	};
+}
+
 /** Parse the JSON-encoded `quirks` column into a validated list (unknown entries dropped). */
 export function parseStatementQuirks(
 	json: string | null | undefined,

@@ -17,6 +17,15 @@ import {
 	type SqlParam,
 } from "./duckdb";
 
+// Re-export the parse/detection helpers so the root ingest script (which cannot resolve @money/shared
+// directly — it is not hoisted to the root node_modules) can reach them via this package.
+export {
+	rowToStatementMapping,
+	splitCsvHeader,
+	statementHeaderSignature,
+} from "@money/shared";
+export type { BuildSelectParams } from "./build-select";
+export { buildTransactionsSelect } from "./build-select";
 export type { SqlParam } from "./duckdb";
 export * from "./paths";
 

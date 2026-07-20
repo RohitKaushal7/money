@@ -1,6 +1,6 @@
-import type { ImportReport } from "@money/shared";
+import type { ImportReport, StatementMapping } from "@money/shared";
+import { buildTransactionsSelect } from "./build-select";
 import { type AnalyticsWriter, applySchema } from "./ingest";
-import { sbiTransactionsSelect } from "./sbi";
 
 /**
  * The DuckDB rebuild (ADR-0002): from raw statement files → derived tables + views. Called by the ingest
@@ -16,6 +16,10 @@ export interface RebuildFile {
 	path: string;
 	/** stored source_file label */
 	name: string;
+	/** the format's parsing contract (resolved per-file from the import_files binding). */
+	mapping: StatementMapping;
+	/** the account this file's rows post to (part of txn_id). */
+	accountId: number;
 }
 
 /** Minimal read surface {@link count}/{@link dryRun} need — satisfied by both a reader and a writer. */
@@ -87,9 +91,9 @@ export async function dryRun(
 	db: Queryable,
 	file: RebuildFile,
 ): Promise<DryRunReport> {
-	const select = sbiTransactionsSelect({
+	const select = buildTransactionsSelect(file.mapping, {
 		csvPath: file.path,
-		accountId: 1,
+		accountId: file.accountId,
 		sourceFile: file.name,
 		importBatchId: 0,
 	});
@@ -122,12 +126,11 @@ export async function dryRun(
 async function loadFile(
 	writer: AnalyticsWriter,
 	file: RebuildFile,
-	accountId: number,
 	batchId: number,
 ): Promise<ImportReport> {
-	const select = sbiTransactionsSelect({
+	const select = buildTransactionsSelect(file.mapping, {
 		csvPath: file.path,
-		accountId,
+		accountId: file.accountId,
 		sourceFile: file.name,
 		importBatchId: batchId,
 	});
@@ -212,8 +215,8 @@ async function createViews(writer: AnalyticsWriter): Promise<void> {
 }
 
 export interface RebuildOptions {
+	/** Each file carries its own resolved mapping + account (from its import_files binding). */
 	files: RebuildFile[];
-	accountId?: number;
 	/** Absolute path to the SQLite app DB to ATTACH for rules/overrides/manual-splits (ADR-0004). */
 	sqlitePath: string;
 }
@@ -222,14 +225,13 @@ export async function rebuild(
 	writer: AnalyticsWriter,
 	options: RebuildOptions,
 ): Promise<ImportReport[]> {
-	const accountId = options.accountId ?? 1;
 	await applySchema(writer);
 	await attachApp(writer, options.sqlitePath);
 	await seedCategories(writer);
 	const reports: ImportReport[] = [];
 	let batchId = 1;
 	for (const file of options.files) {
-		reports.push(await loadFile(writer, file, accountId, batchId));
+		reports.push(await loadFile(writer, file, batchId));
 		batchId += 1;
 	}
 	await buildSplits(writer);

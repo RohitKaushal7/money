@@ -27,7 +27,7 @@ CREATE OR REPLACE TABLE transactions (
     debit           DECIMAL(18, 2),
     credit          DECIMAL(18, 2),
     amount          DECIMAL(18, 2) NOT NULL,  -- signed: credit +, debit -
-    balance         DECIMAL(18, 2) NOT NULL,  -- running balance from the statement
+    balance         DECIMAL(18, 2),           -- running balance (nullable — ref-anchored formats have none)
     source_file     VARCHAR NOT NULL,
     import_batch_id INTEGER NOT NULL,
     fy              VARCHAR NOT NULL,          -- e.g. FY2026-27

@@ -2,9 +2,40 @@ import { describe, expect, test } from "bun:test";
 import {
 	SBI_SEED_FORMAT,
 	type StatementMapping,
+	splitCsvHeader,
 	statementHeaderSignature,
 	validateStatementMapping,
 } from "./statements";
+
+describe("splitCsvHeader", () => {
+	test("splits a plain header and trims", () => {
+		expect(splitCsvHeader("Date, Narration ,Amount")).toEqual([
+			"Date",
+			"Narration",
+			"Amount",
+		]);
+	});
+
+	test("honours quoted fields containing commas", () => {
+		expect(splitCsvHeader('"Txn, Date","Amount (INR)",Ref')).toEqual([
+			"Txn, Date",
+			"Amount (INR)",
+			"Ref",
+		]);
+	});
+
+	test("unescapes doubled quotes and strips CR", () => {
+		expect(splitCsvHeader('"a""b",c\r')).toEqual(['a"b', "c"]);
+	});
+
+	test("matches the SBI header signature", () => {
+		expect(
+			statementHeaderSignature(
+				splitCsvHeader("Date,Details,Ref No/Cheque No,Debit,Credit,Balance"),
+			),
+		).toBe(statementHeaderSignature(SBI_SEED_FORMAT.headers));
+	});
+});
 
 describe("statementHeaderSignature", () => {
 	test("trims and orders column names", () => {
