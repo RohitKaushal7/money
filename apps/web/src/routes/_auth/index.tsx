@@ -12,7 +12,7 @@ import {
 } from "@/components/date-range-picker";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_auth/")({
 	component: DashboardPage,
 });
 

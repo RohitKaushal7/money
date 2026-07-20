@@ -12,7 +12,7 @@ import { useMoney } from "@/lib/currency";
 import { formatDay, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/spending")({
+export const Route = createFileRoute("/_auth/spending")({
 	component: SpendingPage,
 });
 

@@ -6,7 +6,7 @@ import { type ReactNode, useState } from "react";
 import { useMoney } from "@/lib/currency";
 import { type client, orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/cards")({ component: CardsPage });
+export const Route = createFileRoute("/_auth/cards")({ component: CardsPage });
 
 function CardsPage() {
 	return (

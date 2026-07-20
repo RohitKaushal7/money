@@ -12,7 +12,7 @@ import { useState } from "react";
 import { formatINR, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/reconcile")({
+export const Route = createFileRoute("/_auth/reconcile")({
 	component: ReconcilePage,
 });
 

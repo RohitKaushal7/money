@@ -19,7 +19,9 @@ import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/wealth")({ component: WealthPage });
+export const Route = createFileRoute("/_auth/wealth")({
+	component: WealthPage,
+});
 
 const PALETTE = [
 	"oklch(0.64 0.13 155)", // green

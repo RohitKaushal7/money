@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/tax")({ component: TaxPage });
+export const Route = createFileRoute("/_auth/tax")({ component: TaxPage });
 
 /** The client's current Indian FY label, e.g. "FY2026-27". */
 function currentFyLabel(): string {

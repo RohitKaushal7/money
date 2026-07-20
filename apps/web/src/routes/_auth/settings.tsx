@@ -7,7 +7,9 @@ import { toast } from "sonner";
 import { useCurrencyConfig } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/settings")({ component: SettingsPage });
+export const Route = createFileRoute("/_auth/settings")({
+	component: SettingsPage,
+});
 
 function SettingsPage() {
 	return (

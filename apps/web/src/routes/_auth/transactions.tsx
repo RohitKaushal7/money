@@ -30,7 +30,7 @@ function fmtTxnDate(iso: string): string {
 		.replace(/(\d{2})$/, "'$1");
 }
 
-export const Route = createFileRoute("/transactions")({
+export const Route = createFileRoute("/_auth/transactions")({
 	component: TransactionsPage,
 });
 

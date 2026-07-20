@@ -28,7 +28,7 @@ import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/plan")({ component: PlanPage });
+export const Route = createFileRoute("/_auth/plan")({ component: PlanPage });
 
 /** Recurring-expense categories, sourced from the single shared taxonomy so budgets stay aligned to spend. */
 const EXPENSE_CATEGORY_OPTIONS = [

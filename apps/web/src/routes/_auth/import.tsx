@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { formatDay } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/import")({ component: ImportPage });
+export const Route = createFileRoute("/_auth/import")({
+	component: ImportPage,
+});
 
 const IN = "var(--covered)";
 const tint = (c: string, pct: number) =>

@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
+import { MobileBar, Sidebar } from "@/components/sidebar";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth")({
@@ -7,14 +8,20 @@ export const Route = createFileRoute("/_auth")({
 	beforeLoad: async () => {
 		const session = await authClient.getSession();
 		if (!session.data) {
-			throw redirect({
-				to: "/login",
-			});
+			throw redirect({ to: "/login" });
 		}
 		return { session };
 	},
 });
 
 function AuthLayout() {
-	return <Outlet />;
+	return (
+		<div className="flex h-svh">
+			<Sidebar />
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<MobileBar />
+				<Outlet />
+			</div>
+		</div>
+	);
 }
