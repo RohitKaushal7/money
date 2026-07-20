@@ -1,4 +1,5 @@
 import { fiscalYearStart } from "@money/shared";
+import { Select } from "@money/ui/components/select";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -74,8 +75,6 @@ export function resolveRange(
 	}
 }
 
-const SELECT_CLASS =
-	"h-9 rounded-md border border-input bg-background px-3 pr-8 text-foreground text-sm outline-none focus-visible:border-ring";
 const DATE_CLASS =
 	"h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring";
 
@@ -99,22 +98,13 @@ export function DateRangePicker({
 
 	return (
 		<div className="flex flex-wrap items-center gap-1.5">
-			<select
-				value={preset}
+			<Select
 				aria-label="Date range"
-				onChange={(e) => setPreset(e.target.value as RangePreset)}
-				className={SELECT_CLASS}
-			>
-				{PRESETS.map((p) => (
-					<option
-						key={p.key}
-						value={p.key}
-						className="bg-popover text-popover-foreground"
-					>
-						{p.label}
-					</option>
-				))}
-			</select>
+				value={preset}
+				onValueChange={(v) => setPreset(v as RangePreset)}
+				options={PRESETS.map((p) => ({ value: p.key, label: p.label }))}
+				className="h-9 w-auto min-w-[9rem] rounded-md"
+			/>
 			{preset === "custom" && (
 				<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
 					<input

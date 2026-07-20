@@ -1,5 +1,6 @@
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	Check,
@@ -24,8 +25,10 @@ import {
 } from "@/lib/categories";
 import { orpc } from "@/utils/orpc";
 
-const SELECT_CLASS =
-	"h-8 rounded-none border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring dark:bg-input/30";
+const KIND_OPTIONS = KIND_ORDER.map((k) => ({
+	value: k,
+	label: KIND_LABEL[k],
+}));
 
 export function CategoriesTab() {
 	const qc = useQueryClient();
@@ -86,20 +89,16 @@ export function CategoriesTab() {
 							className="min-w-[12rem]"
 						/>
 					</label>
-					<label className="flex flex-col gap-1 text-xs">
+					<div className="flex flex-col gap-1 text-xs">
 						<span className="text-muted-foreground">Kind</span>
-						<select
+						<Select
+							aria-label="Kind"
 							value={kind}
-							onChange={(e) => setKind(e.target.value)}
-							className={SELECT_CLASS}
-						>
-							{KIND_ORDER.map((k) => (
-								<option key={k} value={k}>
-									{KIND_LABEL[k]}
-								</option>
-							))}
-						</select>
-					</label>
+							onValueChange={setKind}
+							options={KIND_OPTIONS}
+							className="w-40"
+						/>
+					</div>
 					{isIncomeKind(kind) && (
 						<label className="flex h-8 items-center gap-1.5 text-xs">
 							<input
@@ -178,17 +177,13 @@ function CategoryRow({
 				/>
 				{!cat.system && (
 					<>
-						<select
+						<Select
+							aria-label="Kind"
 							value={kind}
-							onChange={(e) => setKind(e.target.value)}
-							className={SELECT_CLASS}
-						>
-							{KIND_ORDER.map((k) => (
-								<option key={k} value={k}>
-									{KIND_LABEL[k]}
-								</option>
-							))}
-						</select>
+							onValueChange={setKind}
+							options={KIND_OPTIONS}
+							className="w-40"
+						/>
 						{isIncomeKind(kind) && (
 							<label className="flex items-center gap-1.5 text-xs">
 								<input

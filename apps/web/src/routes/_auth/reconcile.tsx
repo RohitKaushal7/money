@@ -5,6 +5,7 @@ import type {
 	ReconcileSuggestion,
 } from "@money/shared";
 import { CATEGORIES } from "@money/shared";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowRight, Check, Clock, TriangleAlert, X } from "lucide-react";
@@ -251,39 +252,30 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 						<span className="tnum shrink-0 font-medium" style={{ color: IN }}>
 							{formatINR(s.amount)}
 						</span>
-						<select
+						<Select
+							aria-label="File under"
 							value=""
 							disabled={busy === s.txnId}
-							onChange={(e) => fileUnder(s, e.target.value)}
-							className="h-9 shrink-0 rounded-md border border-input bg-background px-2 text-foreground text-sm shadow-xs outline-none [color-scheme:light] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 dark:[color-scheme:dark]"
-						>
-							<option value="">File under…</option>
-							<optgroup label="Existing income category">
-								{INCOME_CATS.map((c) => (
-									<option
-										key={c.key}
-										value={c.key}
-										className="bg-popover text-popover-foreground"
-									>
-										{c.label}
-									</option>
-								))}
-							</optgroup>
-							<optgroup label="Or">
-								<option
-									value="__new__"
-									className="bg-popover text-popover-foreground"
-								>
-									＋ New holding
-								</option>
-								<option
-									value="__ignore__"
-									className="bg-popover text-popover-foreground"
-								>
-									Not income — ignore
-								</option>
-							</optgroup>
-						</select>
+							onValueChange={(v) => fileUnder(s, v)}
+							placeholder="File under…"
+							groups={[
+								{
+									label: "Existing income category",
+									options: INCOME_CATS.map((c) => ({
+										value: c.key,
+										label: c.label,
+									})),
+								},
+								{
+									label: "Or",
+									options: [
+										{ value: "__new__", label: "＋ New holding" },
+										{ value: "__ignore__", label: "Not income — ignore" },
+									],
+								},
+							]}
+							className="h-9 w-auto shrink-0 rounded-md"
+						/>
 					</li>
 				))}
 			</ul>
@@ -310,21 +302,13 @@ function MonthPicker({
 }) {
 	const options = months.length > 0 ? months : [value];
 	return (
-		<select
+		<Select
+			aria-label="Month"
 			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm shadow-xs outline-none [color-scheme:light] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:[color-scheme:dark]"
-		>
-			{options.map((m) => (
-				<option
-					key={m}
-					value={m}
-					className="bg-popover text-popover-foreground"
-				>
-					{formatMonth(m)}
-				</option>
-			))}
-		</select>
+			onValueChange={onChange}
+			options={options.map((m) => ({ value: m, label: formatMonth(m) }))}
+			className="h-9 w-auto rounded-md"
+		/>
 	);
 }
 

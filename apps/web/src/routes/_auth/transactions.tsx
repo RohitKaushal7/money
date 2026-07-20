@@ -1,4 +1,5 @@
 import { Button } from "@money/ui/components/button";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -73,9 +74,6 @@ interface Txn {
 	overrideNote: string | null;
 	manualSplitCount: number;
 }
-
-const SELECT_CLASS =
-	"h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm shadow-xs outline-none [color-scheme:light] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 dark:[color-scheme:dark]";
 
 function TransactionsPage() {
 	const qc = useQueryClient();
@@ -373,38 +371,26 @@ function Filters({
 					className="h-9 w-full rounded-md border border-input bg-background pr-3 pl-8 text-foreground text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
 				/>
 			</div>
-			<select
+			<Select
+				aria-label="Month"
 				value={month}
-				onChange={(e) => onMonth(e.target.value)}
-				className={SELECT_CLASS}
-			>
-				<option value="">All months</option>
-				{months.map((m) => (
-					<option
-						key={m}
-						value={m}
-						className="bg-popover text-popover-foreground"
-					>
-						{m}
-					</option>
-				))}
-			</select>
-			<select
+				onValueChange={onMonth}
+				options={[
+					{ value: "", label: "All months" },
+					...months.map((m) => ({ value: m, label: m })),
+				]}
+				className="h-9 w-auto min-w-[8rem] rounded-md"
+			/>
+			<Select
+				aria-label="Kind"
 				value={kind}
-				onChange={(e) => onKind(e.target.value)}
-				className={SELECT_CLASS}
-			>
-				<option value="">All kinds</option>
-				{KIND_ORDER.map((k) => (
-					<option
-						key={k}
-						value={k}
-						className="bg-popover text-popover-foreground"
-					>
-						{KIND_LABEL[k]}
-					</option>
-				))}
-			</select>
+				onValueChange={onKind}
+				options={[
+					{ value: "", label: "All kinds" },
+					...KIND_ORDER.map((k) => ({ value: k, label: KIND_LABEL[k] })),
+				]}
+				className="h-9 w-auto min-w-[8rem] rounded-md"
+			/>
 			<button
 				type="button"
 				onClick={() => onUncatOnly(!uncatOnly)}
@@ -500,31 +486,22 @@ function TxnRow({
 							Split · {txn.manualSplitCount} lines
 						</span>
 					) : (
-						<select
+						<Select
+							aria-label="Category"
 							value={txn.categoryKey}
 							disabled={busy}
-							onChange={(e) => apply(e.target.value)}
-							className={`${SELECT_CLASS} min-w-0 flex-1 font-medium`}
+							onValueChange={apply}
+							groups={groups.map((g) => ({
+								label: g.label,
+								options: g.cats.map((c) => ({ value: c.key, label: c.label })),
+							}))}
+							className="min-w-0 flex-1 rounded-md font-medium"
 							style={{
 								color: kindColor(txn.kind),
 								borderColor: tint(kindColor(txn.kind), 35),
 								background: tint(kindColor(txn.kind), 7),
 							}}
-						>
-							{groups.map((g) => (
-								<optgroup key={g.kind} label={g.label}>
-									{g.cats.map((c) => (
-										<option
-											key={c.key}
-											value={c.key}
-											className="bg-popover text-popover-foreground"
-										>
-											{c.label}
-										</option>
-									))}
-								</optgroup>
-							))}
-						</select>
+						/>
 					)}
 					{txn.hasOverride && !isSplit && (
 						<button
@@ -695,41 +672,24 @@ function SplitEditor({
 							onChange={(e) => update(i, { amount: e.target.value })}
 							className="tnum h-9 w-28 rounded-md border border-input bg-background px-2 text-right text-foreground text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
 						/>
-						<select
+						<Select
+							aria-label="Line category"
 							value={l.categoryKey}
-							onChange={(e) => update(i, { categoryKey: e.target.value })}
-							className={`${SELECT_CLASS} min-w-[10rem] flex-1`}
-						>
-							<option value="">— category —</option>
-							{groups.map((g) => (
-								<optgroup key={g.kind} label={g.label}>
-									{g.cats.map((c) => (
-										<option
-											key={c.key}
-											value={c.key}
-											className="bg-popover text-popover-foreground"
-										>
-											{c.label}
-										</option>
-									))}
-								</optgroup>
-							))}
-						</select>
-						<select
+							onValueChange={(v) => update(i, { categoryKey: v })}
+							placeholder="— category —"
+							groups={groups.map((g) => ({
+								label: g.label,
+								options: g.cats.map((c) => ({ value: c.key, label: c.label })),
+							}))}
+							className="h-9 min-w-[10rem] flex-1 rounded-md"
+						/>
+						<Select
+							aria-label="Cashflow type"
 							value={l.cashflowType}
-							onChange={(e) => update(i, { cashflowType: e.target.value })}
-							className={`${SELECT_CLASS} w-40`}
-						>
-							{CASHFLOW_TYPES.map((c) => (
-								<option
-									key={c.value}
-									value={c.value}
-									className="bg-popover text-popover-foreground"
-								>
-									{c.label}
-								</option>
-							))}
-						</select>
+							onValueChange={(v) => update(i, { cashflowType: v })}
+							options={CASHFLOW_TYPES}
+							className="h-9 w-40 rounded-md"
+						/>
 						<button
 							type="button"
 							onClick={() => remove(i)}

@@ -12,6 +12,7 @@ import {
 } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -1234,21 +1235,12 @@ function NativeSelect({
 	options: { value: string; label: string }[];
 }) {
 	return (
-		<select
+		<Select
 			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm shadow-xs outline-none [color-scheme:light] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:[color-scheme:dark]"
-		>
-			{options.map((o) => (
-				<option
-					key={o.value}
-					value={o.value}
-					className="bg-popover text-popover-foreground"
-				>
-					{o.label}
-				</option>
-			))}
-		</select>
+			onValueChange={onChange}
+			options={options}
+			className="h-9 rounded-md"
+		/>
 	);
 }
 

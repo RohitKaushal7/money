@@ -1,7 +1,26 @@
+import {
+	closestCenter,
+	DndContext,
+	type DragEndEvent,
+	KeyboardSensor,
+	PointerSensor,
+	useSensor,
+	useSensors,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+	arrayMove,
+	SortableContext,
+	sortableKeyboardCoordinates,
+	useSortable,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, X } from "lucide-react";
+import { GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { groupByKind, kindColor, useCategories } from "@/lib/categories";
@@ -11,6 +30,21 @@ import { orpc } from "@/utils/orpc";
 export type RulePrefill = {
 	pattern: string;
 	assignCategoryKey: string;
+};
+
+type Rule = {
+	id: number;
+	priority: number;
+	matchType: string;
+	pattern: string;
+	assignKind: string;
+	assignCategoryKey: string;
+	assignInvestmentId: number | null;
+	minAmount: number | null;
+	maxAmount: number | null;
+	active: boolean;
+	createdAt: Date;
+	updatedAt: Date;
 };
 
 type FormState = {
@@ -33,9 +67,6 @@ const EMPTY: FormState = {
 	advanced: false,
 };
 
-const SELECT_CLASS =
-	"h-8 rounded-none border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring dark:bg-input/30";
-
 export function RulesTab({
 	prefill,
 	onConsumePrefill,
@@ -50,9 +81,8 @@ export function RulesTab({
 	const byKey = new Map(cats.map((c) => [c.key, c]));
 	const [form, setForm] = useState<FormState>(EMPTY);
 
-	const invalidate = () => {
-		qc.invalidateQueries({ queryKey: orpc.rules.list.queryKey() });
-	};
+	const rulesKey = orpc.rules.list.queryKey();
+	const invalidate = () => qc.invalidateQueries({ queryKey: rulesKey });
 
 	// "Create rule from this transaction" → open the add-form pre-seeded, then consume the prefill.
 	useEffect(() => {
@@ -90,10 +120,31 @@ export function RulesTab({
 	const reorder = useMutation({
 		...orpc.rules.reorder.mutationOptions(),
 		onSuccess: invalidate,
-		onError: (e: Error) => toast.error(e.message),
+		onError: (e: Error) => {
+			toast.error(e.message);
+			invalidate(); // roll the optimistic order back to server truth
+		},
 	});
 
-	const rows = rulesQ.data ?? [];
+	const rows = (rulesQ.data ?? []) as Rule[];
+
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		}),
+	);
+
+	const onDragEnd = (e: DragEndEvent) => {
+		const { active, over } = e;
+		if (!over || active.id === over.id) return;
+		const oldIndex = rows.findIndex((r) => r.id === active.id);
+		const newIndex = rows.findIndex((r) => r.id === over.id);
+		if (oldIndex < 0 || newIndex < 0) return;
+		const next = arrayMove(rows, oldIndex, newIndex);
+		qc.setQueryData(rulesKey, next); // optimistic
+		reorder.mutate({ orderedIds: next.map((r) => r.id) });
+	};
 
 	const submit = () => {
 		if (!form.pattern.trim() || !form.assignCategoryKey) {
@@ -125,13 +176,13 @@ export function RulesTab({
 		}
 	};
 
-	const move = (index: number, dir: -1 | 1) => {
-		const ids = rows.map((r) => r.id);
-		const j = index + dir;
-		if (j < 0 || j >= ids.length) return;
-		[ids[index], ids[j]] = [ids[j], ids[index]];
-		reorder.mutate({ orderedIds: ids });
-	};
+	const categoryGroups = groupByKind(cats, {
+		activeOnly: true,
+		keepKey: form.assignCategoryKey,
+	}).map((g) => ({
+		label: g.label,
+		options: g.cats.map((c) => ({ value: c.key, label: c.label })),
+	}));
 
 	const busy = create.isPending || update.isPending;
 
@@ -169,48 +220,39 @@ export function RulesTab({
 							className="min-w-[12rem]"
 						/>
 					</label>
-					<label className="flex flex-col gap-1 text-xs">
+					<div className="flex flex-col gap-1 text-xs">
 						<span className="text-muted-foreground">Category</span>
-						<select
+						<Select
+							aria-label="Category"
 							value={form.assignCategoryKey}
-							onChange={(e) =>
-								setForm((f) => ({ ...f, assignCategoryKey: e.target.value }))
+							onValueChange={(v) =>
+								setForm((f) => ({ ...f, assignCategoryKey: v }))
 							}
-							className={`${SELECT_CLASS} min-w-[12rem]`}
-						>
-							<option value="">— pick —</option>
-							{groupByKind(cats, {
-								activeOnly: true,
-								keepKey: form.assignCategoryKey,
-							}).map((g) => (
-								<optgroup key={g.kind} label={g.label}>
-									{g.cats.map((c) => (
-										<option key={c.key} value={c.key}>
-											{c.label}
-										</option>
-									))}
-								</optgroup>
-							))}
-						</select>
-					</label>
+							placeholder="— pick —"
+							groups={categoryGroups}
+							className="min-w-[12rem]"
+						/>
+					</div>
 					{form.advanced && (
 						<>
-							<label className="flex flex-col gap-1 text-xs">
+							<div className="flex flex-col gap-1 text-xs">
 								<span className="text-muted-foreground">Match</span>
-								<select
+								<Select
+									aria-label="Match type"
 									value={form.matchType}
-									onChange={(e) =>
+									onValueChange={(v) =>
 										setForm((f) => ({
 											...f,
-											matchType: e.target.value as "substring" | "regex",
+											matchType: v as "substring" | "regex",
 										}))
 									}
-									className={SELECT_CLASS}
-								>
-									<option value="substring">contains</option>
-									<option value="regex">regex</option>
-								</select>
-							</label>
+									options={[
+										{ value: "substring", label: "contains" },
+										{ value: "regex", label: "regex" },
+									]}
+									className="w-32"
+								/>
+							</div>
 							<label htmlFor="rule-min" className="flex flex-col gap-1 text-xs">
 								<span className="text-muted-foreground">Min ₹</span>
 								<Input
@@ -253,7 +295,7 @@ export function RulesTab({
 					<p className="text-muted-foreground text-xs">
 						Amount bounds are signed INR (credits +, debits −). A regex matches
 						the cleaned narration. First matching rule wins (top of the list
-						first).
+						first) — drag to reorder.
 					</p>
 				)}
 			</div>
@@ -265,70 +307,23 @@ export function RulesTab({
 					transaction.
 				</p>
 			) : (
-				<ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
-					{rows.map((r, i) => {
-						const cat = byKey.get(r.assignCategoryKey);
-						const bounds = [
-							r.minAmount != null ? `≥${r.minAmount}` : null,
-							r.maxAmount != null ? `≤${r.maxAmount}` : null,
-						]
-							.filter(Boolean)
-							.join(" ");
-						return (
-							<li
-								key={r.id}
-								className={`flex items-center gap-2 px-3 py-2.5 ${r.active ? "" : "opacity-50"}`}
-							>
-								<div className="flex flex-col">
-									<button
-										type="button"
-										onClick={() => move(i, -1)}
-										disabled={i === 0 || reorder.isPending}
-										className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-										title="Move up"
-									>
-										<ChevronUp className="size-3.5" />
-									</button>
-									<button
-										type="button"
-										onClick={() => move(i, 1)}
-										disabled={i === rows.length - 1 || reorder.isPending}
-										className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-										title="Move down"
-									>
-										<ChevronDown className="size-3.5" />
-									</button>
-								</div>
-								<div className="min-w-0 flex-1">
-									<div className="flex flex-wrap items-center gap-2">
-										<code className="truncate text-sm">{r.pattern}</code>
-										<span className="rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] text-secondary-foreground uppercase tracking-wide">
-											{r.matchType === "regex" ? "regex" : "contains"}
-										</span>
-										{bounds && (
-											<span className="tnum text-muted-foreground text-xs">
-												{bounds}
-											</span>
-										)}
-									</div>
-									<span
-										className="text-xs"
-										style={{ color: kindColor(r.assignKind) }}
-									>
-										→ {cat?.label ?? r.assignCategoryKey}
-									</span>
-								</div>
-								<button
-									type="button"
-									onClick={() => update.mutate({ id: r.id, active: !r.active })}
-									className="rounded-full px-2 py-0.5 text-[0.65rem] text-muted-foreground uppercase tracking-wide hover:text-foreground"
-									title={r.active ? "Disable rule" : "Enable rule"}
-								>
-									{r.active ? "on" : "off"}
-								</button>
-								<button
-									type="button"
-									onClick={() =>
+				<DndContext
+					sensors={sensors}
+					collisionDetection={closestCenter}
+					modifiers={[restrictToVerticalAxis]}
+					onDragEnd={onDragEnd}
+				>
+					<SortableContext
+						items={rows.map((r) => r.id)}
+						strategy={verticalListSortingStrategy}
+					>
+						<ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+							{rows.map((r) => (
+								<SortableRuleRow
+									key={r.id}
+									rule={r}
+									catLabel={byKey.get(r.assignCategoryKey)?.label}
+									onEdit={() =>
 										setForm({
 											editingId: r.id,
 											pattern: r.pattern,
@@ -340,24 +335,105 @@ export function RulesTab({
 											advanced: r.minAmount != null || r.maxAmount != null,
 										})
 									}
-									className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-									title="Edit"
-								>
-									<Pencil className="size-3.5" />
-								</button>
-								<button
-									type="button"
-									onClick={() => remove.mutate({ id: r.id })}
-									className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-									title="Delete"
-								>
-									<Trash2 className="size-3.5" />
-								</button>
-							</li>
-						);
-					})}
-				</ul>
+									onToggle={() =>
+										update.mutate({ id: r.id, active: !r.active })
+									}
+									onDelete={() => remove.mutate({ id: r.id })}
+								/>
+							))}
+						</ul>
+					</SortableContext>
+				</DndContext>
 			)}
 		</section>
+	);
+}
+
+function SortableRuleRow({
+	rule,
+	catLabel,
+	onEdit,
+	onToggle,
+	onDelete,
+}: {
+	rule: Rule;
+	catLabel: string | undefined;
+	onEdit: () => void;
+	onToggle: () => void;
+	onDelete: () => void;
+}) {
+	const {
+		attributes,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+		isDragging,
+	} = useSortable({ id: rule.id });
+	const bounds = [
+		rule.minAmount != null ? `≥${rule.minAmount}` : null,
+		rule.maxAmount != null ? `≤${rule.maxAmount}` : null,
+	]
+		.filter(Boolean)
+		.join(" ");
+	return (
+		<li
+			ref={setNodeRef}
+			style={{
+				transform: CSS.Transform.toString(transform),
+				transition,
+				opacity: isDragging ? 0.6 : 1,
+				zIndex: isDragging ? 10 : undefined,
+			}}
+			className={`flex items-center gap-2 bg-background px-3 py-2.5 ${rule.active ? "" : "opacity-50"}`}
+		>
+			<button
+				type="button"
+				className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
+				title="Drag to reorder"
+				{...attributes}
+				{...listeners}
+			>
+				<GripVertical className="size-4" />
+			</button>
+			<div className="min-w-0 flex-1">
+				<div className="flex flex-wrap items-center gap-2">
+					<code className="truncate text-sm">{rule.pattern}</code>
+					<span className="rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] text-secondary-foreground uppercase tracking-wide">
+						{rule.matchType === "regex" ? "regex" : "contains"}
+					</span>
+					{bounds && (
+						<span className="tnum text-muted-foreground text-xs">{bounds}</span>
+					)}
+				</div>
+				<span className="text-xs" style={{ color: kindColor(rule.assignKind) }}>
+					→ {catLabel ?? rule.assignCategoryKey}
+				</span>
+			</div>
+			<button
+				type="button"
+				onClick={onToggle}
+				className="rounded-full px-2 py-0.5 text-[0.65rem] text-muted-foreground uppercase tracking-wide hover:text-foreground"
+				title={rule.active ? "Disable rule" : "Enable rule"}
+			>
+				{rule.active ? "on" : "off"}
+			</button>
+			<button
+				type="button"
+				onClick={onEdit}
+				className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+				title="Edit"
+			>
+				<Pencil className="size-3.5" />
+			</button>
+			<button
+				type="button"
+				onClick={onDelete}
+				className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+				title="Delete"
+			>
+				<Trash2 className="size-3.5" />
+			</button>
+		</li>
 	);
 }

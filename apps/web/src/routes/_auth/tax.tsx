@@ -1,4 +1,5 @@
 import { Button } from "@money/ui/components/button";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -86,22 +87,13 @@ function FyPicker({
 	const compute = useQuery(orpc.tax.compute.queryOptions({ input: { fy } }));
 	const fys = compute.data?.availableFys ?? [fy];
 	return (
-		<select
-			value={fy}
+		<Select
 			aria-label="Financial year"
-			onChange={(e) => onChange(e.target.value)}
-			className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm outline-none focus-visible:border-ring"
-		>
-			{fys.map((f) => (
-				<option
-					key={f}
-					value={f}
-					className="bg-popover text-popover-foreground"
-				>
-					{f}
-				</option>
-			))}
-		</select>
+			value={fy}
+			onValueChange={onChange}
+			options={fys.map((f) => ({ value: f, label: f }))}
+			className="h-9 w-auto min-w-[8rem] rounded-md"
+		/>
 	);
 }
 

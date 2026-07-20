@@ -1,4 +1,5 @@
 import { CARD_CATEGORIES } from "@money/shared";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ChevronDown, Wallet } from "lucide-react";
@@ -74,22 +75,16 @@ function Picker() {
 		<section className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center gap-3 border-border border-b-2 pb-2">
 				<h2 className="font-display font-medium text-xl">Best card for</h2>
-				<select
-					value={category}
+				<Select
 					aria-label="Spend category"
-					onChange={(e) => setCategory(e.target.value)}
-					className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm outline-none focus-visible:border-ring"
-				>
-					{CARD_CATEGORIES.map((c) => (
-						<option
-							key={c.key}
-							value={c.key}
-							className="bg-popover text-popover-foreground"
-						>
-							{c.label}
-						</option>
-					))}
-				</select>
+					value={category}
+					onValueChange={setCategory}
+					options={CARD_CATEGORIES.map((c) => ({
+						value: c.key,
+						label: c.label,
+					}))}
+					className="h-9 w-auto min-w-[10rem] rounded-md"
+				/>
 			</div>
 			<ol className="flex flex-col divide-y divide-border rounded-xl border border-border">
 				{ranked.length === 0 && (

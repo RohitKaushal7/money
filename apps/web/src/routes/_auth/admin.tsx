@@ -1,5 +1,6 @@
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
+import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
@@ -345,15 +346,17 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 				</label>
 				<label htmlFor="invite-role" className="flex flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">Role</span>
-					<select
+					<Select
 						id="invite-role"
+						aria-label="Role"
 						value={role}
-						onChange={(e) => setRole(e.target.value as "user" | "admin")}
-						className="h-8 rounded-none border border-input bg-transparent px-2.5 text-xs outline-none focus-visible:border-ring dark:bg-input/30"
-					>
-						<option value="user">user</option>
-						<option value="admin">admin</option>
-					</select>
+						onValueChange={(v) => setRole(v as "user" | "admin")}
+						options={[
+							{ value: "user", label: "user" },
+							{ value: "admin", label: "admin" },
+						]}
+						className="w-40"
+					/>
 				</label>
 				<label
 					htmlFor="invite-password"
