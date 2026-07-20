@@ -28,6 +28,11 @@ export type { BuildSelectParams } from "./build-select";
 export { buildTransactionsSelect } from "./build-select";
 export type { SqlParam } from "./duckdb";
 export * from "./paths";
+export type {
+	PreviewParams,
+	PreviewResult,
+} from "./preview";
+export { previewStatement } from "./preview";
 
 /** Read-only handle onto the analytical DB. Exposes queries only — no write surface (ADR-0003). */
 export interface AnalyticsReader {

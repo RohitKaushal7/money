@@ -6,6 +6,7 @@ import { analyticsRouter } from "./analytics";
 import { cardsRouter } from "./cards";
 import { categoriesRouter } from "./categories";
 import { currencyRouter } from "./currency";
+import { formatsRouter } from "./formats";
 import { importRouter } from "./import";
 import { ingestRouter } from "./ingest";
 import { networthRouter } from "./networth";
@@ -42,6 +43,7 @@ export const appRouter = {
 	tax: taxRouter,
 	import: importRouter,
 	ingest: ingestRouter,
+	formats: formatsRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;
