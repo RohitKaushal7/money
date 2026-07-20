@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type SpendingRow, spendingTrends } from "./spending";
+import { type SpendingRow, spendHistory, spendingTrends } from "./spending";
 import type { RecurringExpense } from "./types";
 
 /** An expense row as `v_category_monthly` yields it (debit sums are negative). */
@@ -259,5 +259,89 @@ describe("spendingTrends — totals", () => {
 		expect(t.categories).toEqual([]);
 		expect(t.grandTotal).toBe(0);
 		expect(t.latestTotal).toBe(0);
+	});
+});
+
+describe("spendHistory — stacked series", () => {
+	test("keeps the top-N categories by total and rolls the rest into Other", () => {
+		const t = spendingTrends({
+			rows: [
+				row("2026-04", "a", 100),
+				row("2026-04", "b", 90),
+				row("2026-04", "c", 80),
+				row("2026-04", "d", 70),
+				row("2026-04", "e", 60),
+				row("2026-04", "f", 50),
+				row("2026-04", "g", 40),
+			],
+			recurring: [],
+		});
+		const h = spendHistory(t, 5);
+		expect(h.series.filter((s) => !s.isOther).map((s) => s.key)).toEqual([
+			"a",
+			"b",
+			"c",
+			"d",
+			"e",
+		]);
+		const other = h.series.find((s) => s.isOther);
+		expect(other?.label).toBe("Other");
+		expect(h.amounts[other?.key ?? ""]).toEqual([90]); // 50 + 40
+	});
+
+	test("sums Other per month, aligned to the window", () => {
+		const t = spendingTrends({
+			rows: [
+				row("2026-04", "a", 500),
+				row("2026-05", "a", 500),
+				row("2026-04", "b", 400),
+				row("2026-05", "b", 400),
+				row("2026-04", "c", 300),
+				row("2026-05", "c", 300),
+				row("2026-04", "d", 200),
+				row("2026-05", "d", 200),
+				row("2026-04", "e", 100),
+				row("2026-05", "e", 100),
+				row("2026-04", "f", 30), // Other, Apr only
+				row("2026-05", "g", 40), // Other, May only
+			],
+			recurring: [],
+			months: ["2026-04", "2026-05"],
+		});
+		const h = spendHistory(t, 5);
+		const other = h.series.find((s) => s.isOther);
+		expect(h.amounts[other?.key ?? ""]).toEqual([30, 40]);
+	});
+
+	test("draws no Other series when categories do not exceed N", () => {
+		const t = spendingTrends({
+			rows: [row("2026-04", "a", 100), row("2026-04", "b", 50)],
+			recurring: [],
+		});
+		const h = spendHistory(t, 5);
+		expect(h.series.some((s) => s.isOther)).toBe(false);
+		expect(h.series).toHaveLength(2);
+	});
+
+	test("passes through months, totals and the monthly budget", () => {
+		const t = spendingTrends({
+			rows: [row("2026-04", "transport", 3000)],
+			recurring: [
+				exp({ category: "transport", amount: 1500, cadence: "monthly" }),
+			],
+		});
+		const h = spendHistory(t, 5);
+		expect(h.months).toEqual(["2026-04"]);
+		expect(h.totalByMonth).toEqual([3000]);
+		expect(h.budget).toBe(1500);
+	});
+
+	test("empty trends yield empty series and zero budget", () => {
+		const t = spendingTrends({ rows: [], recurring: [] });
+		const h = spendHistory(t, 5);
+		expect(h.months).toEqual([]);
+		expect(h.series).toEqual([]);
+		expect(h.amounts).toEqual({});
+		expect(h.budget).toBe(0);
 	});
 });

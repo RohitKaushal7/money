@@ -199,3 +199,64 @@ export function spendingTrends(input: SpendingInput): SpendingTrends {
 		budgetedNoActual,
 	};
 }
+
+/** recharts dataKey for the rolled-up "Other" series (category keys never collide with this sentinel). */
+export const OTHER_KEY = "__other__";
+
+/** A stack series in {@link SpendHistory}: a top-N category, or the synthetic "Other" rollup. */
+export interface SpendHistorySeries {
+	/** recharts dataKey — a category key, or {@link OTHER_KEY}. */
+	key: string;
+	/** Legend/tooltip label. */
+	label: string;
+	/** True for the "Other" rollup series. */
+	isOther: boolean;
+}
+
+/** {@link SpendingTrends} reshaped for a monthly stacked bar chart: top-N categories + an "Other" bucket. */
+export interface SpendHistory {
+	/** Window months ascending ("YYYY-MM"). */
+	months: string[];
+	/** Stack series bottom→top: top-N categories by window total (desc), then "Other" (if any) last. */
+	series: SpendHistorySeries[];
+	/** `series.key` → per-month spend, aligned to {@link months}. */
+	amounts: Record<string, number[]>;
+	/** Total spend per month (every category), aligned to {@link months}. */
+	totalByMonth: number[];
+	/** Monthly plan budget; 0 means the caller draws no budget line. */
+	budget: number;
+}
+
+/**
+ * Reshape {@link SpendingTrends} into stacked-bar series: the `topN` biggest-by-total categories keep their
+ * own series; every remaining category folds into one "Other" bucket summed per month. Bars built from
+ * `amounts` sum to `totalByMonth` exactly. Pure — does not mutate `trends`.
+ */
+export function spendHistory(trends: SpendingTrends, topN = 5): SpendHistory {
+	const sorted = [...trends.categories].sort((a, b) => b.total - a.total);
+	const named = sorted.slice(0, topN);
+	const rest = sorted.slice(topN);
+
+	const series: SpendHistorySeries[] = named.map((c) => ({
+		key: c.key,
+		label: c.label,
+		isOther: false,
+	}));
+	const amounts: Record<string, number[]> = {};
+	for (const c of named) amounts[c.key] = c.byMonth;
+
+	if (rest.length > 0) {
+		amounts[OTHER_KEY] = trends.months.map((_, i) =>
+			rest.reduce((s, c) => s + (c.byMonth[i] ?? 0), 0),
+		);
+		series.push({ key: OTHER_KEY, label: "Other", isOther: true });
+	}
+
+	return {
+		months: trends.months,
+		series,
+		amounts,
+		totalByMonth: trends.totalByMonth,
+		budget: trends.totalBudget,
+	};
+}
