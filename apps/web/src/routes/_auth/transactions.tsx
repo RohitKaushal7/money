@@ -1,10 +1,10 @@
-import { CATEGORIES, type Kind } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	ChevronLeft,
 	ChevronRight,
+	ListPlus,
 	Plus,
 	RefreshCw,
 	RotateCcw,
@@ -16,8 +16,18 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	groupByKind,
+	KIND_COLOR,
+	KIND_LABEL,
+	KIND_ORDER,
+	kindColor,
+	useCategories,
+} from "@/lib/categories";
 import { formatINR } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
+import { CategoriesTab } from "./-categories-tab";
+import { type RulePrefill, RulesTab } from "./-rules-tab";
 
 /** "2026-07-02" → "2 Jul '26" (year matters once the statement spans years). */
 function fmtTxnDate(iso: string): string {
@@ -39,37 +49,6 @@ const IN = "var(--covered)";
 const PENDING_C = "oklch(0.74 0.15 66)"; // amber — an edit not yet baked
 const tint = (c: string, pct: number) =>
 	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
-
-const KIND_LABEL: Record<Kind, string> = {
-	passive_income: "Passive income",
-	active_income: "Active income",
-	expense: "Expense",
-	investment: "Investment",
-	transfer: "Transfer",
-};
-const KIND_ORDER: Kind[] = [
-	"passive_income",
-	"active_income",
-	"expense",
-	"investment",
-	"transfer",
-];
-const CAT_GROUPS = KIND_ORDER.map((kind) => ({
-	kind,
-	label: KIND_LABEL[kind],
-	cats: CATEGORIES.filter((c) => c.kind === kind),
-}));
-
-/** One colour per kind, so the category column reads at a glance. Tuned to the warm "data journal" palette. */
-const KIND_COLOR: Record<Kind, string> = {
-	passive_income: "var(--covered)", // green — the money that buys freedom
-	active_income: "oklch(0.66 0.12 235)", // blue — income, but earned
-	expense: "var(--uncovered)", // red — the denominator
-	investment: "oklch(0.64 0.15 300)", // violet — asset moves
-	transfer: "var(--muted-foreground)", // neutral — excluded from the KPI
-};
-const kindColor = (kind: string) =>
-	KIND_COLOR[kind as Kind] ?? "var(--muted-foreground)";
 
 /** contribution/coupon/… tags that link a manual split line to an investment cashflow (spec §4). */
 const CASHFLOW_TYPES = [
@@ -109,6 +88,10 @@ function TransactionsPage() {
 	const [dateTo, setDateTo] = useState("");
 	const [offset, setOffset] = useState(0);
 	const [splitOpen, setSplitOpen] = useState<string | null>(null);
+	const [tab, setTab] = useState<"transactions" | "rules" | "categories">(
+		"transactions",
+	);
+	const [rulePrefill, setRulePrefill] = useState<RulePrefill | null>(null);
 
 	// debounce the search box; any filter change resets to the first page
 	useEffect(() => {
@@ -197,67 +180,124 @@ function TransactionsPage() {
 					/>
 				)}
 
-				<Filters
-					search={searchInput}
-					onSearch={setSearchInput}
-					month={month}
-					onMonth={onFilter(setMonth)}
-					months={months}
-					kind={kind}
-					onKind={onFilter(setKind)}
-					uncatOnly={uncatOnly}
-					onUncatOnly={onFilter(setUncatOnly)}
-					uncategorized={summaryQ.data?.uncategorized ?? 0}
-					onDateFrom={onFilter(setDateFrom)}
-					onDateTo={onFilter(setDateTo)}
-				/>
+				<TabBar tab={tab} onTab={setTab} />
 
-				<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
-					{KIND_ORDER.map((k) => (
-						<span key={k} className="flex items-center gap-1.5">
-							<span
-								className="size-2 rounded-full"
-								style={{ background: KIND_COLOR[k] }}
-							/>
-							{KIND_LABEL[k]}
-						</span>
-					))}
-				</div>
+				{tab === "rules" && (
+					<RulesTab
+						prefill={rulePrefill}
+						onConsumePrefill={() => setRulePrefill(null)}
+					/>
+				)}
+				{tab === "categories" && <CategoriesTab />}
 
-				<section className="flex flex-col">
-					{txnQ.isLoading && (
-						<p className="py-6 text-muted-foreground text-sm">Loading…</p>
-					)}
-					{!txnQ.isLoading && rows.length === 0 && (
-						<p className="py-6 text-muted-foreground text-sm">
-							No transactions match these filters.
-						</p>
-					)}
-					<ul className="flex flex-col">
-						{rows.map((t) => (
-							<TxnRow
-								key={t.txnId}
-								txn={t}
-								open={splitOpen === t.txnId}
-								onToggleSplit={() =>
-									setSplitOpen((cur) => (cur === t.txnId ? null : t.txnId))
-								}
-								onChanged={() => qc.invalidateQueries()}
-							/>
-						))}
-					</ul>
-				</section>
+				{tab === "transactions" && (
+					<>
+						<Filters
+							search={searchInput}
+							onSearch={setSearchInput}
+							month={month}
+							onMonth={onFilter(setMonth)}
+							months={months}
+							kind={kind}
+							onKind={onFilter(setKind)}
+							uncatOnly={uncatOnly}
+							onUncatOnly={onFilter(setUncatOnly)}
+							uncategorized={summaryQ.data?.uncategorized ?? 0}
+							onDateFrom={onFilter(setDateFrom)}
+							onDateTo={onFilter(setDateTo)}
+						/>
 
-				<Pager
-					offset={offset}
-					page={PAGE}
-					total={total}
-					shown={rows.length}
-					onPrev={() => setOffset((o) => Math.max(0, o - PAGE))}
-					onNext={() => setOffset((o) => o + PAGE)}
-				/>
+						<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
+							{KIND_ORDER.map((k) => (
+								<span key={k} className="flex items-center gap-1.5">
+									<span
+										className="size-2 rounded-full"
+										style={{ background: KIND_COLOR[k] }}
+									/>
+									{KIND_LABEL[k]}
+								</span>
+							))}
+						</div>
+
+						<section className="flex flex-col">
+							{txnQ.isLoading && (
+								<p className="py-6 text-muted-foreground text-sm">Loading…</p>
+							)}
+							{!txnQ.isLoading && rows.length === 0 && (
+								<p className="py-6 text-muted-foreground text-sm">
+									No transactions match these filters.
+								</p>
+							)}
+							<ul className="flex flex-col">
+								{rows.map((t) => (
+									<TxnRow
+										key={t.txnId}
+										txn={t}
+										open={splitOpen === t.txnId}
+										onToggleSplit={() =>
+											setSplitOpen((cur) => (cur === t.txnId ? null : t.txnId))
+										}
+										onChanged={() => qc.invalidateQueries()}
+										onCreateRule={() => {
+											setRulePrefill({
+												pattern: t.narration,
+												assignCategoryKey: t.categoryKey,
+											});
+											setTab("rules");
+										}}
+									/>
+								))}
+							</ul>
+						</section>
+
+						<Pager
+							offset={offset}
+							page={PAGE}
+							total={total}
+							shown={rows.length}
+							onPrev={() => setOffset((o) => Math.max(0, o - PAGE))}
+							onNext={() => setOffset((o) => o + PAGE)}
+						/>
+					</>
+				)}
 			</div>
 		</main>
+	);
+}
+
+// ── tab bar ───────────────────────────────────────────────────────────────────────────────────────────
+function TabBar({
+	tab,
+	onTab,
+}: {
+	tab: "transactions" | "rules" | "categories";
+	onTab: (t: "transactions" | "rules" | "categories") => void;
+}) {
+	const tabs: {
+		key: "transactions" | "rules" | "categories";
+		label: string;
+	}[] = [
+		{ key: "transactions", label: "Transactions" },
+		{ key: "rules", label: "Rules" },
+		{ key: "categories", label: "Categories" },
+	];
+	return (
+		<div className="flex gap-1 border-border border-b">
+			{tabs.map((t) => (
+				<button
+					key={t.key}
+					type="button"
+					onClick={() => onTab(t.key)}
+					className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
+						tab === t.key
+							? "border-foreground font-medium text-foreground"
+							: "border-transparent text-muted-foreground hover:text-foreground"
+					}`}
+				>
+					{t.label}
+				</button>
+			))}
+		</div>
 	);
 }
 
@@ -394,12 +434,19 @@ function TxnRow({
 	open,
 	onToggleSplit,
 	onChanged,
+	onCreateRule,
 }: {
 	txn: Txn;
 	open: boolean;
 	onToggleSplit: () => void;
 	onChanged: () => void;
+	onCreateRule: () => void;
 }) {
+	const catsQ = useCategories();
+	const groups = groupByKind(catsQ.data ?? [], {
+		activeOnly: true,
+		keepKey: txn.categoryKey,
+	});
 	const setOverride = useMutation(orpc.overrides.set.mutationOptions());
 	const clearOverride = useMutation(orpc.overrides.clear.mutationOptions());
 	const isSplit = txn.manualSplitCount > 0;
@@ -464,7 +511,7 @@ function TxnRow({
 								background: tint(kindColor(txn.kind), 7),
 							}}
 						>
-							{CAT_GROUPS.map((g) => (
+							{groups.map((g) => (
 								<optgroup key={g.kind} label={g.label}>
 									{g.cats.map((c) => (
 										<option
@@ -490,6 +537,14 @@ function TxnRow({
 							<RotateCcw className="size-3.5" />
 						</button>
 					)}
+					<button
+						type="button"
+						title="Create a rule from this narration"
+						onClick={onCreateRule}
+						className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+					>
+						<ListPlus className="size-3.5" />
+					</button>
 					<button
 						type="button"
 						title={isSplit ? "Edit split" : "Split into lines"}
@@ -530,6 +585,8 @@ function SplitEditor({
 	);
 	const setSplit = useMutation(orpc.splits.set.mutationOptions());
 	const clearSplit = useMutation(orpc.splits.clear.mutationOptions());
+	const catsQ = useCategories();
+	const groups = groupByKind(catsQ.data ?? []);
 	const [lines, setLines] = useState<Line[] | null>(null);
 
 	// seed the editor once the existing lines load (or default to the whole amount on one line)
@@ -630,7 +687,6 @@ function SplitEditor({
 
 			<div className="flex flex-col gap-2">
 				{lines.map((l, i) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: lines are a positional, editable list
 					<div key={i} className="flex flex-wrap items-center gap-2">
 						<input
 							type="number"
@@ -645,7 +701,7 @@ function SplitEditor({
 							className={`${SELECT_CLASS} min-w-[10rem] flex-1`}
 						>
 							<option value="">— category —</option>
-							{CAT_GROUPS.map((g) => (
+							{groups.map((g) => (
 								<optgroup key={g.kind} label={g.label}>
 									{g.cats.map((c) => (
 										<option
