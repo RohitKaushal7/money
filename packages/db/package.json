@@ -19,6 +19,7 @@
   "dependencies": {
     "@libsql/client": "0.17.4",
     "@money/env": "workspace:*",
+    "@money/shared": "workspace:*",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
     "libsql": "0.5.29",
