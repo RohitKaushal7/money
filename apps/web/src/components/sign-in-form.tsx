@@ -9,6 +9,7 @@ import z from "zod";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
+import { Logo } from "./logo";
 
 export default function SignInForm({
 	onSwitchToSignUp,
@@ -58,7 +59,12 @@ export default function SignInForm({
 
 	return (
 		<div className="mx-auto mt-10 w-full max-w-md p-6">
-			<h1 className="mb-6 text-center font-bold text-3xl">Welcome Back</h1>
+			<div className="mb-6 flex flex-col items-center gap-3">
+				<Logo className="size-12" />
+				<h1 className="text-center font-display font-semibold text-3xl tracking-tight">
+					Welcome back
+				</h1>
+			</div>
 
 			<form
 				onSubmit={(e) => {

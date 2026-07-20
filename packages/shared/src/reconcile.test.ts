@@ -66,7 +66,14 @@ describe("expectedInterestEvents", () => {
 	test("accrue holdings never emit a cash event (PPF, cumulative FD)", () => {
 		expect(
 			expectedInterestEvents(
-				[inv({ type: "fd", payout: "accrue", principal: 659_951, annualRate: 0.071 })],
+				[
+					inv({
+						type: "fd",
+						payout: "accrue",
+						principal: 659_951,
+						annualRate: 0.071,
+					}),
+				],
 				"2026-07",
 			),
 		).toHaveLength(0);
@@ -254,8 +261,18 @@ describe("reconcile", () => {
 		const res = reconcile({
 			investments: [],
 			credits: [
-				credit({ txnId: "q", amount: 40_000, kind: "active_income", categoryKey: "salary" }),
-				credit({ txnId: "s", amount: 20_000, kind: "transfer", categoryKey: "sweep_in" }),
+				credit({
+					txnId: "q",
+					amount: 40_000,
+					kind: "active_income",
+					categoryKey: "salary",
+				}),
+				credit({
+					txnId: "s",
+					amount: 20_000,
+					kind: "transfer",
+					categoryKey: "sweep_in",
+				}),
 			],
 			month: "2026-07",
 			today: "2026-07-20",
