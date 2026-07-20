@@ -8,6 +8,7 @@ import {
 	DateRangePicker,
 	resolveRange,
 } from "@/components/date-range-picker";
+import { SpendingHistory } from "@/components/spending/spending-history";
 import { useMoney } from "@/lib/currency";
 import { formatDay, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -51,6 +52,7 @@ function SpendingPage() {
 				{hasData && res && (
 					<>
 						<SummaryBar res={res} />
+						<SpendingHistory res={res} />
 						<section className="flex flex-col">
 							<SectionHead>
 								Categories{" "}
