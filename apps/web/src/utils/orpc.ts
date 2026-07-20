@@ -37,7 +37,9 @@ export const queryClient = createQueryClient();
 function getServerUrl(url: string) {
 	const normalized = url.endsWith("/") ? url.slice(0, -1) : url;
 
-	if (!normalized.startsWith("/")) {
+	// Absolute URL (dev: http://localhost:3000) → use as-is. A "/"-prefixed value — including "/" itself,
+	// which normalizes to "" — is relative and resolves against the current origin (single-origin prod).
+	if (normalized !== "" && !normalized.startsWith("/")) {
 		return normalized;
 	}
 

@@ -15,7 +15,7 @@ export function createAuth() {
 
 			schema: schema,
 		}),
-		trustedOrigins: [env.CORS_ORIGIN],
+		trustedOrigins: [env.CORS_ORIGIN ?? env.BETTER_AUTH_URL],
 		emailAndPassword: {
 			enabled: true,
 			disableSignUp: true,
