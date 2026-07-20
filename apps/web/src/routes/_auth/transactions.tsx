@@ -42,6 +42,10 @@ function fmtTxnDate(iso: string): string {
 }
 
 export const Route = createFileRoute("/_auth/transactions")({
+	// `?month=YYYY-MM` seeds the month filter — e.g. drilling in from the spending-history chart.
+	validateSearch: (search: Record<string, unknown>): { month?: string } => ({
+		month: typeof search.month === "string" ? search.month : undefined,
+	}),
 	component: TransactionsPage,
 });
 
@@ -77,9 +81,10 @@ interface Txn {
 
 function TransactionsPage() {
 	const qc = useQueryClient();
+	const { month: monthParam } = Route.useSearch();
 	const [searchInput, setSearchInput] = useState("");
 	const [search, setSearch] = useState("");
-	const [month, setMonth] = useState("");
+	const [month, setMonth] = useState(monthParam ?? "");
 	const [kind, setKind] = useState("");
 	const [uncatOnly, setUncatOnly] = useState(false);
 	const [dateFrom, setDateFrom] = useState("");

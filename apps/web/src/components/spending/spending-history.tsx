@@ -1,4 +1,5 @@
 import { type SpendingTrends, spendHistory } from "@money/shared";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	Bar,
 	BarChart,
@@ -35,7 +36,10 @@ function colorAt(index: number, isOther: boolean): string {
 }
 
 interface ChartRow {
+	/** Display label, e.g. "Jul '25". */
 	month: string;
+	/** Raw window month "YYYY-MM" — carried for the click-through to Transactions. */
+	ym: string;
 	total: number;
 	[seriesKey: string]: number | string;
 }
@@ -43,11 +47,13 @@ interface ChartRow {
 /** Monthly spend history: one stacked bar per month (top-5 categories + Other), with a flat budget line. */
 export function SpendingHistory({ res }: { res: SpendingTrends }) {
 	const { fmt } = useMoney();
+	const navigate = useNavigate();
 	const hist = spendHistory(res, 5);
 
 	const data: ChartRow[] = hist.months.map((month, i) => {
 		const row: ChartRow = {
 			month: formatMonth(month),
+			ym: month,
 			total: hist.totalByMonth[i] ?? 0,
 		};
 		for (const s of hist.series) row[s.key] = hist.amounts[s.key]?.[i] ?? 0;
@@ -58,6 +64,16 @@ export function SpendingHistory({ res }: { res: SpendingTrends }) {
 	// Thin X labels once the window is wide enough that every-month labels would collide.
 	const interval =
 		hist.months.length > 14 ? Math.ceil(hist.months.length / 12) - 1 : 0;
+
+	// Click anywhere in a month's column → open Transactions filtered to that month. Reading the chart's
+	// activePayload (rather than a per-Bar onClick) makes the whole column clickable and sidesteps the
+	// tooltip cursor layer swallowing bar clicks.
+	const goToMonth = (state: unknown) => {
+		// recharts gives us the clicked column's display label; map it back to the raw "YYYY-MM".
+		const label = (state as { activeLabel?: string })?.activeLabel;
+		const ym = data.find((r) => r.month === label)?.ym;
+		if (ym) navigate({ to: "/transactions", search: { month: ym } });
+	};
 
 	return (
 		<section className="flex flex-col gap-4">
@@ -74,11 +90,12 @@ export function SpendingHistory({ res }: { res: SpendingTrends }) {
 					)}
 				</div>
 			</div>
-			<div className="h-64 w-full">
+			<div className="h-64 w-full cursor-pointer">
 				<ResponsiveContainer width="100%" height="100%">
 					<BarChart
 						data={data}
 						margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
+						onClick={goToMonth}
 					>
 						<CartesianGrid
 							vertical={false}
