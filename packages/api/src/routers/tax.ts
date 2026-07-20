@@ -15,15 +15,12 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * The **tax** router (Q11 / issue 005). Per-FY old-vs-new comparison over a manually-confirmed profile, with
  * income auto-suggested from the ledger (DuckDB, read-only). Also owns the after-tax KPI knobs
  * (`after_tax_kpi` on/off + `marginal_rate_override`) which the plan router reads.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard — MUST become `protectedProcedure`
- * before non-tailnet exposure (ADR-0006).
  */
 
 const AFTER_TAX_KEY = "after_tax_kpi";
@@ -193,7 +190,7 @@ function defined<T extends Record<string, unknown>>(obj: T): Partial<T> {
 
 export const taxRouter = {
 	/** Ledger-derived income suggestions for a FY (passive auto-summed; salary is a hint only). */
-	suggestIncome: publicProcedure
+	suggestIncome: protectedProcedure
 		.input(z.object({ fy: z.string() }))
 		.handler(async ({ context, input }) => {
 			const { passive, salary, rent } = await ledgerIncome(
@@ -210,7 +207,7 @@ export const taxRouter = {
 		}),
 
 	/** The stored profile for a FY (or null). */
-	get: publicProcedure
+	get: protectedProcedure
 		.input(z.object({ fy: z.string() }))
 		.handler(
 			async ({ context, input }) =>
@@ -218,7 +215,7 @@ export const taxRouter = {
 		),
 
 	/** Upsert the confirmed profile. */
-	upsert: publicProcedure
+	upsert: protectedProcedure
 		.input(
 			z.object({
 				fy: z.string(),
@@ -244,7 +241,7 @@ export const taxRouter = {
 		}),
 
 	/** Old-vs-new comparison + breakeven + LTCG headroom for a FY. */
-	compute: publicProcedure
+	compute: protectedProcedure
 		.input(z.object({ fy: z.string() }))
 		.handler(async ({ context, input }) => {
 			const [row, ledger] = await Promise.all([
@@ -266,7 +263,7 @@ export const taxRouter = {
 		}),
 
 	/** Pin the regime so a closed FY stays locked. */
-	finalize: publicProcedure
+	finalize: protectedProcedure
 		.input(z.object({ fy: z.string(), regimeChoice: z.enum(["old", "new"]) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb
@@ -277,13 +274,13 @@ export const taxRouter = {
 		}),
 
 	/** The after-tax KPI knobs (switch + effective rate). */
-	getKpiConfig: publicProcedure.handler(async ({ context }) => ({
+	getKpiConfig: protectedProcedure.handler(async ({ context }) => ({
 		enabled: await loadAfterTaxEnabled(context.appDb),
 		rate: await loadKpiTaxRate(context.appDb, context.uid),
 	})),
 
 	/** Toggle the switch and/or set a manual rate override (null clears it). */
-	setKpiConfig: publicProcedure
+	setKpiConfig: protectedProcedure
 		.input(
 			z.object({
 				enabled: z.boolean().optional(),

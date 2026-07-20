@@ -3,7 +3,7 @@ import { transactionManualSplits, transactionOverrides } from "@money/db";
 import { CATEGORY_BY_KEY, type CoverageRatioPoint } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 const UNCATEGORIZED = "uncategorized";
 
@@ -14,9 +14,6 @@ function categorySignature(keys: string[]): string {
 
 /**
  * Read-only analytics endpoints backing the dashboards. All open DuckDB read-only (ADR-0003).
- *
- * TODO(auth): these are `publicProcedure` for the first dashboard on localhost/tailnet. Before any
- * non-tailnet exposure they MUST become `protectedProcedure` — this is financial data (ADR-0006).
  */
 
 export interface CategoryRow {
@@ -39,12 +36,12 @@ export interface TransactionRow {
 
 export const analyticsRouter = {
 	/** Whether an ingest has produced an analytical DB yet. */
-	status: publicProcedure.handler(({ context }) => ({
+	status: protectedProcedure.handler(({ context }) => ({
 		ready: analyticsReady(context.uid),
 	})),
 
 	/** Headline totals + the uncategorised backlog (the review signal). */
-	summary: publicProcedure.handler(async ({ context }) => {
+	summary: protectedProcedure.handler(async ({ context }) => {
 		if (!analyticsReady(context.uid)) {
 			return {
 				ready: false,
@@ -73,7 +70,7 @@ export const analyticsRouter = {
 	}),
 
 	/** The north-star KPI per month (cash-basis; imputed drawdown wiring is later, ADR-0011). */
-	coverageRatio: publicProcedure.handler(
+	coverageRatio: protectedProcedure.handler(
 		async ({ context }): Promise<CoverageRatioPoint[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
@@ -90,7 +87,7 @@ export const analyticsRouter = {
 	),
 
 	/** Category × month × kind breakdown (the old pivot / "where's my money"). */
-	categoryBreakdown: publicProcedure.handler(
+	categoryBreakdown: protectedProcedure.handler(
 		async ({ context }): Promise<CategoryRow[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
@@ -103,7 +100,7 @@ export const analyticsRouter = {
 	),
 
 	/** Most recent transactions with their primary split's category/kind. */
-	recentTransactions: publicProcedure.handler(
+	recentTransactions: protectedProcedure.handler(
 		async ({ context }): Promise<TransactionRow[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
@@ -127,7 +124,7 @@ export const analyticsRouter = {
 	 * banner. Filters run against the BAKED split (DuckDB truth); a freshly-overridden row keeps showing its
 	 * new category until the next re-tag.
 	 */
-	transactions: publicProcedure
+	transactions: protectedProcedure
 		.input(
 			z.object({
 				month: z.string().optional(),

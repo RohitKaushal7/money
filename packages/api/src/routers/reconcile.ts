@@ -2,7 +2,7 @@ import { type AppDb, transactionOverrides } from "@money/db";
 import { reconcile, type StatementCredit } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 import { listInvestments } from "./plan";
 
 /**
@@ -10,9 +10,6 @@ import { listInvestments } from "./plan";
  * (SQLite, via {@link listInvestments}) and the month's actual credits (DuckDB read-only, via `withReader`),
  * then runs the pure `reconcile` compute. Read-only over both stores: it proposes, never mutates either
  * scene.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard. MUST become `protectedProcedure`
- * before any non-tailnet exposure — this reads financial data (ADR-0006).
  */
 
 /** Today as YYYY-MM-DD (server clock) — drives pending-vs-missed and per-month liveness. */
@@ -75,7 +72,7 @@ const monthInput = z.object({
 
 export const reconcileRouter = {
 	/** Expected-vs-actual for a month: received/pending/missed events + unrecognised-credit suggestions. */
-	month: publicProcedure
+	month: protectedProcedure
 		.input(monthInput)
 		.handler(async ({ context, input }) => {
 			const today = todayISO();
@@ -90,7 +87,7 @@ export const reconcileRouter = {
 		}),
 
 	/** Statement months available to reconcile (newest first), for the picker. */
-	months: publicProcedure.handler(async ({ context }): Promise<string[]> => {
+	months: protectedProcedure.handler(async ({ context }): Promise<string[]> => {
 		if (!analyticsReady(context.uid)) return [];
 		const rows = await withReader(context.uid, (reader) =>
 			reader.query<{ month: string }>(

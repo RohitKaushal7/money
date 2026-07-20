@@ -7,7 +7,7 @@ import {
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * The **currency** router. INR is the canonical base (ADR: multi-currency). `currencies` holds each code's
@@ -16,8 +16,6 @@ import { publicProcedure } from "../index";
  *
  * {@link loadRates}/{@link loadConfig} are reused by the plan/networth/spending routers to normalise foreign
  * amounts to INR before the (currency-agnostic) aggregate compute.
- *
- * TODO(auth): `publicProcedure` for now; MUST become `protectedProcedure` before non-tailnet exposure.
  */
 
 const DISPLAY_KEY = "display_currency";
@@ -91,12 +89,12 @@ async function fetchRateToInr(code: string): Promise<number | null> {
 
 export const currencyRouter = {
 	/** The full currency config: every currency + the active display currency. */
-	config: publicProcedure.handler(({ context }) =>
+	config: protectedProcedure.handler(({ context }) =>
 		loadConfig(context.controlDb, context.appDb),
 	),
 
 	/** Switch the active display currency (must be an enabled currency). */
-	setDisplay: publicProcedure
+	setDisplay: protectedProcedure
 		.input(codeInput)
 		.handler(async ({ context, input }) => {
 			const [cur] = await context.controlDb
@@ -115,7 +113,7 @@ export const currencyRouter = {
 		}),
 
 	/** Add or update a currency (symbol / manual rate / enabled). INR's rate is pinned to 1. */
-	upsert: publicProcedure
+	upsert: protectedProcedure
 		.input(
 			codeInput.extend({
 				symbol: z.string().trim().min(1).max(4),
@@ -146,7 +144,7 @@ export const currencyRouter = {
 		}),
 
 	/** Set a manual INR-per-unit rate for one currency. */
-	setRate: publicProcedure
+	setRate: protectedProcedure
 		.input(codeInput.extend({ rateToInr: z.number().positive() }))
 		.handler(async ({ context, input }) => {
 			if (input.code === BASE_CURRENCY) throw new Error("INR is the base (=1)");
@@ -158,7 +156,7 @@ export const currencyRouter = {
 		}),
 
 	/** Refresh every non-INR currency's rate from frankfurter.dev (ECB). Skips any that fail. */
-	refresh: publicProcedure.handler(async ({ context }) => {
+	refresh: protectedProcedure.handler(async ({ context }) => {
 		const rows = await context.controlDb.select().from(currencies);
 		const updated: string[] = [];
 		for (const row of rows) {

@@ -12,7 +12,7 @@ import {
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 import { loadRates } from "./currency";
 import { loadAfterTaxEnabled, loadKpiTaxRate } from "./tax";
 
@@ -20,9 +20,6 @@ import { loadAfterTaxEnabled, loadKpiTaxRate } from "./tax";
  * The **Plan** router (ADR-0011 revised / ADR-0014/0015) — reads and writes the SQLite plan (investments +
  * recurring expenses) and computes the plan-driven coverage ladder. No DuckDB here; this is durable app
  * state, not statement actuals.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard. MUST become `protectedProcedure`
- * before any non-tailnet exposure — this writes financial plan data (ADR-0006/0010).
  */
 
 type InvestmentRow = typeof investments.$inferSelect;
@@ -159,7 +156,7 @@ function todayISO(): string {
 
 export const planRouter = {
 	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). INR aggregates. */
-	ladder: publicProcedure.handler(async ({ context }) => {
+	ladder: protectedProcedure.handler(async ({ context }) => {
 		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
 			listInvestments(context.appDb),
 			listRecurring(context.appDb),
@@ -179,7 +176,7 @@ export const planRouter = {
 	}),
 
 	/** Portfolio rollup: total wealth, grouped holdings + weighted rate, avg/required ROI, years-left. */
-	wealth: publicProcedure.handler(async ({ context }) => {
+	wealth: protectedProcedure.handler(async ({ context }) => {
 		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
 			listInvestments(context.appDb),
 			listRecurring(context.appDb),
@@ -198,14 +195,14 @@ export const planRouter = {
 		});
 	}),
 
-	investments: publicProcedure.handler(({ context }) =>
+	investments: protectedProcedure.handler(({ context }) =>
 		listInvestments(context.appDb),
 	),
-	recurring: publicProcedure.handler(({ context }) =>
+	recurring: protectedProcedure.handler(({ context }) =>
 		listRecurring(context.appDb),
 	),
 
-	addInvestment: publicProcedure
+	addInvestment: protectedProcedure
 		.input(investmentInput)
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
@@ -215,7 +212,7 @@ export const planRouter = {
 			if (!row) throw new Error("insert failed");
 			return toInvestment(row);
 		}),
-	updateInvestment: publicProcedure
+	updateInvestment: protectedProcedure
 		.input(investmentInput.partial().merge(idInput))
 		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
@@ -226,7 +223,7 @@ export const planRouter = {
 				.returning();
 			return row ? toInvestment(row) : null;
 		}),
-	deleteInvestment: publicProcedure
+	deleteInvestment: protectedProcedure
 		.input(idInput)
 		.handler(async ({ context, input }) => {
 			await context.appDb
@@ -235,7 +232,7 @@ export const planRouter = {
 			return { ok: true };
 		}),
 
-	addRecurring: publicProcedure
+	addRecurring: protectedProcedure
 		.input(recurringInput)
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
@@ -245,7 +242,7 @@ export const planRouter = {
 			if (!row) throw new Error("insert failed");
 			return toRecurring(row);
 		}),
-	updateRecurring: publicProcedure
+	updateRecurring: protectedProcedure
 		.input(recurringInput.partial().merge(idInput))
 		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
@@ -256,7 +253,7 @@ export const planRouter = {
 				.returning();
 			return row ? toRecurring(row) : null;
 		}),
-	deleteRecurring: publicProcedure
+	deleteRecurring: protectedProcedure
 		.input(idInput)
 		.handler(async ({ context, input }) => {
 			await context.appDb

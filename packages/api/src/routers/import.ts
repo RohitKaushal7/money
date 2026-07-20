@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { userRawDir } from "@money/analytics";
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 import { ingestErrorMessage, runDryRun, runRebuild } from "../ingest-runner";
 import { dataDir } from "../paths";
 
@@ -20,9 +20,6 @@ import { dataDir } from "../paths";
  * Paste-CSV import (ADR-0013): the browser posts statement text, the API persists it as an immutable raw
  * file under the user's `raw/` dir (ADR-0002) and spawns the ingest runner — it NEVER opens DuckDB
  * read-write itself. `dryRun` previews new-vs-duplicate counts before anything is written.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard; must become `protectedProcedure`
- * before any non-tailnet exposure (ADR-0006) — this ingests financial data.
  */
 
 /** Stable short digest of the CSV content — re-pasting identical content maps to the same raw filename. */
@@ -71,7 +68,7 @@ async function previewCsv(csv: string, uid: string): Promise<DryRunCounts> {
 
 export const importRouter = {
 	/** Preview: how many rows are new vs already imported. Writes nothing. */
-	dryRun: publicProcedure.input(csvInput).handler(({ context, input }) => {
+	dryRun: protectedProcedure.input(csvInput).handler(({ context, input }) => {
 		if (!looksLikeStatement(input.csv)) {
 			throw new ORPCError("BAD_REQUEST", {
 				message:
@@ -86,7 +83,7 @@ export const importRouter = {
 	 * no-op) and rebuild. Validates the parse FIRST so a bad file never lands in the raw dir (it would poison
 	 * every future rebuild); rolls the file back if the rebuild itself fails.
 	 */
-	commit: publicProcedure
+	commit: protectedProcedure
 		.input(csvInput)
 		.handler(async ({ context, input }) => {
 			if (!looksLikeStatement(input.csv)) {
@@ -121,7 +118,7 @@ export const importRouter = {
 		}),
 
 	/** Raw statement files currently feeding the rebuild. */
-	listRaw: publicProcedure.handler(({ context }) => {
+	listRaw: protectedProcedure.handler(({ context }) => {
 		const rawDir = userRawDir(dataDir(), context.uid);
 		if (!existsSync(rawDir)) return [];
 		return readdirSync(rawDir)
@@ -134,7 +131,7 @@ export const importRouter = {
 	}),
 
 	/** Remove a raw file (undo an import) and rebuild without it. */
-	remove: publicProcedure
+	remove: protectedProcedure
 		.input(z.object({ name: z.string().min(1) }))
 		.handler(async ({ context, input }) => {
 			const { name } = input;

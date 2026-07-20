@@ -4,16 +4,13 @@ import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * Manual **allocation lines** for one transaction (spec §4 / issue 002) — how a mixed payout is split into
  * e.g. interest (`coupon`) vs principal (`redemption`). When any rows exist for a `txn_id` they REPLACE the
  * default single split at the next re-tag. Lines live in SQLite; `set` validates they reconcile to the
  * transaction's gross amount (DuckDB is the source of truth for the amount).
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard; must become `protectedProcedure`
- * before any non-tailnet exposure (ADR-0006).
  */
 
 const lineSchema = z.object({
@@ -26,7 +23,7 @@ const lineSchema = z.object({
 
 export const splitsRouter = {
 	/** The manual split lines for a transaction (empty = uses the default rule-derived split). */
-	get: publicProcedure
+	get: protectedProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(({ context, input }) =>
 			context.appDb
@@ -37,7 +34,7 @@ export const splitsRouter = {
 		),
 
 	/** Replace all manual lines for a transaction. Lines must sum to the transaction's gross amount. */
-	set: publicProcedure
+	set: protectedProcedure
 		.input(
 			z.object({
 				txnId: z.string().min(1),
@@ -80,7 +77,7 @@ export const splitsRouter = {
 		}),
 
 	/** Remove all manual lines (revert to the default rule-derived split at the next re-tag). */
-	clear: publicProcedure
+	clear: protectedProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb

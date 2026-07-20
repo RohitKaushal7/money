@@ -1,7 +1,7 @@
 import { type SpendingRow, spendingTrends } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 import { loadRates } from "./currency";
 import { listRecurring, recurringToInr } from "./plan";
 
@@ -12,9 +12,6 @@ import { listRecurring, recurringToInr } from "./plan";
  *
  * Actuals here read raw, matching the Overview money-map. Manual overrides (issue 001) become consistent
  * across every view once they're baked into the DuckDB rebuild via `ATTACH` (issue 001 Step 2).
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard. MUST become `protectedProcedure`
- * before any non-tailnet exposure — this reads financial data (ADR-0006).
  */
 
 /** Expense category × month magnitudes from the analytical DB (read-only). */
@@ -39,7 +36,7 @@ export interface CategoryTxn {
 
 export const spendingRouter = {
 	/** Category spend trends vs plan budget: movers table + totals + budgeted-but-unspent footnote. */
-	overview: publicProcedure
+	overview: protectedProcedure
 		.input(
 			z
 				.object({
@@ -76,7 +73,7 @@ export const spendingRouter = {
 		}),
 
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */
-	categoryTransactions: publicProcedure
+	categoryTransactions: protectedProcedure
 		.input(z.object({ categoryKey: z.string().min(1) }))
 		.handler(async ({ context, input }): Promise<CategoryTxn[]> => {
 			if (!analyticsReady(context.uid)) return [];

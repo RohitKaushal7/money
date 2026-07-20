@@ -14,15 +14,12 @@ import {
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * The **cards** router (issue 005). Read the portfolio + run the "best card for X" picker; light human
  * writes (spend profile, wallet/status toggles, purpose assignments). Reward TERMS are advisor-maintained
  * via direct DB writes — no CRUD here.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard — MUST become `protectedProcedure`
- * before non-tailnet exposure (ADR-0006).
  */
 
 async function loadRules(controlDb: ControlDb): Promise<RewardRule[]> {
@@ -55,7 +52,7 @@ async function gotchasByCard(
 
 export const cardsRouter = {
 	/** The full portfolio: cards + their rules + extras (dashboard table). */
-	list: publicProcedure.handler(async ({ context }) => {
+	list: protectedProcedure.handler(async ({ context }) => {
 		const [cardRows, ruleRows, extraRows] = await Promise.all([
 			context.controlDb.select().from(cards),
 			context.controlDb.select().from(cardRewardRules),
@@ -76,7 +73,7 @@ export const cardsRouter = {
 	}),
 
 	/** Best card for a category — ranked, with caveats. */
-	pick: publicProcedure
+	pick: protectedProcedure
 		.input(z.object({ category: z.string() }))
 		.handler(async ({ context, input }) => {
 			const [cardRows, rules, gotchas] = await Promise.all([
@@ -97,7 +94,7 @@ export const cardsRouter = {
 		}),
 
 	/** CIBIL / portfolio score from settings. */
-	health: publicProcedure.handler(async ({ context }) => {
+	health: protectedProcedure.handler(async ({ context }) => {
 		const rows = await context.appDb.select().from(settings);
 		const get = (k: string) => rows.find((r) => r.key === k)?.value ?? null;
 		return {
@@ -106,10 +103,10 @@ export const cardsRouter = {
 		};
 	}),
 
-	spendProfile: publicProcedure.handler(({ context }) =>
+	spendProfile: protectedProcedure.handler(({ context }) =>
 		context.controlDb.select().from(cardSpendProfile),
 	),
-	setSpend: publicProcedure
+	setSpend: protectedProcedure
 		.input(
 			z.object({
 				category: z.string(),
@@ -127,10 +124,10 @@ export const cardsRouter = {
 			return context.controlDb.select().from(cardSpendProfile);
 		}),
 
-	assignments: publicProcedure.handler(({ context }) =>
+	assignments: protectedProcedure.handler(({ context }) =>
 		context.controlDb.select().from(cardAssignments),
 	),
-	setAssignment: publicProcedure
+	setAssignment: protectedProcedure
 		.input(
 			z.object({
 				purpose: z.string(),
@@ -154,7 +151,7 @@ export const cardsRouter = {
 		}),
 
 	/** Light per-card human toggles. */
-	setCardFlags: publicProcedure
+	setCardFlags: protectedProcedure
 		.input(
 			z.object({
 				id: z.number().int(),

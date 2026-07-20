@@ -8,7 +8,7 @@ import { type NetworthLog, networthSeries, toInr } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 import { loadRates } from "./currency";
 
 /**
@@ -16,9 +16,6 @@ import { loadRates } from "./currency";
  * annotated with the annualised growth since the previous point (compute in `@money/shared/networth`).
  * SQLite-backed durable app-state — the API writes it directly (unlike DuckDB, which is read-only here;
  * ADR-0003). `logToday` reaches into DuckDB read-only for the cash leg.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard; MUST become `protectedProcedure`
- * before any non-tailnet exposure (financial data; ADR-0006/0010).
  */
 
 type LogRow = typeof networthLogs.$inferSelect;
@@ -89,13 +86,13 @@ async function upsertLog(
 
 export const networthRouter = {
 	/** The full chronological series with per-step annualised growth + the headline CAGR. */
-	list: publicProcedure.handler(async ({ context }) => {
+	list: protectedProcedure.handler(async ({ context }) => {
 		const rows = await context.appDb.select().from(networthLogs);
 		return networthSeries(rows.map(toLog));
 	}),
 
 	/** Compute today's net worth (cash + Σ current_value) and log it (source = computed; upserts today). */
-	logToday: publicProcedure.handler(async ({ context }) => {
+	logToday: protectedProcedure.handler(async ({ context }) => {
 		const [cash, invested] = await Promise.all([
 			cashOnHand(context.uid),
 			investmentValue(context.appDb, context.controlDb),
@@ -113,7 +110,7 @@ export const networthRouter = {
 	}),
 
 	/** Add / correct a manual net-worth point (upserts on date). */
-	add: publicProcedure
+	add: protectedProcedure
 		.input(
 			z.object({
 				asOf: dateInput,
@@ -133,7 +130,7 @@ export const networthRouter = {
 		}),
 
 	/** Delete a logged point by id. */
-	remove: publicProcedure
+	remove: protectedProcedure
 		.input(z.object({ id: z.coerce.number().int().positive() }))
 		.handler(async ({ context, input }) => {
 			await context.appDb

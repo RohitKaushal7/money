@@ -2,25 +2,22 @@ import { transactionOverrides } from "@money/db";
 import { CATEGORY_BY_KEY } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { publicProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * Per-transaction category/kind **overrides** (ADR-0004 / ADR-0012, issue 001) — the manual retag layer.
  * When a rule miscategorises a statement row (or leaves it uncategorised), an override pins it to the right
  * category; `kind` is derived from the category taxonomy. Overrides live in SQLite and are applied at read
  * time by the reconcile endpoint (instant), and — once wired — baked into the DuckDB rebuild via `ATTACH`.
- *
- * TODO(auth): `publicProcedure` for the localhost/tailnet dashboard; must become `protectedProcedure`
- * before any non-tailnet exposure (ADR-0006).
  */
 export const overridesRouter = {
 	/** All current overrides (txnId → category/kind). */
-	list: publicProcedure.handler(({ context }) =>
+	list: protectedProcedure.handler(({ context }) =>
 		context.appDb.select().from(transactionOverrides),
 	),
 
 	/** Pin a transaction to a category (kind derived from the taxonomy). Upserts on txnId. */
-	set: publicProcedure
+	set: protectedProcedure
 		.input(
 			z.object({
 				txnId: z.string().min(1),
@@ -50,7 +47,7 @@ export const overridesRouter = {
 		}),
 
 	/** Remove a transaction's override (revert to the rule-assigned category). */
-	clear: publicProcedure
+	clear: protectedProcedure
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb
