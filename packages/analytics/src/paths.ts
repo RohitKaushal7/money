@@ -21,3 +21,28 @@ export const SQLITE_RELATIVE_PATH = "local.db";
 export function fromRoot(repoRoot: string, relativePath: string): string {
 	return `${repoRoot.replace(/\/+$/, "")}/${relativePath}`;
 }
+
+/** `<dataDir>/control.db` — the shared control database (spec §3.2). */
+export function controlDbPath(dataDir: string): string {
+	return `${dataDir.replace(/\/+$/, "")}/control.db`;
+}
+
+/** `<dataDir>/users/<uid>` — a single user's private directory. */
+export function userDir(dataDir: string, uid: string): string {
+	return `${dataDir.replace(/\/+$/, "")}/users/${uid}`;
+}
+
+/** Per-user rebuildable analytical DuckDB. */
+export function userDuckdbPath(dataDir: string, uid: string): string {
+	return `${userDir(dataDir, uid)}/analytics.duckdb`;
+}
+
+/** Per-user migrated app-state SQLite. */
+export function userAppDbPath(dataDir: string, uid: string): string {
+	return `${userDir(dataDir, uid)}/app.db`;
+}
+
+/** Per-user immutable raw statement uploads. */
+export function userRawDir(dataDir: string, uid: string): string {
+	return `${userDir(dataDir, uid)}/raw`;
+}
