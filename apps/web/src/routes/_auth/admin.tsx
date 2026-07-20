@@ -322,9 +322,10 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 					});
 				}}
 			>
-				<label className="flex flex-col gap-1 text-xs">
+				<label htmlFor="invite-email" className="flex flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">Email</span>
 					<Input
+						id="invite-email"
 						type="email"
 						value={email}
 						onChange={(e) => setEmail(e.target.value)}
@@ -332,18 +333,20 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 						className="w-56"
 					/>
 				</label>
-				<label className="flex flex-col gap-1 text-xs">
+				<label htmlFor="invite-name" className="flex flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">Name</span>
 					<Input
+						id="invite-name"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 						placeholder="Asha"
 						className="w-40"
 					/>
 				</label>
-				<label className="flex flex-col gap-1 text-xs">
+				<label htmlFor="invite-role" className="flex flex-col gap-1 text-xs">
 					<span className="text-muted-foreground">Role</span>
 					<select
+						id="invite-role"
 						value={role}
 						onChange={(e) => setRole(e.target.value as "user" | "admin")}
 						className="h-8 rounded-none border border-input bg-transparent px-2.5 text-xs outline-none focus-visible:border-ring dark:bg-input/30"
@@ -352,9 +355,13 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 						<option value="admin">admin</option>
 					</select>
 				</label>
-				<label className="flex flex-col gap-1 text-xs">
+				<label
+					htmlFor="invite-password"
+					className="flex flex-col gap-1 text-xs"
+				>
 					<span className="text-muted-foreground">Password (optional)</span>
 					<Input
+						id="invite-password"
 						value={password}
 						onChange={(e) => setPassword(e.target.value)}
 						placeholder="random if blank"
