@@ -181,6 +181,7 @@ export function RulesTab({
 		keepKey: form.assignCategoryKey,
 	}).map((g) => ({
 		label: g.label,
+		color: kindColor(g.kind),
 		options: g.cats.map((c) => ({ value: c.key, label: c.label })),
 	}));
 

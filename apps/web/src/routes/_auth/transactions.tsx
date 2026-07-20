@@ -493,6 +493,7 @@ function TxnRow({
 							onValueChange={apply}
 							groups={groups.map((g) => ({
 								label: g.label,
+								color: kindColor(g.kind),
 								options: g.cats.map((c) => ({ value: c.key, label: c.label })),
 							}))}
 							className="min-w-0 flex-1 rounded-md font-medium"
@@ -679,6 +680,7 @@ function SplitEditor({
 							placeholder="— category —"
 							groups={groups.map((g) => ({
 								label: g.label,
+								color: kindColor(g.kind),
 								options: g.cats.map((c) => ({ value: c.key, label: c.label })),
 							}))}
 							className="h-9 min-w-[10rem] flex-1 rounded-md"

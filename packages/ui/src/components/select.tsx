@@ -14,7 +14,12 @@ import type * as React from "react";
  */
 
 export type SelectOption = { value: string; label: string; disabled?: boolean };
-export type SelectOptionGroup = { label: string; options: SelectOption[] };
+export type SelectOptionGroup = {
+	label: string;
+	options: SelectOption[];
+	/** optional group-label colour (e.g. per-Kind on the category pickers) */
+	color?: string;
+};
 
 type SelectProps = {
 	value: string;
@@ -93,7 +98,10 @@ export function Select({
 						))}
 						{groups?.map((g) => (
 							<SelectPrimitive.Group key={g.label}>
-								<SelectPrimitive.GroupLabel className="px-2 py-1.5 text-muted-foreground text-xs">
+								<SelectPrimitive.GroupLabel
+									className="px-2 py-1.5 font-medium text-muted-foreground text-xs"
+									style={g.color ? { color: g.color } : undefined}
+								>
 									{g.label}
 								</SelectPrimitive.GroupLabel>
 								{g.options.map((o) => (
