@@ -8,8 +8,8 @@
  */
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createClient } from "@libsql/client";
 import { userDir, userDuckdbPath, userRawDir } from "@money/analytics";
+import { createRawClient } from "@money/db";
 import { runAppMigrations, runControlMigrations } from "@money/db/migrate";
 import { env } from "@money/env/server";
 
@@ -54,8 +54,8 @@ async function copyTables(
 	toUrl: string,
 	tables: string[],
 ): Promise<void> {
-	const src = createClient({ url: fromUrl });
-	const dst = createClient({ url: toUrl });
+	const src = createRawClient({ url: fromUrl });
+	const dst = createRawClient({ url: toUrl });
 	for (const t of tables) {
 		let rows: Record<string, unknown>[];
 		try {

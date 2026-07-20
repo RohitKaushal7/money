@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import * as appSchema from "./schema/app";
 import * as controlSchema from "./schema/control";
 
+export { createClient as createRawClient } from "@libsql/client";
 export * from "./schema";
 
 /** Shared control DB (auth + curated card/currency reference). `url` defaults to `env.DATABASE_URL`. */
