@@ -59,7 +59,7 @@ async function copyTables(
 	for (const t of tables) {
 		let rows: Record<string, unknown>[];
 		try {
-			rows = (await src.execute(`SELECT * FROM ${t}`))
+			rows = (await src.execute(`SELECT * FROM "${t}"`))
 				.rows as unknown as Record<string, unknown>[];
 		} catch {
 			console.log(`[cutover]   skip ${t} (absent in local.db)`);
@@ -67,9 +67,11 @@ async function copyTables(
 		}
 		for (const row of rows) {
 			const cols = Object.keys(row);
+			// Quote every identifier — some columns are SQL reserved words (e.g. investments."group").
+			const colList = cols.map((c) => `"${c}"`).join(", ");
 			const placeholders = cols.map(() => "?").join(", ");
 			await dst.execute({
-				sql: `INSERT OR REPLACE INTO ${t} (${cols.join(", ")}) VALUES (${placeholders})`,
+				sql: `INSERT OR REPLACE INTO "${t}" (${colList}) VALUES (${placeholders})`,
 				args: cols.map((c) => row[c] as never),
 			});
 		}
