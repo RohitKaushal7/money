@@ -3,14 +3,17 @@ name: money
 # Deployed image is built locally and shipped with deploy.sh (docker save | rsync | docker load) — the
 # server never builds on the host, so there is no `build:` here, only an `image:` reference.
 services:
-  server:
+  money:
+    container_name: money
     image: money:latest
     init: true
-    ports:
-      # Reverse proxy (Nginx Proxy Manager) terminates TLS and forwards https://<host> -> this port.
-      - "5555:3000"
+    networks:
+      - main_default
+    # ports:
+    # Reverse proxy (Nginx Proxy Manager) terminates TLS and forwards https://<host> -> this port.
+    # - "5555:3000"
     environment:
-      # Container-invariant values live here; the only secret/instance values are in ./.env (see .env.example).
+      # Container-invariant values live here  ; the only secret/instance values are in ./.env (see .env.example).
       NODE_ENV: production
       DATA_DIR: /app/data
     env_file:
@@ -20,10 +23,12 @@ services:
       # All durable state: control.db + users/<uid>/{app.db, analytics.duckdb, raw/}. Back up this dir.
       - ./data:/app/data
     healthcheck:
+      # `bun -e` (the runtime image has no node — see apps/server/Dockerfile). Bun keeps the event loop alive
+      # for the pending fetch, then exits 0 on a healthy 2xx, 1 otherwise.
       test:
         [
           "CMD",
-          "node",
+          "bun",
           "-e",
           "fetch('http://localhost:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
@@ -33,3 +38,7 @@ services:
       # Startup runs SQLite migrations before serving — give it a little room.
       start_period: 20s
     restart: unless-stopped
+
+networks:
+  main_default:
+    external: true
