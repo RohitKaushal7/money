@@ -6,6 +6,7 @@
       "name": "money",
       "dependencies": {
         "@money/analytics": "workspace:*",
+        "@money/auth": "workspace:*",
         "@money/db": "workspace:*",
         "@money/env": "workspace:*",
         "dotenv": "catalog:",
