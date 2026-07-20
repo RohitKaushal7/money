@@ -7,10 +7,12 @@ import {
 	Receipt,
 	Scale,
 	Settings,
+	ShieldCheck,
 	TrendingUp,
 	Upload,
 	Wallet,
 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
 
@@ -28,7 +30,10 @@ type NavItem = {
 		| "/import"
 		| "/cards"
 		| "/tax"
-		| "/settings";
+		| "/settings"
+		| "/admin";
+	/** admin-only links are hidden for regular users */
+	adminOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -39,9 +44,10 @@ const NAV: NavItem[] = [
 	{ label: "Spending", icon: TrendingUp, to: "/spending" },
 	{ label: "Transactions", icon: ArrowLeftRight, to: "/transactions" },
 	{ label: "Import", icon: Upload, to: "/import" },
-	{ label: "Cards", icon: CreditCard, to: "/cards" },
+	{ label: "Cards", icon: CreditCard, to: "/cards", adminOnly: true },
 	{ label: "Tax", icon: Receipt, to: "/tax" },
 	{ label: "Settings", icon: Settings, to: "/settings" },
+	{ label: "Admin", icon: ShieldCheck, to: "/admin", adminOnly: true },
 ];
 
 const BASE =
@@ -51,6 +57,10 @@ const ACTIVE = `${BASE} bg-secondary font-medium text-secondary-foreground`;
 
 /** Left navigation rail (desktop). The wordmark lives here, not in a top header. */
 export function Sidebar() {
+	const { data: session } = authClient.useSession();
+	const isAdmin =
+		(session?.user as { role?: string } | undefined)?.role === "admin";
+	const items = NAV.filter((item) => !item.adminOnly || isAdmin);
 	return (
 		<aside className="hidden w-60 shrink-0 flex-col border-border border-r bg-card/40 md:flex">
 			<div className="px-6 py-6">
@@ -62,7 +72,7 @@ export function Sidebar() {
 				</p>
 			</div>
 			<nav className="flex flex-1 flex-col gap-0.5 px-3">
-				{NAV.map((item) =>
+				{items.map((item) =>
 					item.to ? (
 						<Link
 							key={item.label}

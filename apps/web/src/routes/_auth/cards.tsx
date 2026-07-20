@@ -1,12 +1,22 @@
 import { CARD_CATEGORIES } from "@money/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ChevronDown, Wallet } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { authClient } from "@/lib/auth-client";
 import { useMoney } from "@/lib/currency";
 import { type client, orpc } from "@/utils/orpc";
 
-export const Route = createFileRoute("/_auth/cards")({ component: CardsPage });
+export const Route = createFileRoute("/_auth/cards")({
+	component: CardsPage,
+	beforeLoad: async () => {
+		const session = await authClient.getSession();
+		const role = (session.data?.user as { role?: string } | undefined)?.role;
+		if (role !== "admin") {
+			throw redirect({ to: "/" });
+		}
+	},
+});
 
 function CardsPage() {
 	return (
