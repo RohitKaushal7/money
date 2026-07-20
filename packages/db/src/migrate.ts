@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 import { anchoredDataDir } from "./index";
+import { seedAppDefaults } from "./seed";
 
 const CONTROL_MIGRATIONS = fileURLToPath(
 	new URL("./migrations/control", import.meta.url),
@@ -40,11 +41,13 @@ export async function migrateAll(opts: { dataDir: string }): Promise<void> {
 	}
 }
 
-/** Create a user's private dir + migrate their app.db. Idempotent. */
+/** Create a user's private dir, migrate their app.db, and seed default categories + rules. Idempotent. */
 export async function provisionUserApp(uid: string): Promise<void> {
 	const dir = anchoredDataDir();
+	const url = `file:${dir}/users/${uid}/app.db`;
 	mkdirSync(`${dir}/users/${uid}/raw`, { recursive: true });
-	await runAppMigrations(`file:${dir}/users/${uid}/app.db`);
+	await runAppMigrations(url);
+	await seedAppDefaults(url);
 }
 
 /** Delete a user's private dir (app.db, analytics.duckdb, raw). Irreversible. */

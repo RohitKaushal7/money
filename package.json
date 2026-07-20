@@ -41,6 +41,7 @@
 		"ingest": "bun run scripts/ingest.ts",
 		"cutover": "bun --env-file=apps/server/.env scripts/migrate-to-multiuser.ts",
 		"create-user": "bun --env-file=apps/server/.env scripts/create-user.ts",
+		"backfill-categories": "bun --env-file=apps/server/.env scripts/backfill-categories.ts",
 		"cards:import": "DATABASE_URL=file:./local.db bun --env-file=apps/server/.env scripts/cards-import.ts",
 		"docker:build": "docker compose build",
 		"docker:up": "docker compose up -d --build",
