@@ -1,3 +1,5 @@
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { env } from "@money/env/server";
 import { drizzle } from "drizzle-orm/libsql";
@@ -8,8 +10,18 @@ import * as controlSchema from "./schema/control";
 export { createClient as createRawClient } from "@libsql/client";
 export * from "./schema";
 
-/** Shared control DB (auth + curated card/currency reference). `url` defaults to `env.DATABASE_URL`. */
-export function createControlDb(url: string = env.DATABASE_URL) {
+const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
+/** Repo-root-anchored control.db URL (cwd-independent), so auth/API/scripts all agree. */
+function defaultControlUrl(): string {
+	const dir = isAbsolute(env.DATA_DIR)
+		? env.DATA_DIR
+		: join(REPO_ROOT, env.DATA_DIR);
+	return `file:${dir}/control.db`;
+}
+
+/** Shared control DB (auth + curated card/currency reference). `url` defaults to a repo-root-anchored path. */
+export function createControlDb(url: string = defaultControlUrl()) {
 	return drizzle({ client: createClient({ url }), schema: controlSchema });
 }
 
