@@ -22,6 +22,11 @@ data/raw/*
 local.db
 local.db-*
 
+# Multi-tenant stores (ADR-0002) — control DB + every user's private dir. NEVER commit.
+data/control.db
+data/control.db-*
+data/users/
+
 # Pre-existing personal-finance knowledge base (real account/card/portfolio data).
 # Untracked and kept that way; move out of the repo or confirm before ever tracking it.
 packages/info/
