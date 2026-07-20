@@ -36,6 +36,19 @@
 	--chart-4: oklch(0.55 0.06 250);
 	--chart-5: oklch(0.72 0.11 96);
 
+	/*
+	 * Categorical palette for multi-series charts (stacked bars, grouped lines). Distinct from the warm
+	 * --chart-* accents: these are the dataviz-validated hue slots, spread across the wheel so adjacent
+	 * segments stay separable for normal + colour-blind vision on this surface. Slot ORDER is the safety
+	 * mechanism, not cosmetic — never reorder or restep without re-running the dataviz palette validator.
+	 * See docs/superpowers/plans/2026-07-21-spending-history-chart.md.
+	 */
+	--cat-1: #2a78d6; /* blue */
+	--cat-2: #008300; /* green */
+	--cat-3: #e87ba4; /* magenta */
+	--cat-4: #eda100; /* yellow */
+	--cat-5: #1baf7a; /* aqua */
+
 	--radius: 0.75rem;
 }
 
@@ -67,6 +80,13 @@
 	--chart-3: oklch(0.68 0.15 42);
 	--chart-4: oklch(0.68 0.08 250);
 	--chart-5: oklch(0.8 0.11 96);
+
+	/* Categorical palette — dark steps of the same hues, validated on the dark surface (see :root). */
+	--cat-1: #3987e5; /* blue */
+	--cat-2: #008300; /* green */
+	--cat-3: #d55181; /* magenta */
+	--cat-4: #c98500; /* yellow */
+	--cat-5: #199e70; /* aqua */
 }
 
 @theme inline {
