@@ -1,6 +1,10 @@
 import type { SqlParam } from "@money/analytics";
-import { transactionManualSplits, transactionOverrides } from "@money/db";
-import { CATEGORY_BY_KEY, type CoverageRatioPoint } from "@money/shared";
+import {
+	categories,
+	transactionManualSplits,
+	transactionOverrides,
+} from "@money/db";
+import type { CoverageRatioPoint } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
@@ -147,11 +151,16 @@ export const analyticsRouter = {
 			const offset = input.offset ?? 0;
 
 			// Overlay sources from SQLite (small tables — read whole, index in JS).
-			const [overrides, manualSplits] = await Promise.all([
+			const [overrides, manualSplits, cats] = await Promise.all([
 				context.appDb.select().from(transactionOverrides),
 				context.appDb.select().from(transactionManualSplits),
+				context.appDb
+					.select({ key: categories.key, kind: categories.kind })
+					.from(categories),
 			]);
 			const overrideByTxn = new Map(overrides.map((o) => [o.txnId, o]));
+			// live category→kind map (app.db is the source of truth, reflects edits before a retag)
+			const kindByCategory = new Map(cats.map((c) => [c.key, c.kind]));
 			const manualByTxn = new Map<string, typeof manualSplits>();
 			for (const m of manualSplits) {
 				const arr = manualByTxn.get(m.txnId) ?? [];
@@ -225,7 +234,7 @@ export const analyticsRouter = {
 						ov?.overrideCategoryKey ?? bakedCategoryKey;
 					const effectiveKind =
 						ov?.overrideKind ??
-						CATEGORY_BY_KEY.get(effectiveCategoryKey)?.kind ??
+						kindByCategory.get(effectiveCategoryKey) ??
 						r.kind ??
 						"transfer";
 					return {

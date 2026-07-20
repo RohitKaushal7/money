@@ -27,17 +27,6 @@ const AFTER_TAX_KEY = "after_tax_kpi";
 const RATE_OVERRIDE_KEY = "marginal_rate_override";
 const DEFAULT_MARGINAL_RATE = 0.312;
 
-/** Taxable passive categories (kind = passive_income & taxable in the shared taxonomy). */
-const TAXABLE_PASSIVE_KEYS = [
-	"savings_interest",
-	"sweep_interest",
-	"fd_interest",
-	"bond_coupon",
-	"p2p_payout",
-	"dividend",
-	"rent_received",
-];
-
 const ZERO_CG: CapitalGains = {
 	equityStcg: 0,
 	equityLtcg: 0,
@@ -91,19 +80,21 @@ async function ledgerIncome(
 ): Promise<{ passive: number; salary: number; rent: number }> {
 	if (!analyticsReady(uid)) return { passive: 0, salary: 0, rent: 0 };
 	const { start, endExclusive } = fyBounds(fyStartYear(fy));
-	const keyList = TAXABLE_PASSIVE_KEYS.map((k) => `'${k}'`).join(",");
 	return withReader(uid, async (reader) => {
+		// taxable-passive is attribute-driven: kind = passive_income AND the category is flagged taxable,
+		// so a user-added income category counts automatically (spec 2026-07-21 §6). salary/rent stay system keys.
 		const [row] = await reader.query<{
 			passive: number;
 			salary: number;
 			rent: number;
 		}>(
 			`SELECT
-				CAST(COALESCE(SUM(CASE WHEN s.category_key IN (${keyList}) THEN s.amount ELSE 0 END), 0) AS DOUBLE) AS passive,
+				CAST(COALESCE(SUM(CASE WHEN s.kind = 'passive_income' AND c.taxable THEN s.amount ELSE 0 END), 0) AS DOUBLE) AS passive,
 				CAST(COALESCE(SUM(CASE WHEN s.category_key = 'salary' THEN s.amount ELSE 0 END), 0) AS DOUBLE) AS salary,
 				CAST(COALESCE(SUM(CASE WHEN s.category_key = 'rent' THEN s.amount ELSE 0 END), 0) AS DOUBLE) AS rent
 			FROM transaction_splits s
 			JOIN transactions t ON t.txn_id = s.txn_id
+			LEFT JOIN categories c ON c.key = s.category_key
 			WHERE t.txn_date >= ? AND t.txn_date < ?`,
 			[start, endExclusive],
 		);

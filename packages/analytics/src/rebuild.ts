@@ -1,4 +1,4 @@
-import { CATEGORIES, type ImportReport } from "@money/shared";
+import type { ImportReport } from "@money/shared";
 import { type AnalyticsWriter, applySchema } from "./ingest";
 import { sbiTransactionsSelect } from "./sbi";
 
@@ -25,12 +25,17 @@ function sqlStr(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
 
+/**
+ * (Re)seed the DuckDB `categories` table from the ATTACHed per-user `app.categories` (spec 2026-07-21 §6) —
+ * categories are now user-owned, not a code constant. Requires {@link attachApp} to have run first. Idempotent
+ * (DELETE + INSERT), so it also refreshes after in-app category edits on the cheap {@link retag} path.
+ */
 async function seedCategories(writer: AnalyticsWriter): Promise<void> {
-	const values = CATEGORIES.map(
-		(c, i) =>
-			`(${sqlStr(c.key)}, ${sqlStr(c.label)}, ${sqlStr(c.kind)}, ${c.taxable == null ? "NULL" : c.taxable}, ${i})`,
-	).join(", ");
-	await writer.run(`INSERT INTO categories VALUES ${values}`);
+	await writer.run("DELETE FROM categories");
+	await writer.run(
+		`INSERT INTO categories (key, label, kind, taxable, sort_order)
+			SELECT key, label, kind, CAST(taxable AS BOOLEAN), sort_order FROM app.categories`,
+	);
 }
 
 /**
@@ -219,8 +224,8 @@ export async function rebuild(
 ): Promise<ImportReport[]> {
 	const accountId = options.accountId ?? 1;
 	await applySchema(writer);
-	await seedCategories(writer);
 	await attachApp(writer, options.sqlitePath);
+	await seedCategories(writer);
 	const reports: ImportReport[] = [];
 	let batchId = 1;
 	for (const file of options.files) {
@@ -242,6 +247,7 @@ export async function retag(
 	sqlitePath: string,
 ): Promise<void> {
 	await attachApp(writer, sqlitePath);
+	await seedCategories(writer); // refresh categories so in-app category edits apply on retag
 	await buildSplits(writer);
 	await createViews(writer);
 }
