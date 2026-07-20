@@ -2,54 +2,63 @@
 /**
  * scripts/ingest.ts — the SOLE read-write owner of the analytical DuckDB (ADR-0003).
  *
- * The only place allowed to import `@money/analytics/ingest` / open DuckDB read-write. Run monthly or on
- * demand (`bun run ingest`). Reads immutable raw statement exports from `data/raw/` and rebuilds the
- * analytical DB (ADR-0002), sourcing rules/overrides/manual-splits from the SQLite app DB via `ATTACH`
- * (ADR-0004). The API never writes DuckDB — it spawns THIS script (see `packages/api/src/ingest-runner.ts`).
+ * The only place allowed to import `@money/analytics/ingest` / open DuckDB read-write. The API never writes
+ * DuckDB — it spawns THIS script (see `packages/api/src/ingest-runner.ts`). Operates on ONE user's private
+ * files under `data/users/<uid>/` (ADR-0002); rules/overrides/manual-splits come from that user's `app.db`
+ * via `ATTACH` (ADR-0004).
  *
  * Modes:
- *   (default)            full rebuild from `data/raw/*.csv`.
- *   --retag              re-derive categorisation from the current SQLite rules/overrides — no re-import.
+ *   (default)            full rebuild from the user's `raw/*.csv`.
+ *   --retag              re-derive categorisation from the user's SQLite rules/overrides — no re-import.
  *   --dry-run <csvpath>  parse one CSV and report new/duplicate counts WITHOUT writing (import preview).
+ *   --user <uid>         REQUIRED — selects data/users/<uid>/{analytics.duckdb, app.db, raw/}.
  *
- * Every run prints a machine-readable `[ingest:result] <json>` line as its LAST output so a caller
- * (the API runner) can parse the outcome without scraping the human logs.
+ * Every run prints a machine-readable `[ingest:result] <json>` line as its LAST output so the API runner can
+ * parse the outcome without scraping the human logs.
  */
 
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
-	DUCKDB_RELATIVE_PATH,
 	openReadOnly,
-	RAW_DIR_RELATIVE_PATH,
+	userAppDbPath,
+	userDuckdbPath,
+	userRawDir,
 } from "@money/analytics";
 import { openReadWrite } from "@money/analytics/ingest";
 import { dryRun, rebuild, retag } from "@money/analytics/rebuild";
-
-/** Absolute path to the SQLite app DB (repo-root `local.db`) — DuckDB ATTACHes it for rules/overrides. */
-const SQLITE_PATH = fileURLToPath(new URL("../local.db", import.meta.url));
+import { env } from "@money/env/server";
 
 const argv = process.argv.slice(2);
 const RETAG_ONLY = argv.includes("--retag");
 const dryRunIdx = argv.indexOf("--dry-run");
 const DRY_RUN_PATH = dryRunIdx >= 0 ? argv[dryRunIdx + 1] : undefined;
+const userIdx = argv.indexOf("--user");
+const USER_ID = userIdx >= 0 ? argv[userIdx + 1] : undefined;
+if (!USER_ID) {
+	console.error("[ingest] --user <uid> is required");
+	process.exit(1);
+}
 
-/** Same resolution as `resolveDbPath`: env override, else the repo-relative default (resolved vs cwd). */
-const DB_PATH = process.env.ANALYTICS_DB_PATH ?? DUCKDB_RELATIVE_PATH;
+/** Per-user analytical DuckDB (this script is its sole read-write owner). */
+const DB_PATH = userDuckdbPath(env.DATA_DIR, USER_ID);
+/** Per-user SQLite app DB that DuckDB ATTACHes for rules/overrides/splits (ADR-0004). */
+const SQLITE_PATH = userAppDbPath(env.DATA_DIR, USER_ID);
+/** Per-user immutable raw statement dir. */
+const RAW_DIR = userRawDir(env.DATA_DIR, USER_ID);
 
 /** Emit the final machine-readable result line (parsed by the API ingest runner). */
 function emit(result: Record<string, unknown>): void {
 	console.log(`[ingest:result] ${JSON.stringify(result)}`);
 }
 
-/** Import preview: count new vs duplicate rows for one CSV against the live DB, writing nothing. */
+/** Import preview: count new vs duplicate rows for one CSV against the user's live DB, writing nothing. */
 async function dryRunMode(csvPath: string): Promise<void> {
 	const file = { path: csvPath, name: "dry-run" };
 	if (existsSync(DB_PATH)) {
 		// Live DB present: read it read-only so a concurrent full ingest is never blocked.
-		const reader = await openReadOnly();
+		const reader = await openReadOnly({ dbPath: DB_PATH });
 		try {
 			emit({ mode: "dryrun", ...(await dryRun(reader, file)) });
 		} finally {
@@ -88,12 +97,11 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	// Defaults to DUCKDB_RELATIVE_PATH; ANALYTICS_DB_PATH can point it elsewhere (e.g. a throwaway test DB).
-	const writer = await openReadWrite();
+	const writer = await openReadWrite({ dbPath: DB_PATH });
 	try {
 		if (RETAG_ONLY) {
 			console.log(
-				`[ingest] re-tagging ${DUCKDB_RELATIVE_PATH} from SQLite rules/overrides (no re-import)…`,
+				`[ingest] re-tagging ${DB_PATH} from SQLite rules/overrides (no re-import)…`,
 			);
 			await retag(writer, SQLITE_PATH);
 			const t = await totals(writer);
@@ -104,19 +112,24 @@ async function main(): Promise<void> {
 			return;
 		}
 
-		const files = readdirSync(RAW_DIR_RELATIVE_PATH)
+		if (!existsSync(RAW_DIR)) {
+			console.log(`[ingest] no raw dir ${RAW_DIR}/ yet — nothing to import.`);
+			emit({ mode: "rebuild", transactions: 0, uncategorized: 0, reports: [] });
+			return;
+		}
+		const files = readdirSync(RAW_DIR)
 			.filter((name) => name.toLowerCase().endsWith(".csv"))
 			.sort()
-			.map((name) => ({ path: `${RAW_DIR_RELATIVE_PATH}/${name}`, name }));
+			.map((name) => ({ path: `${RAW_DIR}/${name}`, name }));
 		if (files.length === 0) {
 			console.log(
-				`[ingest] no .csv files in ${RAW_DIR_RELATIVE_PATH}/ — drop your SBI statement export(s) there first.`,
+				`[ingest] no .csv files in ${RAW_DIR}/ — drop statement export(s) there first.`,
 			);
 			emit({ mode: "rebuild", transactions: 0, uncategorized: 0, reports: [] });
 			return;
 		}
 		console.log(
-			`[ingest] rebuilding ${DUCKDB_RELATIVE_PATH} from ${files.length} raw file(s)…`,
+			`[ingest] rebuilding ${DB_PATH} from ${files.length} raw file(s)…`,
 		);
 		const reports = await rebuild(writer, { files, sqlitePath: SQLITE_PATH });
 		for (const r of reports) {
