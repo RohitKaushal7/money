@@ -9,10 +9,9 @@
  * user's id (used ONCE for the owner, whose 1a data lives in users/owner/). After adopting the owner, remove
  * OWNER_USER_ID from apps/server/.env so the API routes by session.user.id.
  */
-import { existsSync, mkdirSync, renameSync } from "node:fs";
-import { userAppDbPath, userDir, userRawDir } from "@money/analytics";
+import { existsSync, renameSync, rmSync } from "node:fs";
+import { userDir } from "@money/analytics";
 import { auth } from "@money/auth";
-import { runAppMigrations } from "@money/db/migrate";
 import { env } from "@money/env/server";
 
 function arg(flag: string): string | undefined {
@@ -33,16 +32,12 @@ if (!email || !name) {
 	process.exit(1);
 }
 
-async function provision(uid: string): Promise<void> {
-	mkdirSync(userRawDir(env.DATA_DIR, uid), { recursive: true }); // also creates users/<uid>/
-	await runAppMigrations(`file:${userAppDbPath(env.DATA_DIR, uid)}`);
-}
-
 async function main(email: string, name: string): Promise<void> {
 	const res = await auth.api.createUser({
 		body: { email, name, password, role: isAdmin ? "admin" : "user" },
 	});
 	const uid = res.user.id;
+	// The Better-Auth create hook has already provisioned data/users/<uid>/.
 	console.log(
 		`[create-user] created ${email} (${isAdmin ? "admin" : "user"}) id=${uid}`,
 	);
@@ -51,6 +46,7 @@ async function main(email: string, name: string): Promise<void> {
 		const from = userDir(env.DATA_DIR, adopt);
 		const to = userDir(env.DATA_DIR, uid);
 		if (existsSync(from)) {
+			rmSync(to, { recursive: true, force: true }); // drop the fresh hook dir before adopting
 			renameSync(from, to);
 			console.log(`[create-user] adopted ${from} -> ${to}`);
 			console.log(
@@ -58,13 +54,11 @@ async function main(email: string, name: string): Promise<void> {
 			);
 		} else {
 			console.log(
-				`[create-user] --adopt ${adopt}: ${from} absent, provisioning fresh instead`,
+				`[create-user] --adopt ${adopt}: ${from} absent, kept the freshly provisioned dir`,
 			);
-			await provision(uid);
 		}
 	} else {
-		await provision(uid);
-		console.log(`[create-user] provisioned data/users/${uid}/`);
+		console.log(`[create-user] provisioned data/users/${uid}/ (via hook)`);
 	}
 	console.log(
 		`[create-user] temp password: ${password}  (share on the onboarding call; they can change it)`,

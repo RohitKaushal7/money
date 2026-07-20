@@ -1,8 +1,10 @@
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
+
+import { anchoredDataDir } from "./index";
 
 const CONTROL_MIGRATIONS = fileURLToPath(
 	new URL("./migrations/control", import.meta.url),
@@ -36,4 +38,16 @@ export async function migrateAll(opts: { dataDir: string }): Promise<void> {
 	for (const uid of uids) {
 		await runAppMigrations(`file:${usersDir}/${uid}/app.db`);
 	}
+}
+
+/** Create a user's private dir + migrate their app.db. Idempotent. */
+export async function provisionUserApp(uid: string): Promise<void> {
+	const dir = anchoredDataDir();
+	mkdirSync(`${dir}/users/${uid}/raw`, { recursive: true });
+	await runAppMigrations(`file:${dir}/users/${uid}/app.db`);
+}
+
+/** Delete a user's private dir (app.db, analytics.duckdb, raw). Irreversible. */
+export function deprovisionUserApp(uid: string): void {
+	rmSync(`${anchoredDataDir()}/users/${uid}`, { recursive: true, force: true });
 }

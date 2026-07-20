@@ -1,4 +1,5 @@
 import { createControlDb } from "@money/db";
+import { deprovisionUserApp, provisionUserApp } from "@money/db/migrate";
 import * as schema from "@money/db/schema/auth";
 import { env } from "@money/env/server";
 import { betterAuth } from "better-auth";
@@ -26,6 +27,20 @@ export function createAuth() {
 				sameSite: "none",
 				secure: true,
 				httpOnly: true,
+			},
+		},
+		databaseHooks: {
+			user: {
+				create: {
+					after: async (user) => {
+						await provisionUserApp(user.id);
+					},
+				},
+				delete: {
+					after: async (user) => {
+						deprovisionUserApp(user.id);
+					},
+				},
 			},
 		},
 		plugins: [admin()],
