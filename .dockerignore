@@ -26,3 +26,10 @@ docker-compose.yml
 **/.env
 **/.env.*
 !**/.env.example
+
+# Real financial data + local databases must NEVER enter image layers (they'd ship in the deploy tar).
+# The data dir is a runtime bind-mount; DBs are durable-on-host (SQLite) or rebuildable (DuckDB).
+/data
+**/*.duckdb
+**/*.db
+**/*.db-*

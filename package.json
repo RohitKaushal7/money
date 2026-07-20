@@ -44,8 +44,9 @@
 		"backfill-categories": "bun --env-file=apps/server/.env scripts/backfill-categories.ts",
 		"backfill-import-files": "bun --env-file=apps/server/.env scripts/backfill-import-files.ts",
 		"cards:import": "DATABASE_URL=file:./local.db bun --env-file=apps/server/.env scripts/cards-import.ts",
-		"docker:build": "docker compose build",
-		"docker:up": "docker compose up -d --build",
+		"deploy": "./deploy.sh",
+		"docker:build": "docker build -f apps/server/Dockerfile -t money:latest .",
+		"docker:up": "docker compose up -d",
 		"docker:down": "docker compose down",
 		"docker:logs": "docker compose logs -f",
 		"check": "biome check --write ."
