@@ -38,7 +38,7 @@ async function provision(uid: string): Promise<void> {
 	await runAppMigrations(`file:${userAppDbPath(env.DATA_DIR, uid)}`);
 }
 
-async function main(): Promise<void> {
+async function main(email: string, name: string): Promise<void> {
 	const res = await auth.api.createUser({
 		body: { email, name, password, role: isAdmin ? "admin" : "user" },
 	});
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
 	);
 }
 
-main().catch((e: unknown) => {
+main(email, name).catch((e: unknown) => {
 	console.error(
 		`[create-user] failed: ${e instanceof Error ? e.message : String(e)}`,
 	);
