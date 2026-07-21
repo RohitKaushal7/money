@@ -17,7 +17,7 @@ import {
 	YAxis,
 } from "recharts";
 import { useMoney } from "@/lib/currency";
-import { formatCompactINR, formatMonth } from "@/lib/format";
+import { formatMonth } from "@/lib/format";
 
 const OUT = "var(--uncovered)"; // over budget = pressure
 const IN = "var(--covered)"; // under budget = relief
@@ -68,7 +68,9 @@ export function SpendingHistory({
 	res: SpendingTrends;
 	insights: SpendingInsights;
 }) {
-	const { fmt } = useMoney();
+	// `fmtc` rather than the INR-only compact formatter: the tooltip beside this axis is already
+	// currency-aware, and the axis was the one label in the chart that ignored the display currency.
+	const { fmt, fmtc } = useMoney();
 	const navigate = useNavigate();
 	const hist = spendHistory(res, 5);
 
@@ -154,7 +156,7 @@ export function SpendingHistory({
 							dy={8}
 						/>
 						<YAxis
-							tickFormatter={(v) => formatCompactINR(v as number)}
+							tickFormatter={(v) => fmtc(v as number)}
 							tickLine={false}
 							axisLine={false}
 							width={52}

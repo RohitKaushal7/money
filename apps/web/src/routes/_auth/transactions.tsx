@@ -25,7 +25,7 @@ import {
 	kindColor,
 	useCategories,
 } from "@/lib/categories";
-import { formatINR } from "@/lib/format";
+import { useFormat } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 import { CategoriesTab } from "./-categories-tab";
 import { type RulePrefill, RulesTab } from "./-rules-tab";
@@ -433,6 +433,7 @@ function TxnRow({
 	onChanged: () => void;
 	onCreateRule: () => void;
 }) {
+	const { formatINR } = useFormat();
 	const catsQ = useCategories();
 	const groups = groupByKind(catsQ.data ?? [], {
 		activeOnly: true,
@@ -563,6 +564,7 @@ function SplitEditor({
 	onClose: () => void;
 	onChanged: () => void;
 }) {
+	const { formatINR } = useFormat();
 	const existingQ = useQuery(
 		orpc.splits.get.queryOptions({ input: { txnId: txn.txnId } }),
 	);

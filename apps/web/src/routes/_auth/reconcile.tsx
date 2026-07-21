@@ -18,7 +18,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formatINR, formatMonth } from "@/lib/format";
+import { formatMonth, useFormat } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/reconcile")({
@@ -111,6 +111,7 @@ function ReconcilePage() {
  * shortfall on the 21st is a statement about the calendar, not about your holdings.
  */
 function SummaryBar({ res }: { res: ReconcileResult }) {
+	const { formatINR } = useFormat();
 	const { summary } = res;
 	const gap = summary.actualAmount - summary.expectedAmount;
 	const settled = !summary.inProgress;
@@ -219,6 +220,7 @@ function History({
 	selected: string;
 	onSelect: (m: string) => void;
 }) {
+	const { formatINR } = useFormat();
 	// 24 months in one query: the chart shows the last 12, the FY rollup needs a full previous April–March
 	// underneath it. From any month in an Indian FY, reaching the start of the previous one is at most 24
 	// months back.
@@ -340,6 +342,7 @@ function fyPosition(month: string, startYear: number): number {
  * the range is spelled out: a year reading "Apr – Jun" is three months of evidence, not a year's worth.
  */
 function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
+	const { formatINR } = useFormat();
 	const fys = reconcileByFy(summaries, { limit: 2 });
 	if (fys.length === 0) return null;
 
@@ -418,6 +421,7 @@ function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
  * isn't late, it's just Tuesday.
  */
 function EventRow({ ev }: { ev: ReconciledEvent }) {
+	const { formatINR } = useFormat();
 	const meta = STATUS[ev.status];
 	const [open, setOpen] = useState(false);
 	const landed = ev.matches.length > 0;
@@ -502,6 +506,7 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 const INCOME_CATS = CATEGORIES.filter((c) => c.kind === "passive_income");
 
 function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
+	const { formatINR } = useFormat();
 	const qc = useQueryClient();
 	const [busy, setBusy] = useState<string | null>(null);
 	const setOverride = useMutation(orpc.overrides.set.mutationOptions());

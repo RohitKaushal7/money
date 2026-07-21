@@ -6,6 +6,8 @@ import {
 } from "@money/shared";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { maskDigits } from "@/lib/format";
+import { usePreference } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
 /**
@@ -46,24 +48,29 @@ function compactNumber(n: number, code: string): string {
 	return String(Math.round(n));
 }
 
-/** Format `amount` already expressed in `code`, with that currency's symbol + grouping. */
+/**
+ * Format `amount` already expressed in `code`, with that currency's symbol + grouping.
+ *
+ * Every amount this module renders passes through here, which is why privacy masking lives here too rather
+ * than at the seventeen call sites. The symbol is never masked — `₹••,•••` still reads as money.
+ */
 function fmtIn(
 	cfg: CurrencyConfig,
 	amount: number,
 	code: string,
 	compact: boolean,
+	hidden = false,
 ): string {
 	const sym = symbolOf(cfg, code);
-	if (compact) return sym + compactNumber(amount, code);
 	const locale = code === "INR" ? "en-IN" : "en-US";
 	const dp = code === "INR" ? 0 : 2;
-	return (
-		sym +
-		amount.toLocaleString(locale, {
-			minimumFractionDigits: 0,
-			maximumFractionDigits: dp,
-		})
-	);
+	const body = compact
+		? compactNumber(amount, code)
+		: amount.toLocaleString(locale, {
+				minimumFractionDigits: 0,
+				maximumFractionDigits: dp,
+			});
+	return sym + (hidden ? maskDigits(body) : body);
 }
 
 export interface MoneyKit {
@@ -72,6 +79,8 @@ export interface MoneyKit {
 	rates: RateMap;
 	/** enabled currencies (for pickers / the display switcher) */
 	enabled: CurrencyConfig["currencies"];
+	/** is privacy mode on? The formatters below already honour it; this is for anything that needs to know. */
+	hidden: boolean;
 	/** INR-canonical amount → a display-currency string (no bracket). */
 	fmt: (inr: number) => string;
 	/** compact variant (₹1.2L / $1.2k). */
@@ -83,6 +92,7 @@ export interface MoneyKit {
 
 export function useMoney(): MoneyKit {
 	const cfg = useCurrencyConfig();
+	const [hidden] = usePreference("privacy.hidden");
 	const rates = ratesOf(cfg.currencies);
 	const display = cfg.display;
 	return {
@@ -90,12 +100,13 @@ export function useMoney(): MoneyKit {
 		display,
 		rates,
 		enabled: cfg.currencies.filter((c) => c.enabled),
+		hidden,
 		fmt: (inr) =>
-			fmtIn(cfg, convert(inr, "INR", display, rates), display, false),
+			fmtIn(cfg, convert(inr, "INR", display, rates), display, false, hidden),
 		fmtc: (inr) =>
-			fmtIn(cfg, convert(inr, "INR", display, rates), display, true),
+			fmtIn(cfg, convert(inr, "INR", display, rates), display, true, hidden),
 		fmtNative: (amount, code) =>
-			fmtIn(cfg, convert(amount, code, display, rates), display, false),
+			fmtIn(cfg, convert(amount, code, display, rates), display, false, hidden),
 		symbolOf: (code) => symbolOf(cfg, code),
 	};
 }
@@ -110,18 +121,19 @@ function Bracket({ children }: { children: ReactNode }) {
 
 /** An INR-canonical amount rendered in the active currency; the ₹ source shows dim when display ≠ INR. */
 export function Money({ inr, compact }: { inr: number; compact?: boolean }) {
-	const { cfg, display, rates } = useMoney();
+	const { cfg, display, rates, hidden } = useMoney();
 	const primary = fmtIn(
 		cfg,
 		convert(inr, "INR", display, rates),
 		display,
 		!!compact,
+		hidden,
 	);
 	return (
 		<span className="tnum">
 			{primary}
 			{display !== "INR" && (
-				<Bracket>{fmtIn(cfg, inr, "INR", !!compact)}</Bracket>
+				<Bracket>{fmtIn(cfg, inr, "INR", !!compact, hidden)}</Bracket>
 			)}
 		</span>
 	);
@@ -137,18 +149,19 @@ export function MoneyNative({
 	code: string;
 	compact?: boolean;
 }) {
-	const { cfg, display, rates } = useMoney();
+	const { cfg, display, rates, hidden } = useMoney();
 	const primary = fmtIn(
 		cfg,
 		convert(amount, code, display, rates),
 		display,
 		!!compact,
+		hidden,
 	);
 	return (
 		<span className="tnum">
 			{primary}
 			{code !== display && (
-				<Bracket>{fmtIn(cfg, amount, code, !!compact)}</Bracket>
+				<Bracket>{fmtIn(cfg, amount, code, !!compact, hidden)}</Bracket>
 			)}
 		</span>
 	);

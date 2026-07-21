@@ -19,10 +19,21 @@ const DEFAULTS = {
 	"runway.inflation": true,
 	/** annual expense inflation, as a fraction. India's long-run CPI sits near 6%. */
 	"runway.inflationRate": 0.06,
+	/** are amounts masked on screen right now? */
+	"privacy.hidden": false,
 };
 
 export type Preferences = typeof DEFAULTS;
 export type PreferenceKey = keyof Preferences;
+
+/**
+ * Keys that live in memory for this tab only, and reset on reload.
+ *
+ * Privacy mode is a preference in shape but a *moment* in intent: you hide the numbers to show someone your
+ * screen, not forever. Persisting it means opening the app days later to a wall of dots with no memory of
+ * why — so it always starts off. Everything else here is a settled choice and belongs in localStorage.
+ */
+const EPHEMERAL = new Set<PreferenceKey>(["privacy.hidden"]);
 
 const NAMESPACE = "money.pref.";
 
@@ -54,6 +65,8 @@ export function readPreference<K extends PreferenceKey>(
 ): Preferences[K] {
 	if (cache.has(key)) return cache.get(key) as Preferences[K];
 	const fallback = DEFAULTS[key];
+	// Nothing was ever written for an ephemeral key, so the cache *is* its store and a miss means "default".
+	if (EPHEMERAL.has(key)) return fallback;
 	let value = fallback;
 	try {
 		const raw = window.localStorage.getItem(NAMESPACE + key);
@@ -75,11 +88,13 @@ export function writePreference<K extends PreferenceKey>(
 	value: Preferences[K],
 ): void {
 	cache.set(key, value);
-	try {
-		window.localStorage.setItem(NAMESPACE + key, JSON.stringify(value));
-	} catch {
-		// Unwritable storage still gets the in-memory update above: the preference works for this session
-		// and simply doesn't survive a reload. Better than a failed click.
+	if (!EPHEMERAL.has(key)) {
+		try {
+			window.localStorage.setItem(NAMESPACE + key, JSON.stringify(value));
+		} catch {
+			// Unwritable storage still gets the in-memory update above: the preference works for this session
+			// and simply doesn't survive a reload. Better than a failed click.
+		}
 	}
 	notify(key);
 }

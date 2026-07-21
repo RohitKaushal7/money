@@ -17,6 +17,7 @@ import {
 import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ModeToggle } from "./mode-toggle";
+import { PrivacyToggle } from "./privacy-toggle";
 import UserMenu from "./user-menu";
 
 type NavItem = {
@@ -129,7 +130,10 @@ export function Sidebar() {
 			<NavList isAdmin={isAdmin} />
 			<div className="flex items-center justify-between gap-2 border-border border-t px-4 py-4">
 				<UserMenu />
-				<ModeToggle />
+				<div className="flex items-center gap-2">
+					<PrivacyToggle />
+					<ModeToggle />
+				</div>
 			</div>
 		</aside>
 	);
@@ -167,7 +171,11 @@ export function MobileBar() {
 						money
 					</span>
 				</div>
-				<ModeToggle />
+				{/* On a phone there's no ⇧H, so the toggle has to be reachable without opening the drawer. */}
+				<div className="flex items-center gap-2">
+					<PrivacyToggle />
+					<ModeToggle />
+				</div>
 			</div>
 
 			{/*

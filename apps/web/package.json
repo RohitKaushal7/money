@@ -19,12 +19,14 @@
     "@hookform/resolvers": "^5.4.0",
     "@money/api": "workspace:*",
     "@money/env": "workspace:*",
+    "@money/shared": "workspace:*",
     "@money/ui": "workspace:*",
     "@orpc/client": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/tanstack-query": "^1.14.6",
     "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-form": "^1.33.0",
+    "@tanstack/react-hotkeys": "^0.10.0",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.17",
     "better-auth": "catalog:",
@@ -36,8 +38,7 @@
     "recharts": "^3.9.2",
     "sonner": "catalog:",
     "vite-plugin-pwa": "^1.3.0",
-    "zod": "catalog:",
-    "@money/shared": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@money/config": "workspace:*",

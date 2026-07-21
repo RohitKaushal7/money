@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
+import { usePrivacyHotkey } from "@/components/privacy-toggle";
 import { MobileBar, Sidebar } from "@/components/sidebar";
 import { authClient } from "@/lib/auth-client";
 
@@ -15,6 +16,7 @@ export const Route = createFileRoute("/_auth")({
 });
 
 function AuthLayout() {
+	usePrivacyHotkey();
 	return (
 		<div className="flex h-svh">
 			<Sidebar />

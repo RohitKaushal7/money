@@ -7,12 +7,7 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
-import {
-	formatCompactINR,
-	formatINR,
-	formatMonth,
-	formatRatio,
-} from "@/lib/format";
+import { formatMonth, formatRatio, useFormat } from "@/lib/format";
 
 interface CoveragePoint {
 	month: string;
@@ -28,6 +23,7 @@ interface TrendChartProps {
 
 /** Monthly passive income vs expenses — the two quantities whose ratio is the KPI. */
 export function TrendChart({ points }: TrendChartProps) {
+	const { formatCompactINR } = useFormat();
 	const data = points.map((p) => ({
 		month: formatMonth(p.month),
 		passive: p.passiveIncomeCash + p.imputedDrawdown,
@@ -106,6 +102,7 @@ function TrendTooltip({
 	active?: boolean;
 	payload?: TooltipPayload[];
 }) {
+	const { formatINR } = useFormat();
 	if (!active || !payload?.length) return null;
 	const d = payload[0]?.payload;
 	if (!d) return null;

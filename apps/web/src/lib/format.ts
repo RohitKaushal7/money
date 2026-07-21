@@ -1,5 +1,8 @@
 /** INR + number formatting for the dashboard (Indian digit grouping: ₹1,23,456). */
 
+import { useMemo } from "react";
+import { usePreference } from "@/lib/preferences";
+
 const inr0 = new Intl.NumberFormat("en-IN", {
 	style: "currency",
 	currency: "INR",
@@ -49,4 +52,43 @@ export function formatRatio(ratio: number | null | undefined): string {
 
 export function formatPct(ratio: number | null | undefined): string {
 	return `${Math.round((ratio ?? 0) * 100)}%`;
+}
+
+/**
+ * Privacy mode: hide the digits without hiding that it's money.
+ *
+ * Every digit becomes a bullet and everything else survives — the currency symbol, the Indian grouping, a
+ * minus sign, a k/L/Cr suffix — so the mask lands in a table column or a chart axis at close to the width
+ * of the figure it replaced, and still reads as an amount rather than a rendering bug.
+ *
+ * Only amounts are masked. Ratios, percentages, month counts and dates stay, because the north-star KPI is
+ * exactly what you'd want on screen while showing someone the app, and it says nothing about how much you
+ * have.
+ */
+export function maskDigits(text: string): string {
+	return text.replace(/\d/g, "•");
+}
+
+/**
+ * The amount formatters above, masked while privacy mode is on.
+ *
+ * Take formatters from here rather than importing them directly: the hook subscribes to the preference, so
+ * flipping it re-renders every amount on the page. A direct import is an amount that never hides.
+ */
+export function useFormat() {
+	const [hidden] = usePreference("privacy.hidden");
+	return useMemo(
+		() =>
+			hidden
+				? {
+						formatINR: (
+							value: number | null | undefined,
+							opts?: { decimals?: boolean },
+						) => maskDigits(formatINR(value, opts)),
+						formatCompactINR: (value: number | null | undefined) =>
+							maskDigits(formatCompactINR(value)),
+					}
+				: { formatINR, formatCompactINR },
+		[hidden],
+	);
 }
