@@ -17,6 +17,7 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DateRangePicker } from "@/components/date-range-picker";
+import { TabBar } from "@/components/tab-bar";
 import {
 	groupByKind,
 	KIND_COLOR,
@@ -29,6 +30,14 @@ import { useFormat } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 import { CategoriesTab } from "./-categories-tab";
 import { type RulePrefill, RulesTab } from "./-rules-tab";
+
+const TXN_TABS = [
+	{ key: "transactions", label: "Transactions" },
+	{ key: "rules", label: "Rules" },
+	{ key: "categories", label: "Categories" },
+] as const;
+
+type TxnTab = (typeof TXN_TABS)[number]["key"];
 
 /** "2026-07-02" → "2 Jul '26" (year matters once the statement spans years). */
 function fmtTxnDate(iso: string): string {
@@ -91,9 +100,7 @@ function TransactionsPage() {
 	const [dateTo, setDateTo] = useState("");
 	const [offset, setOffset] = useState(0);
 	const [splitOpen, setSplitOpen] = useState<string | null>(null);
-	const [tab, setTab] = useState<"transactions" | "rules" | "categories">(
-		"transactions",
-	);
+	const [tab, setTab] = useState<TxnTab>("transactions");
 	const [rulePrefill, setRulePrefill] = useState<RulePrefill | null>(null);
 
 	// debounce the search box; any filter change resets to the first page
@@ -183,7 +190,7 @@ function TransactionsPage() {
 					/>
 				)}
 
-				<TabBar tab={tab} onTab={setTab} />
+				<TabBar tabs={TXN_TABS} active={tab} onSelect={setTab} />
 
 				{tab === "rules" && (
 					<RulesTab
@@ -265,42 +272,6 @@ function TransactionsPage() {
 				)}
 			</div>
 		</main>
-	);
-}
-
-// ── tab bar ───────────────────────────────────────────────────────────────────────────────────────────
-function TabBar({
-	tab,
-	onTab,
-}: {
-	tab: "transactions" | "rules" | "categories";
-	onTab: (t: "transactions" | "rules" | "categories") => void;
-}) {
-	const tabs: {
-		key: "transactions" | "rules" | "categories";
-		label: string;
-	}[] = [
-		{ key: "transactions", label: "Transactions" },
-		{ key: "rules", label: "Rules" },
-		{ key: "categories", label: "Categories" },
-	];
-	return (
-		<div className="flex gap-1 border-border border-b">
-			{tabs.map((t) => (
-				<button
-					key={t.key}
-					type="button"
-					onClick={() => onTab(t.key)}
-					className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
-						tab === t.key
-							? "border-foreground font-medium text-foreground"
-							: "border-transparent text-muted-foreground hover:text-foreground"
-					}`}
-				>
-					{t.label}
-				</button>
-			))}
-		</div>
 	);
 }
 

@@ -3,7 +3,7 @@ import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
@@ -205,6 +205,10 @@ function AdminPage() {
 																{banned ? "Enable" : "Disable"}
 															</Button>
 														)}
+														<ResetPasswordButton
+															userId={u.id}
+															email={u.email}
+														/>
 														{!isSelf && (
 															<DeleteButton
 																pending={removeUser.isPending}
@@ -223,6 +227,72 @@ function AdminPage() {
 				</section>
 			</div>
 		</main>
+	);
+}
+
+/**
+ * Reset someone's password to a fresh throwaway, shown once so you can read it out to them.
+ *
+ * This is the whole account-recovery story — there is no reset email — so it deliberately mirrors the
+ * invite flow: same generator, same share-once toast, same "tell them on the call" framing. Two clicks,
+ * because resetting the wrong row signs that person out of every device they own.
+ */
+function ResetPasswordButton({
+	userId,
+	email,
+}: {
+	userId: string;
+	email: string;
+}) {
+	const [armed, setArmed] = useState(false);
+
+	const reset = useMutation({
+		mutationFn: async () => {
+			const newPassword = genPassword();
+			const res = await authClient.admin.setUserPassword({
+				userId,
+				newPassword,
+			});
+			if (res.error) throw new Error(res.error.message ?? "Reset failed");
+			return newPassword;
+		},
+		onSuccess: (newPassword) => {
+			setArmed(false);
+			toast.success(`New password for ${email}`, {
+				description: `${newPassword} — share it on the call. They can change it in Settings → Security.`,
+				duration: 60000,
+			});
+		},
+		onError: (e: Error) => toast.error(e.message),
+	});
+
+	if (!armed) {
+		return (
+			<Button
+				variant="ghost"
+				size="xs"
+				title="Set a new temporary password"
+				onClick={() => setArmed(true)}
+			>
+				<KeyRound className="size-3" />
+			</Button>
+		);
+	}
+	return (
+		<div className="flex items-center gap-1">
+			<span className="text-muted-foreground text-xs">New password?</span>
+			<Button
+				variant="outline"
+				size="xs"
+				disabled={reset.isPending}
+				onClick={() => reset.mutate()}
+			>
+				{reset.isPending ? "Setting…" : "Confirm"}
+			</Button>
+			<Button variant="ghost" size="xs" onClick={() => setArmed(false)}>
+				Cancel
+			</Button>
+		</div>
 	);
 }
 

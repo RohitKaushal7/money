@@ -1,30 +1,68 @@
 import { Button } from "@money/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Check, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AccountTab } from "@/components/settings/account-tab";
+import { SecurityTab } from "@/components/settings/security-tab";
+import { TabBar } from "@/components/tab-bar";
 import { useCurrencyConfig } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
+const TABS = [
+	{ key: "money", label: "Money" },
+	{ key: "security", label: "Security" },
+	{ key: "account", label: "Account" },
+] as const;
+
+type Tab = (typeof TABS)[number]["key"];
+
+const BLURB: Record<Tab, string> = {
+	money: "How every figure is converted, taxed, and shown.",
+	security: "Your password, and who can see the screen.",
+	account: "Who you are, and where you're signed in.",
+};
+
 export const Route = createFileRoute("/_auth/settings")({
 	component: SettingsPage,
+	// In the URL rather than component state, so "Settings → Security" is linkable and survives a reload —
+	// which matters here, because the lock screen sends you to this page's Security tab.
+	validateSearch: (search: Record<string, unknown>): { tab: Tab } => ({
+		tab: TABS.some((t) => t.key === search.tab) ? (search.tab as Tab) : "money",
+	}),
 });
 
 function SettingsPage() {
+	const { tab } = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
+
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-3xl flex-col gap-10 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
 				<header className="flex flex-col gap-1">
 					<h1 className="font-display font-medium text-3xl tracking-tight">
 						Settings
 					</h1>
-					<p className="text-muted-foreground">
-						Currencies, tax, and display preferences.
-					</p>
+					<p className="text-muted-foreground">{BLURB[tab]}</p>
 				</header>
-				<Currencies />
-				<TaxKpi />
+
+				<TabBar
+					tabs={TABS}
+					active={tab}
+					onSelect={(next) => navigate({ search: { tab: next } })}
+				/>
+
+				<div className="flex flex-col gap-10">
+					{tab === "money" && (
+						<>
+							<Currencies />
+							<TaxKpi />
+						</>
+					)}
+					{tab === "security" && <SecurityTab />}
+					{tab === "account" && <AccountTab />}
+				</div>
 			</div>
 		</main>
 	);
