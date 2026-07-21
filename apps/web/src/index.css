@@ -101,6 +101,49 @@
 	font-feature-settings: "tnum" 1;
 }
 
+/*
+ * Mount animation for the north-star hero (Overview). One orchestrated reveal rather than scattered
+ * micro-interactions: the trend wipes in left→right and the end dot lands last, walking the eye from where
+ * you started to where you are now — which is the whole point of the KPI.
+ *
+ * A wipe, not a stroke-dash draw. The curve carries `vector-effect: non-scaling-stroke` (it has to — the
+ * SVG is stretched with `preserveAspectRatio="none"`), and engines disagree about whether `pathLength`
+ * still applies to the dash pattern in that case. Where it doesn't, `stroke-dasharray: 1` means one user
+ * unit and the curve renders as dots. `clip-path` has no such ambiguity and needs no measurement.
+ */
+@keyframes kpi-wipe {
+	from {
+		clip-path: inset(0 100% 0 0);
+	}
+}
+@keyframes kpi-dot-in {
+	from {
+		opacity: 0;
+		/* preserves the centring translate the dot is positioned with */
+		transform: translate(50%, -50%) scale(0.3);
+	}
+}
+
+/* Exponential ease-out: real things decelerate, they don't bounce. */
+@utility kpi-anim-wipe {
+	animation: kpi-wipe 1100ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@utility kpi-anim-dot {
+	animation: kpi-dot-in 500ms cubic-bezier(0.16, 1, 0.3, 1) 850ms backwards;
+}
+
+/*
+ * `backwards` fill-mode holds the `from` state through the delay, so the dot never flashes at its final
+ * position before animating. Killing the animation therefore leaves each element at its natural (final)
+ * style — which is why reduced motion needs no separate end-state rules.
+ */
+@media (prefers-reduced-motion: reduce) {
+	.kpi-anim-wipe,
+	.kpi-anim-dot {
+		animation: none;
+	}
+}
+
 /* For strips that scroll sideways on purpose — the overflow is the design, the bar is just noise. */
 @utility scrollbar-none {
 	scrollbar-width: none; /* Firefox */

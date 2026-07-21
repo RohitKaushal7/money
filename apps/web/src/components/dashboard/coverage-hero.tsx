@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { useMoney } from "@/lib/currency";
 import { formatPct, formatRatio } from "@/lib/format";
@@ -37,6 +38,16 @@ export function CoverageHero({
 	const last = series.at(-1);
 	const prev = series.at(-2);
 	const delta = last != null && prev != null ? last - prev : null;
+
+	// The bar is width-driven, so React's first paint would land it at its final size with nothing to
+	// transition from — the existing `transition-[width]` never fired. Paint at zero, then flip on the
+	// next frame. Keeping it a transition (rather than a keyframe) means later changes to the ratio —
+	// toggling post-tax, say — still animate instead of jumping.
+	const [grown, setGrown] = useState(false);
+	useEffect(() => {
+		const id = requestAnimationFrame(() => setGrown(true));
+		return () => cancelAnimationFrame(id);
+	}, []);
 
 	return (
 		<section className="flex flex-col gap-8">
@@ -93,8 +104,8 @@ export function CoverageHero({
 			<div className="flex flex-col gap-2">
 				<div className="relative h-3 overflow-hidden rounded-full bg-muted">
 					<div
-						className="h-full rounded-full transition-[width] duration-700 ease-out"
-						style={{ width: `${fill}%`, backgroundColor: accent }}
+						className="h-full rounded-full transition-[width] duration-1000 ease-out motion-reduce:transition-none"
+						style={{ width: `${grown ? fill : 0}%`, backgroundColor: accent }}
 					/>
 				</div>
 				<div className="flex items-center justify-between text-muted-foreground text-xs">
@@ -183,7 +194,7 @@ function CoverageTrend({
 				<svg
 					viewBox={`0 0 ${W} ${H}`}
 					preserveAspectRatio="none"
-					className="h-28 w-full sm:h-32"
+					className="kpi-anim-wipe h-28 w-full sm:h-32"
 					role="img"
 					aria-label={`Coverage over ${series.length} months, from ${formatRatio(series[0] ?? 0)} to ${formatRatio(series[series.length - 1] ?? 0)}`}
 					style={{ maskImage: fade, WebkitMaskImage: fade }}
@@ -218,7 +229,7 @@ function CoverageTrend({
 					/>
 				</svg>
 				<span
-					className="pointer-events-none absolute size-2 rounded-full ring-2 ring-background"
+					className="kpi-anim-dot pointer-events-none absolute size-2 rounded-full ring-2 ring-background"
 					style={{
 						right: 0,
 						top: `${lastPct}%`,
