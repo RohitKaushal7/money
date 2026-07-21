@@ -21,7 +21,9 @@ import {
 	type DateRange,
 	DateRangePicker,
 } from "@/components/date-range-picker";
+import { RunwayView } from "@/components/wealth/runway";
 import { useMoney } from "@/lib/currency";
+import { usePreference } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
 const COVERED = "var(--covered)";
@@ -53,6 +55,7 @@ export function NetWorthOverTime() {
 	const q = useQuery(orpc.networth.list.queryOptions());
 	const m = useMoney();
 	const [range, setRange] = useState<DateRange>({});
+	const [mode, setMode] = usePreference("wealth.chartMode");
 	const s = q.data as NetworthSeries | undefined;
 
 	if (q.isLoading) {
@@ -116,13 +119,20 @@ export function NetWorthOverTime() {
 				</div>
 				<div className="flex flex-col items-end gap-2">
 					<Controls />
-					<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+					<div className="flex items-center gap-2">
+						<ModeSwitch mode={mode} onChange={setMode} />
+						<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+					</div>
 				</div>
 			</div>
 
 			{hasPoints ? (
 				<>
-					<NetWorthChart points={view.points} />
+					{mode === "runway" ? (
+						<RunwayView points={view.points} />
+					) : (
+						<NetWorthChart points={view.points} />
+					)}
 					<NetWorthLog points={view.points} />
 				</>
 			) : (
@@ -131,6 +141,39 @@ export function NetWorthOverTime() {
 				</p>
 			)}
 		</section>
+	);
+}
+
+/** Where the chart looks: back at what happened, or forward at where it's heading. */
+function ModeSwitch({
+	mode,
+	onChange,
+}: {
+	mode: "history" | "runway";
+	onChange: (m: "history" | "runway") => void;
+}) {
+	return (
+		<div className="flex gap-1 rounded-full bg-muted/50 p-1 text-xs">
+			{(
+				[
+					["history", "History"],
+					["runway", "Runway"],
+				] as const
+			).map(([k, label]) => (
+				<button
+					key={k}
+					type="button"
+					onClick={() => onChange(k)}
+					className={`rounded-full px-3 py-1 transition-colors ${
+						mode === k
+							? "bg-background font-medium shadow-sm"
+							: "text-muted-foreground hover:text-foreground"
+					}`}
+				>
+					{label}
+				</button>
+			))}
+		</div>
 	);
 }
 

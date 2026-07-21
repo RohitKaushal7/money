@@ -192,8 +192,9 @@ export interface WealthSummary {
 	avgRoi: number | null;
 	/** return you'd need to fully cover expenses = annual expenses / totalValue */
 	requiredRoi: number | null;
-	/** naive runway = totalValue / annual expenses (ignores growth) */
-	yearsLeft: number | null;
+	// Runway used to live here as `totalValue / annualExpenses` — the reciprocal of `requiredRoi`, so this
+	// interface reported one fact twice. It moved to `runway.ts`, which models the balance still earning as
+	// it drains and the spending getting more expensive (ADR-0016). Zero both and you get the old number.
 	monthlyExpenses: number;
 	/** grouped + standalone, sorted by value desc */
 	rollups: HoldingRollup[];
@@ -263,7 +264,6 @@ export function wealthSummary(input: {
 		annualReturn,
 		avgRoi: totalValue > 0 ? annualReturn / totalValue : null,
 		requiredRoi: totalValue > 0 ? annualExpenses / totalValue : null,
-		yearsLeft: annualExpenses > 0 ? totalValue / annualExpenses : null,
 		monthlyExpenses,
 		rollups,
 		maturedValue: input.investments

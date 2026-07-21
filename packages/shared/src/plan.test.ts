@@ -278,10 +278,9 @@ describe("wealthSummary", () => {
 		expect(sv?.rate).toBeCloseTo(((916.67 + 530) * 12) / 160_000, 4);
 	});
 
-	test("required ROI = annual expenses / wealth; years-left = wealth / annual expenses", () => {
+	test("required ROI = annual expenses / wealth", () => {
 		const w = wealthSummary({ investments, recurring, today: "2026-07-19" });
 		expect(w.requiredRoi).toBeCloseTo((50_000 * 12) / 1_160_000, 4);
-		expect(w.yearsLeft).toBeCloseTo(1_160_000 / (50_000 * 12), 4);
 	});
 });
 

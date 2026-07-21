@@ -1,4 +1,8 @@
-import type { HoldingRollup, WealthSummary } from "@money/shared";
+import {
+	type HoldingRollup,
+	runwayProjection,
+	type WealthSummary,
+} from "@money/shared";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
@@ -17,6 +21,7 @@ import {
 } from "recharts";
 import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { useMoney } from "@/lib/currency";
+import { useRunwayAssumptions } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/wealth")({
@@ -456,10 +461,7 @@ function Metrics({ w }: { w: WealthSummary }) {
 					}
 					tone={free ? "covered" : "uncovered"}
 				/>
-				<Metric
-					label="Years of runway"
-					value={w.yearsLeft == null ? "—" : `${w.yearsLeft.toFixed(1)} yr`}
-				/>
+				<RunwayMetric w={w} />
 			</div>
 
 			<p className="text-muted-foreground text-sm leading-snug">
@@ -500,14 +502,54 @@ function Metrics({ w }: { w: WealthSummary }) {
 	);
 }
 
+/**
+ * Runway under the same assumptions the chart is drawing (ADR-0016) — they share `usePreference`, so the
+ * card and the curve cannot report different years. Anchored on the plan's total rather than the latest
+ * logged net-worth point the chart uses; the two differ by whatever has moved since you last logged, which
+ * is far below the tenth-of-a-year this displays.
+ */
+function RunwayMetric({ w }: { w: WealthSummary }) {
+	const { assumptions, returnsOn, inflationOn, inflationRate } =
+		useRunwayAssumptions(w.avgRoi);
+	const proj = runwayProjection({
+		startValue: w.totalValue,
+		startDate: new Date().toISOString().slice(0, 10),
+		monthlyExpenses: w.monthlyExpenses,
+		assumptions,
+	});
+	const parts = [
+		returnsOn ? `at ${pct1(w.avgRoi)}` : "no growth assumed",
+		inflationOn ? `${(inflationRate * 100).toFixed(1)}% inflation` : null,
+	].filter(Boolean);
+	return (
+		<Metric
+			label="Years of runway"
+			value={
+				proj.yearsLeft == null
+					? w.monthlyExpenses > 0
+						? "Never"
+						: "—"
+					: `${proj.yearsLeft.toFixed(1)} yr`
+			}
+			tone={
+				proj.yearsLeft == null && w.monthlyExpenses > 0 ? "covered" : undefined
+			}
+			hint={parts.join(", ")}
+		/>
+	);
+}
+
 function Metric({
 	label,
 	value,
 	tone,
+	hint,
 }: {
 	label: string;
 	value: string;
 	tone?: "covered" | "uncovered";
+	/** the assumptions behind the number, when it has any */
+	hint?: string;
 }) {
 	const color =
 		tone === "covered"
@@ -524,6 +566,11 @@ function Metric({
 			>
 				{value}
 			</span>
+			{hint && (
+				<span className="mt-0.5 text-[0.7rem] text-muted-foreground">
+					{hint}
+				</span>
+			)}
 		</div>
 	);
 }
