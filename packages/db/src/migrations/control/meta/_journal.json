@@ -15,6 +15,13 @@
       "when": 1784566452184,
       "tag": "0001_light_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784644677496,
+      "tag": "0002_many_agent_brand",
+      "breakpoints": true
     }
   ]
 }

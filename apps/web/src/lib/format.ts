@@ -46,6 +46,33 @@ export function formatDay(iso: string): string {
 	return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+const RELATIVE = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+	["year", 365 * 24 * 3600e3],
+	["month", 30 * 24 * 3600e3],
+	["day", 24 * 3600e3],
+	["hour", 3600e3],
+	["minute", 60e3],
+];
+
+/**
+ * "3 days ago", "yesterday", "just now" — for timestamps whose exact value doesn't matter, only how long
+ * ago. The absolute date belongs in a `title` beside it, for when it does.
+ */
+export function formatRelativeTime(
+	ms: number | null | undefined,
+	now = Date.now(),
+): string {
+	if (ms == null) return "—";
+	const delta = ms - now;
+	for (const [unit, size] of STEPS) {
+		if (Math.abs(delta) >= size) {
+			return RELATIVE.format(Math.round(delta / size), unit);
+		}
+	}
+	return "just now";
+}
+
 export function formatRatio(ratio: number | null | undefined): string {
 	return `${(ratio ?? 0).toFixed(2)}×`;
 }

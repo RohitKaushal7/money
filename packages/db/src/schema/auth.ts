@@ -17,6 +17,14 @@ export const user = sqliteTable("user", {
 		.$onUpdate(() => /* @__PURE__ */ new Date())
 		.notNull(),
 	role: text("role"),
+	/**
+	 * When this user last signed in — stamped by the session-create hook in `@money/auth`.
+	 *
+	 * A column rather than `max(session.created_at)`, because signing out *deletes* the session row: derived
+	 * from sessions, a user who tidily signs out would read as one who never logged in, which is exactly
+	 * backwards on a dashboard whose question is "is anyone using this?".
+	 */
+	lastLoginAt: integer("last_login_at", { mode: "timestamp_ms" }),
 	banned: integer("banned", { mode: "boolean" }).default(false),
 	banReason: text("ban_reason"),
 	banExpires: integer("ban_expires", { mode: "timestamp_ms" }),

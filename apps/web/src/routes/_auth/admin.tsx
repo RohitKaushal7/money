@@ -7,6 +7,7 @@ import { KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { formatRelativeTime } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/admin")({
@@ -88,6 +89,11 @@ function AdminPage() {
 		onError: (e: Error) => toast.error(e.message),
 	});
 
+	// Its own query rather than a field on listUsers — see the procedure's note. Failing to load it must
+	// not take the user table with it, so an error just leaves every row's last login blank.
+	const lastLoginQuery = useQuery(orpc.admin.lastLogins.queryOptions());
+	const lastLogins = lastLoginQuery.data ?? {};
+
 	const users = usersQuery.data ?? [];
 
 	return (
@@ -132,6 +138,7 @@ function AdminPage() {
 										<th className="py-2 pr-3 font-medium">Role</th>
 										<th className="py-2 pr-3 font-medium">Status</th>
 										<th className="py-2 pr-3 font-medium">Joined</th>
+										<th className="py-2 pr-3 font-medium">Last login</th>
 										<th className="py-2 pr-3 text-right font-medium">
 											Actions
 										</th>
@@ -177,6 +184,9 @@ function AdminPage() {
 												</td>
 												<td className="tnum py-3 pr-3 text-muted-foreground text-xs">
 													{new Date(u.createdAt).toLocaleDateString()}
+												</td>
+												<td className="py-3 pr-3 text-xs">
+													<LastLogin at={lastLogins[u.id] ?? null} />
 												</td>
 												<td className="py-3 pr-3">
 													<div className="flex items-center justify-end gap-1.5">
@@ -227,6 +237,22 @@ function AdminPage() {
 				</section>
 			</div>
 		</main>
+	);
+}
+
+/** How long since they signed in, with the exact moment on hover. Dimmed once it's been a while. */
+function LastLogin({ at }: { at: number | null }) {
+	if (at == null) {
+		return <span className="text-muted-foreground/60">never</span>;
+	}
+	const stale = Date.now() - at > 30 * 24 * 3600e3;
+	return (
+		<span
+			className={stale ? "text-muted-foreground/60" : "text-muted-foreground"}
+			title={new Date(at).toLocaleString()}
+		>
+			{formatRelativeTime(at)}
+		</span>
 	);
 }
 
