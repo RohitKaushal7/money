@@ -5,7 +5,7 @@ import type {
 	ReconcileSuggestion,
 	ReconcileSummary,
 } from "@money/shared";
-import { CATEGORIES, reconcileByFy } from "@money/shared";
+import { CATEGORIES, FY_START_MONTH, reconcileByFy } from "@money/shared";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -315,13 +315,29 @@ function monthRange(months: string[]): string {
 		: `${short(a)} ${year(a)} – ${short(b)} ${year(b)}`;
 }
 
+/** Months in an Indian financial year. */
+const FY_MONTHS = 12;
+
+/** Where a "YYYY-MM" sits inside its FY: April is 1, March is 12. */
+function fyPosition(month: string, startYear: number): number {
+	const [y, m] = month.split("-").map(Number);
+	if (!y || !m) return 0;
+	return (y - startYear) * FY_MONTHS + (m - FY_START_MONTH) + 1;
+}
+
 /**
  * The same question at financial-year scale (Apr–Mar): across a whole year, did the interest turn up?
  * Current FY first at full strength, last FY dimmed beneath it — the pair exists for the comparison, so the
  * older one recedes rather than competing.
  *
- * Only complete months are summed, which is why the range is spelled out: a year reading "Apr – Jun" is
- * three months of evidence, not a year's worth, and the label is the only thing that can say so.
+ * **The track is always the whole year, April to March**, even when only part of it has happened — so the
+ * empty right-hand side is how much year is left, and a tick marks where you have got to. The fill is
+ * therefore `ratio × elapsed`: it reaches the tick exactly when everything expected so far has landed,
+ * falls short of it when it hasn't, and overshoots when more arrived than planned.
+ *
+ * Only complete months are summed, so the tick sits at the end of the last finished month rather than at
+ * today — fill and tick share one baseline instead of quietly measuring different things. That is also why
+ * the range is spelled out: a year reading "Apr – Jun" is three months of evidence, not a year's worth.
  */
 function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
 	const fys = reconcileByFy(summaries, { limit: 2 });
@@ -330,7 +346,14 @@ function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
 	return (
 		<div className="mt-4 flex flex-col gap-3 border-border border-t pt-4">
 			{fys.map((fy, i) => {
-				const pct = fy.ratio == null ? 0 : Math.min(100, fy.ratio * 100);
+				// Position of the last complete month, not the count — a gap in the statement then shifts
+				// nothing, where counting months would slide the tick backwards.
+				const elapsed = Math.min(
+					1,
+					fyPosition(fy.months.at(-1) ?? "", fy.startYear) / FY_MONTHS,
+				);
+				const pct =
+					fy.ratio == null ? 0 : Math.min(100, fy.ratio * elapsed * 100);
 				const color =
 					fy.ratio == null || fy.ratio >= 0.8
 						? IN
@@ -365,11 +388,18 @@ function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
 								)}
 							</span>
 						</div>
-						<div className="h-2 overflow-hidden rounded-full bg-muted">
+						<div className="relative h-2 overflow-hidden rounded-full bg-muted">
 							<div
 								className="h-full rounded-full"
 								style={{ width: `${pct}%`, backgroundColor: color }}
 							/>
+							{elapsed < 1 && (
+								<span
+									className="pointer-events-none absolute inset-y-0 w-px bg-foreground/60"
+									style={{ left: `${elapsed * 100}%` }}
+									title={`${monthRange(fy.months)} complete — ${Math.round(elapsed * FY_MONTHS)} of ${FY_MONTHS} months`}
+								/>
+							)}
 						</div>
 					</div>
 				);
