@@ -2,6 +2,7 @@ export * from "./accounts";
 export * from "./auth";
 export * from "./cards";
 export * from "./categories";
+export * from "./coverage";
 export * from "./currency";
 export * from "./formats";
 export * from "./investments";

@@ -5,6 +5,7 @@
  * - `kinds` — the split `Kind` + `CashflowType` axes (ADR-0012).
  * - `categories` — the seed category taxonomy.
  * - `types` — domain & API response types.
+ * - `coverage-history` — calendar rules for replaying the KPI month by month.
  * - `plan` — the plan-driven coverage KPI compute (ADR-0011 revised / ADR-0014).
  * - `networth` — the net-worth log series + per-step annualised growth (issue 003).
  * - `reconcile` — expected-vs-actual matching for the statement bridge (ADR-0014 / issue 008).
@@ -15,6 +16,7 @@
 export * from "./card-categories";
 export * from "./cards";
 export * from "./categories";
+export * from "./coverage-history";
 export * from "./currency";
 export * from "./fy";
 export * from "./kinds";

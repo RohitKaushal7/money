@@ -22,6 +22,13 @@
       "when": 1784581064823,
       "tag": "0002_fat_post",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784616431410,
+      "tag": "0003_wooden_killmonger",
+      "breakpoints": true
     }
   ]
 }
