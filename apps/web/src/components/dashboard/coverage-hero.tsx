@@ -40,23 +40,21 @@ export function CoverageHero({
 
 	return (
 		<section className="flex flex-col gap-8">
-			<div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
-				<div className="max-w-xl">
+			<div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end lg:gap-12">
+				<div className="max-w-xl shrink-0">
 					<p className="flex items-center gap-2 font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
 						Passive-income coverage · monthly
 						<TaxModeChip />
 					</p>
-					<div className="mt-3 flex items-baseline gap-4">
+					<div className="mt-3">
 						<span
 							className="tnum pointer-events-none font-display font-medium text-[clamp(4.5rem,15vw,10rem)] leading-[0.82] tracking-tight"
 							style={{ color: accent }}
 						>
 							{ratio == null ? "—" : formatRatio(ratio)}
 						</span>
-						{delta != null && <DeltaChip delta={delta} />}
 					</div>
 
-					<CoverageTrend history={history} series={series} accent={accent} />
 					<p className="mt-5 max-w-md text-foreground/80 text-lg leading-snug">
 						{ratio == null ? (
 							<>Add recurring expenses to complete the ratio.</>
@@ -75,15 +73,20 @@ export function CoverageHero({
 					</p>
 				</div>
 
-				<dl className="grid grid-cols-3 gap-x-8 gap-y-1 lg:text-right">
-					<Stat label="Passive / mo" value={m.fmt(passive)} tone="covered" />
-					<Stat label="Expenses / mo" value={m.fmt(expenses)} />
-					<Stat
-						label="Gap to freedom"
-						value={m.fmt(gap)}
-						tone={covered ? "covered" : "uncovered"}
-					/>
-				</dl>
+				{/* The trend fills the space beside the numeral, dissolving toward it so the two read as one
+				    composition rather than a figure sitting next to a widget. */}
+				<div className="flex min-w-0 flex-1 flex-col justify-end gap-7">
+					<CoverageTrend history={history} accent={accent} delta={delta} />
+					<dl className="grid grid-cols-3 gap-x-8 gap-y-1 lg:text-right">
+						<Stat label="Passive / mo" value={m.fmt(passive)} tone="covered" />
+						<Stat label="Expenses / mo" value={m.fmt(expenses)} />
+						<Stat
+							label="Gap to freedom"
+							value={m.fmt(gap)}
+							tone={covered ? "covered" : "uncovered"}
+						/>
+					</dl>
+				</div>
 			</div>
 
 			{/* progress toward 1.0× */}
@@ -129,80 +132,138 @@ function monthLabel(month: string): string {
 /**
  * The trend, or an honest admission that there isn't one yet. History is captured going forward only —
  * the plan never stored past state — so the first month has nothing to compare against.
+ *
+ * **Scaled to 1.0×, never to itself.** A sparkline that autoscales to its own min/max makes a series
+ * running 0.48→0.72 fill the full height and read as "topped out", directly contradicting the numeral and
+ * the progress bar beside it. The domain always reaches 1.0 so the curve's distance from the dashed line
+ * IS the remaining gap to freedom.
  */
 function CoverageTrend({
 	history,
-	series,
 	accent,
+	delta,
 }: {
 	history: { month: string; ratio: number }[];
-	series: number[];
 	accent: string;
+	delta: number | null;
 }) {
 	const first = history[0];
+	const series = history.map((h) => h.ratio);
 	if (series.length < 2) {
 		return first ? (
-			<p className="mt-4 text-muted-foreground text-xs">
+			<p className="text-muted-foreground text-xs lg:text-right">
 				Tracking since {monthLabel(first.month)} — the trend appears once
 				there's a second month.
 			</p>
 		) : null;
 	}
+
+	// Geometry in a fixed coordinate space, stretched to the container. `preserveAspectRatio="none"` plus
+	// non-scaling strokes keeps the line crisp at any width; the end dot is HTML so it stays round.
+	const W = 420;
+	const H = 128;
+	const padY = 10;
+	const lo = Math.min(...series);
+	const hi = Math.max(1, ...series);
+	const span = hi - lo || 1;
+	const x = (i: number) => (i * W) / (series.length - 1);
+	const y = (v: number) => padY + (1 - (v - lo) / span) * (H - padY * 2);
+
+	const pts = series.map((v, i) => ({ x: x(i), y: y(v) }));
+	const line = smoothPath(pts);
+	const area = `${line} L${W},${H} L0,${H} Z`;
+	const oneY = y(1);
+	const lastPct = ((y(series[series.length - 1] ?? lo) / H) * 100).toFixed(2);
+	const fade =
+		"linear-gradient(to right, transparent 0%, rgba(0,0,0,0.25) 14%, #000 42%)";
+
 	return (
-		<div className="mt-4 flex items-center gap-3">
-			<Sparkline points={series} color={accent} />
-			<span className="text-muted-foreground text-xs">
-				<span className="tnum text-foreground/70">{series.length}</span> months
-			</span>
-		</div>
+		<figure className="flex flex-col gap-2">
+			<div className="relative w-full">
+				<svg
+					viewBox={`0 0 ${W} ${H}`}
+					preserveAspectRatio="none"
+					className="h-28 w-full sm:h-32"
+					role="img"
+					aria-label={`Coverage over ${series.length} months, from ${formatRatio(series[0] ?? 0)} to ${formatRatio(series[series.length - 1] ?? 0)}`}
+					style={{ maskImage: fade, WebkitMaskImage: fade }}
+				>
+					<defs>
+						<linearGradient id="covTrendFill" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stopColor={accent} stopOpacity={0.26} />
+							<stop offset="100%" stopColor={accent} stopOpacity={0} />
+						</linearGradient>
+					</defs>
+					{/* 1.0× — the ceiling the curve is reaching for */}
+					<line
+						x1="0"
+						y1={oneY}
+						x2={W}
+						y2={oneY}
+						stroke="var(--muted-foreground)"
+						strokeWidth={1}
+						strokeDasharray="3 5"
+						strokeOpacity={0.45}
+						vectorEffect="non-scaling-stroke"
+					/>
+					<path d={area} fill="url(#covTrendFill)" />
+					<path
+						d={line}
+						fill="none"
+						stroke={accent}
+						strokeWidth={2}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						vectorEffect="non-scaling-stroke"
+					/>
+				</svg>
+				<span
+					className="pointer-events-none absolute size-2 rounded-full ring-2 ring-background"
+					style={{
+						right: 0,
+						top: `${lastPct}%`,
+						transform: "translate(50%, -50%)",
+						backgroundColor: accent,
+					}}
+				/>
+			</div>
+
+			<figcaption className="flex items-center justify-between text-muted-foreground text-xs">
+				<span>
+					{monthLabel(first?.month ?? "")} —{" "}
+					<span className="tnum">{series.length}</span> months
+				</span>
+				<span className="flex items-center gap-2">
+					<span className="opacity-70">1.0× ceiling</span>
+					{delta != null && <DeltaChip delta={delta} />}
+				</span>
+			</figcaption>
+		</figure>
 	);
 }
 
 /**
- * Hand-rolled rather than recharts: at 120×28 a full charting library renders worse and costs more than
- * the eleven lines of path maths it replaces.
+ * Catmull-Rom → cubic bezier. Straight segments across a dozen-plus points read as a jagged wedge once
+ * filled; a smoothed curve reads as a trend, which is what this actually is.
  */
-function Sparkline({ points, color }: { points: number[]; color: string }) {
-	const w = 132;
-	const h = 30;
-	const pad = 3;
-	const min = Math.min(...points);
-	const max = Math.max(...points);
-	const span = max - min || 1;
-	const x = (i: number) =>
-		pad + (i * (w - pad * 2)) / Math.max(1, points.length - 1);
-	const y = (v: number) => h - pad - ((v - min) / span) * (h - pad * 2);
-	const line = points
-		.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)
-		.join(" ");
-	const lastX = x(points.length - 1);
-	const lastY = y(points[points.length - 1] ?? min);
-
-	return (
-		<svg
-			width={w}
-			height={h}
-			viewBox={`0 0 ${w} ${h}`}
-			className="overflow-visible"
-			role="img"
-			aria-label={`Coverage over the last ${points.length} months`}
-		>
-			<path
-				d={`${line} L${lastX.toFixed(1)},${h} L${pad},${h} Z`}
-				fill={color}
-				opacity={0.1}
-			/>
-			<path
-				d={line}
-				fill="none"
-				stroke={color}
-				strokeWidth={1.5}
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<circle cx={lastX} cy={lastY} r={2.5} fill={color} />
-		</svg>
-	);
+function smoothPath(pts: { x: number; y: number }[]): string {
+	const p = pts[0];
+	if (!p) return "";
+	let d = `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+	const t = 0.2;
+	for (let i = 0; i < pts.length - 1; i += 1) {
+		const p1 = pts[i];
+		const p2 = pts[i + 1];
+		if (!p1 || !p2) continue;
+		const p0 = pts[i - 1] ?? p1;
+		const p3 = pts[i + 2] ?? p2;
+		const c1x = p1.x + (p2.x - p0.x) * t;
+		const c1y = p1.y + (p2.y - p0.y) * t;
+		const c2x = p2.x - (p3.x - p1.x) * t;
+		const c2y = p2.y - (p3.y - p1.y) * t;
+		d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+	}
+	return d;
 }
 
 /** Month-over-month change in the ratio. Direction is the point, so the arrow leads. */
