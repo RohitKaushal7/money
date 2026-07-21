@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_auth/")({
 
 function DashboardPage() {
 	const ladder = useQuery(orpc.plan.ladder.queryOptions());
+	const coverageHistory = useQuery(orpc.plan.coverageHistory.queryOptions());
 	const status = useQuery(orpc.analytics.status.queryOptions());
 	const summary = useQuery(orpc.analytics.summary.queryOptions());
 	const categories = useQuery(orpc.analytics.categoryBreakdown.queryOptions());
@@ -59,6 +60,11 @@ function DashboardPage() {
 						interest={cov.total.income}
 						expenses={cov.expenses}
 						ratio={cov.total.ratio}
+						history={(coverageHistory.data ?? []).flatMap((p) =>
+							p.total.ratio == null
+								? []
+								: [{ month: p.month, ratio: p.total.ratio }],
+						)}
 					/>
 				) : null}
 

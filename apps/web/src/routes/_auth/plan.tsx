@@ -25,6 +25,7 @@ import {
 	X,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
+import { CoverageHistory } from "@/components/plan/coverage-history";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
@@ -164,6 +165,8 @@ function PlanPage() {
 				</header>
 
 				<LadderCard ladder={ladder.data as Ladder | undefined} />
+
+				<CoverageHistory />
 
 				<MaturityAlerts onDone={invalidate} />
 
