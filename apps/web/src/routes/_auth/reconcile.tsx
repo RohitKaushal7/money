@@ -3,13 +3,21 @@ import type {
 	ReconcileResult,
 	ReconcileStatus,
 	ReconcileSuggestion,
+	ReconcileSummary,
 } from "@money/shared";
 import { CATEGORIES } from "@money/shared";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, Check, Clock, TriangleAlert, X } from "lucide-react";
-import { useState } from "react";
+import {
+	Check,
+	ChevronRight,
+	Clock,
+	Hourglass,
+	TriangleAlert,
+	X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { formatINR, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
@@ -20,16 +28,23 @@ export const Route = createFileRoute("/_auth/reconcile")({
 const IN = "var(--covered)";
 const OUT = "var(--uncovered)";
 const DIFFERS_C = "oklch(0.74 0.15 66)"; // amber
+const NEUTRAL = "var(--muted-foreground)";
 const tint = (c: string, pct: number) =>
 	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
 
+/**
+ * `partial` is deliberately **neutral, not amber**. A group that is short halfway through the month has
+ * nothing wrong with it — the remaining payouts aren't due yet — so it must not share a colour with the
+ * statuses that want your attention. Warm colour is reserved for things that need a decision.
+ */
 const STATUS: Record<
 	ReconcileStatus,
 	{ label: string; color: string; icon: typeof Check }
 > = {
 	received: { label: "Received", color: IN, icon: Check },
+	partial: { label: "Still arriving", color: NEUTRAL, icon: Hourglass },
 	differs: { label: "Amount differs", color: DIFFERS_C, icon: TriangleAlert },
-	pending: { label: "Pending", color: "var(--muted-foreground)", icon: Clock },
+	pending: { label: "Not due yet", color: NEUTRAL, icon: Clock },
 	missed: { label: "Missed", color: OUT, icon: X },
 };
 
@@ -46,20 +61,20 @@ function ReconcilePage() {
 	return (
 		<main className="h-full overflow-y-auto">
 			<div className="mx-auto flex max-w-4xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
-				<header className="flex flex-col gap-3">
-					<div className="flex flex-wrap items-end justify-between gap-3">
-						<div className="flex flex-col gap-1">
-							<h1 className="font-display font-medium text-3xl tracking-tight">
-								Reconcile
-							</h1>
-							<p className="text-muted-foreground">
-								The interest your plan expects, checked against what actually
-								landed in the account.
-							</p>
-						</div>
-						<MonthPicker months={months} value={month} onChange={setPicked} />
+				<header className="flex flex-col gap-4">
+					<div className="flex flex-col gap-1">
+						<h1 className="font-display font-medium text-3xl tracking-tight">
+							Reconcile
+						</h1>
+						<p className="text-muted-foreground">
+							The interest your plan expects, checked against what actually
+							landed in the account.
+						</p>
 					</div>
+					<MonthStrip months={months} value={month} onChange={setPicked} />
 				</header>
+
+				<History selected={month} onSelect={setPicked} />
 
 				{res && <SummaryBar res={res} />}
 
@@ -90,37 +105,61 @@ function ReconcilePage() {
 }
 
 // ── summary ───────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * Leads with the gap, because that is the number you came for — two figures and an arrow made you do the
+ * subtraction yourself. While the month is still running the gap is framed as *arriving*, not *short*: a
+ * shortfall on the 21st is a statement about the calendar, not about your holdings.
+ */
 function SummaryBar({ res }: { res: ReconcileResult }) {
 	const { summary } = res;
+	const gap = summary.actualAmount - summary.expectedAmount;
+	const settled = !summary.inProgress;
+	// Only a finished month can be judged. Before that, a negative gap is simply the rest of the month.
+	const tone = settled ? (gap < 0 ? OUT : IN) : NEUTRAL;
 	const chips: { s: ReconcileStatus; n: number }[] = [
 		{ s: "received", n: summary.receivedCount },
+		{ s: "partial", n: summary.partialCount },
 		{ s: "pending", n: summary.pendingCount },
 		{ s: "missed", n: summary.missedCount },
 		{ s: "differs", n: summary.differsCount },
 	];
 	return (
 		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
-			<div className="flex items-end justify-between gap-4">
+			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
 					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
-						Expected in
-					</p>
-					<p className="tnum font-display font-medium text-3xl leading-none">
-						{formatINR(summary.expectedAmount)}
-					</p>
-				</div>
-				<ArrowRight className="mb-1 size-5 text-muted-foreground" />
-				<div className="text-right">
-					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
-						Actually landed
+						{settled
+							? gap < 0
+								? "Short this month"
+								: "Ahead this month"
+							: "Still to arrive"}
 					</p>
 					<p
-						className="tnum font-display font-medium text-3xl leading-none"
-						style={{ color: IN }}
+						className="tnum font-display font-medium text-4xl leading-none"
+						style={{ color: tone }}
 					>
-						{formatINR(summary.actualAmount)}
+						{settled
+							? `${gap < 0 ? "−" : "+"}${formatINR(Math.abs(gap))}`
+							: formatINR(Math.max(0, -gap))}
+					</p>
+					<p className="mt-2 text-muted-foreground text-sm">
+						<span className="tnum">{formatINR(summary.expectedAmount)}</span>{" "}
+						expected ·{" "}
+						<span className="tnum text-foreground/80">
+							{formatINR(summary.actualAmount)}
+						</span>{" "}
+						landed
+						{!settled && " so far"}
 					</p>
 				</div>
+				<Progress
+					value={
+						summary.expectedAmount > 0
+							? summary.actualAmount / summary.expectedAmount
+							: 0
+					}
+					settled={settled}
+				/>
 			</div>
 			<div className="flex flex-wrap gap-2">
 				{chips
@@ -146,46 +185,203 @@ function SummaryBar({ res }: { res: ReconcileResult }) {
 	);
 }
 
+/** How much of the month's expectation has landed. Capped at 100% so an overshoot doesn't overflow. */
+function Progress({ value, settled }: { value: number; settled: boolean }) {
+	const pct = Math.min(100, Math.max(0, value * 100));
+	return (
+		<div className="flex min-w-[12rem] flex-1 flex-col gap-1.5">
+			<div className="h-2 overflow-hidden rounded-full bg-muted">
+				<div
+					className="h-full rounded-full transition-[width] duration-500 ease-out"
+					style={{
+						width: `${pct}%`,
+						backgroundColor: settled ? (value >= 0.8 ? IN : OUT) : NEUTRAL,
+					}}
+				/>
+			</div>
+			<p className="text-right text-muted-foreground text-xs">
+				<span className="tnum">{Math.round(pct)}%</span> of expected
+			</p>
+		</div>
+	);
+}
+
+// ── history ───────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * Twelve months of expected-vs-landed, so a month can be read against its neighbours rather than in
+ * isolation. Bars are the landed share of expectation; the current month is outlined rather than filled,
+ * because it is still being written. Clicking a bar selects that month.
+ */
+function History({
+	selected,
+	onSelect,
+}: {
+	selected: string;
+	onSelect: (m: string) => void;
+}) {
+	const q = useQuery(
+		orpc.reconcile.history.queryOptions({ input: { months: 12 } }),
+	);
+	const rows = (q.data as ReconcileSummary[] | undefined) ?? [];
+	const withData = rows.filter((r) => r.expectedAmount > 0);
+	if (withData.length < 2) return null;
+
+	const max = Math.max(
+		...rows.map((r) => Math.max(r.expectedAmount, r.actualAmount)),
+	);
+	return (
+		<section className="flex flex-col gap-3">
+			<div className="flex items-baseline justify-between">
+				<h2 className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					Landed vs expected · 12 months
+				</h2>
+				<span className="text-muted-foreground text-xs">
+					outline = still running
+				</span>
+			</div>
+			<div className="flex h-24 items-end gap-1.5">
+				{rows.map((r) => {
+					const share = max > 0 ? r.actualAmount / max : 0;
+					const expShare = max > 0 ? r.expectedAmount / max : 0;
+					const ratio =
+						r.expectedAmount > 0 ? r.actualAmount / r.expectedAmount : 1;
+					const isSel = r.month === selected;
+					const color = r.inProgress
+						? NEUTRAL
+						: ratio >= 0.8
+							? IN
+							: ratio >= 0.5
+								? DIFFERS_C
+								: OUT;
+					return (
+						<button
+							key={r.month}
+							type="button"
+							onClick={() => onSelect(r.month)}
+							title={`${formatMonth(r.month)} — ${formatINR(r.actualAmount)} of ${formatINR(r.expectedAmount)}`}
+							className="group relative flex h-full flex-1 flex-col justify-end rounded-sm outline-offset-2 focus-visible:outline-2"
+						>
+							{/* expectation: the height the bar is aiming for */}
+							<span
+								className="absolute inset-x-0 rounded-[2px] border border-dashed"
+								style={{
+									height: `${Math.max(2, expShare * 100)}%`,
+									borderColor: tint("var(--muted-foreground)", 45),
+								}}
+							/>
+							<span
+								className="relative rounded-[2px] transition-opacity"
+								style={{
+									height: `${Math.max(1, share * 100)}%`,
+									backgroundColor: r.inProgress ? "transparent" : color,
+									border: r.inProgress ? `1.5px solid ${color}` : undefined,
+									opacity: isSel ? 1 : 0.55,
+								}}
+							/>
+						</button>
+					);
+				})}
+			</div>
+			<div className="flex gap-1.5 text-[0.6rem] text-muted-foreground">
+				{rows.map((r) => (
+					<span
+						key={r.month}
+						className={`flex-1 text-center ${r.month === selected ? "text-foreground" : ""}`}
+					>
+						{formatMonth(r.month).replace(" '", " '")}
+					</span>
+				))}
+			</div>
+		</section>
+	);
+}
+
 // ── one expected event ──────────────────────────────────────────────────────────────────────────────────
+/**
+ * Reads left to right in the same order as the summary above it — expected, then landed, then the gap.
+ * The old row put the landed figure first with expected trailing in small grey, so the eye learned one
+ * order at the top of the page and had to unlearn it two hundred pixels later.
+ *
+ * The delta is only *coloured* when it means something: a mid-month shortfall is grey, because the money
+ * isn't late, it's just Tuesday.
+ */
 function EventRow({ ev }: { ev: ReconciledEvent }) {
 	const meta = STATUS[ev.status];
-	const showDelta = ev.status === "received" || ev.status === "differs";
+	const [open, setOpen] = useState(false);
+	const landed = ev.matches.length > 0;
+	const deltaTone =
+		ev.status === "partial" || ev.status === "pending"
+			? NEUTRAL
+			: ev.delta >= 0
+				? IN
+				: OUT;
+
 	return (
-		<li className="flex items-center gap-3 border-border border-b py-3">
-			<span
-				className="flex size-7 shrink-0 items-center justify-center rounded-full"
-				style={{ color: meta.color, background: tint(meta.color, 14) }}
-				title={meta.label}
+		<li className="border-border border-b">
+			<button
+				type="button"
+				onClick={() => landed && setOpen((o) => !o)}
+				disabled={!landed}
+				className="flex w-full items-center gap-3 py-3 text-left enabled:hover:bg-secondary/20"
 			>
-				<meta.icon className="size-4" />
-			</span>
-			<div className="min-w-0 flex-1">
-				<p className="truncate font-medium">{ev.name}</p>
-				<p className="text-muted-foreground text-xs">
-					{meta.label}
-					{ev.memberCount > 1 ? ` · ${ev.memberCount} holdings` : ""}
-					{ev.matches.length > 0 ? ` · ${ev.matches.length} credits` : ""}
-				</p>
-			</div>
-			<div className="shrink-0 text-right">
-				<p className="tnum font-medium">
-					{ev.status === "received" || ev.status === "differs"
-						? formatINR(ev.actualAmount)
-						: "—"}
-					<span className="ml-1 text-[0.6rem] text-muted-foreground">
-						/ {formatINR(ev.expectedAmount)} exp
+				<span
+					className="flex size-7 shrink-0 items-center justify-center rounded-full"
+					style={{ color: meta.color, background: tint(meta.color, 14) }}
+					title={meta.label}
+				>
+					<meta.icon className="size-4" />
+				</span>
+
+				<div className="min-w-0 flex-1">
+					<p className="truncate font-medium">{ev.name}</p>
+					<p className="text-muted-foreground text-xs">
+						<span style={{ color: meta.color }}>{meta.label}</span>
+						{ev.memberCount > 1 ? ` · ${ev.memberCount} holdings` : ""}
+						{landed ? ` · ${ev.matches.length} credits` : ""}
+					</p>
+				</div>
+
+				<div className="tnum flex shrink-0 items-baseline gap-2 text-sm">
+					<span className="text-muted-foreground">
+						{formatINR(ev.expectedAmount)}
 					</span>
-				</p>
-				{showDelta && (
-					<p
-						className="tnum text-xs"
-						style={{ color: ev.delta >= 0 ? IN : DIFFERS_C }}
+					<span className="text-muted-foreground/50">→</span>
+					<span className="w-20 text-right font-medium">
+						{landed ? formatINR(ev.actualAmount) : "—"}
+					</span>
+					<span
+						className="w-20 text-right font-medium"
+						style={{ color: deltaTone }}
 					>
 						{ev.delta >= 0 ? "+" : "−"}
 						{formatINR(Math.abs(ev.delta))}
-					</p>
-				)}
-			</div>
+					</span>
+				</div>
+
+				<ChevronRight
+					className={`size-4 shrink-0 text-muted-foreground transition-transform ${
+						open ? "rotate-90" : ""
+					} ${landed ? "" : "opacity-0"}`}
+				/>
+			</button>
+
+			{open && (
+				<ul className="flex flex-col gap-1 pb-3 pl-10 text-sm">
+					{ev.matches.map((c) => (
+						<li key={c.txnId} className="flex items-baseline gap-3">
+							<span className="tnum w-20 shrink-0 text-muted-foreground text-xs">
+								{c.date}
+							</span>
+							<span className="tnum w-20 shrink-0 text-right">
+								{formatINR(c.amount)}
+							</span>
+							<span className="truncate text-muted-foreground text-xs">
+								{c.narration}
+							</span>
+						</li>
+					))}
+				</ul>
+			)}
 		</li>
 	);
 }
@@ -291,7 +487,12 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 }
 
 // ── bits ────────────────────────────────────────────────────────────────────────────────────────────────
-function MonthPicker({
+/**
+ * Months as a scrollable strip rather than a dropdown. Reconciliation is a month-to-month scan — you check
+ * one, then the one before it — and a dropdown hides that sequence behind a click. Newest sits on the
+ * right, so the strip reads left-to-right like the history chart above it.
+ */
+function MonthStrip({
 	months,
 	value,
 	onChange,
@@ -300,15 +501,42 @@ function MonthPicker({
 	value: string;
 	onChange: (m: string) => void;
 }) {
-	const options = months.length > 0 ? months : [value];
+	const list = (months.length > 0 ? months : [value]).slice(0, 24).reverse();
+	// Newest sits on the right, so the strip loads scrolled to the left — with the selected month off
+	// screen. Pull it into view on mount and whenever the selection changes (e.g. clicking a history bar
+	// for an older month). `block: "nearest"` keeps this from scrolling the page vertically.
+	const activeRef = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		activeRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+	}, []);
+
 	return (
-		<Select
+		<div
+			className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+			role="tablist"
 			aria-label="Month"
-			value={value}
-			onValueChange={onChange}
-			options={options.map((m) => ({ value: m, label: formatMonth(m) }))}
-			className="h-9 w-auto rounded-md"
-		/>
+		>
+			{list.map((m) => {
+				const active = m === value;
+				return (
+					<button
+						key={m}
+						ref={active ? activeRef : undefined}
+						type="button"
+						role="tab"
+						aria-selected={active}
+						onClick={() => onChange(m)}
+						className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition-colors ${
+							active
+								? "bg-foreground font-medium text-background"
+								: "border border-border text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						{formatMonth(m)}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 

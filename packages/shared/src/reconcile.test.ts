@@ -165,15 +165,60 @@ describe("reconcile", () => {
 		expect(res.summary.receivedCount).toBe(1);
 	});
 
-	test("summed credits outside the band → 'differs', not dropped", () => {
+	test("summed credits short of the band in an elapsed month → 'differs', not dropped", () => {
 		const res = reconcile({
 			investments: sustvest,
 			credits: p2pCredits("2026-07", 300), // 12 × 300 = 3600 vs 6454 → −44%
 			month: "2026-07",
-			today: "2026-07-20",
+			today: "2026-08-02",
 		});
 		expect(res.events[0]?.status).toBe("differs");
 		expect(res.summary.differsCount).toBe(1);
+	});
+
+	/**
+	 * The false alarm this status exists to kill. Bond coupons cluster late in the month — over six real
+	 * months, 56% of them landed on day 22 or later — so on the 21st a group is routinely short of its
+	 * month-end expectation. Reporting that as "amount differs" raises a warning every single month for
+	 * money that simply isn't due yet.
+	 */
+	test("short mid-month is 'partial' — not due yet is not a discrepancy", () => {
+		const res = reconcile({
+			investments: sustvest,
+			credits: p2pCredits("2026-07", 300),
+			month: "2026-07",
+			today: "2026-07-21",
+		});
+		expect(res.events[0]?.status).toBe("partial");
+		expect(res.summary.partialCount).toBe(1);
+		expect(res.summary.differsCount).toBe(0);
+		expect(res.summary.inProgress).toBe(true);
+	});
+
+	/**
+	 * Above expectation is never provisional: more money than planned has already arrived, and no amount of
+	 * remaining month makes that go away. This is the real SustVest case — 12 of 12 credits landed on the
+	 * 15th at 35% above plan, which means the plan entry is stale, not that a payout is late.
+	 */
+	test("above expectation mid-month stays 'differs' — waiting won't unmake it", () => {
+		const res = reconcile({
+			investments: sustvest,
+			credits: p2pCredits("2026-07", 735), // 12 × 735 = 8820 vs 6454 → +37%
+			month: "2026-07",
+			today: "2026-07-21",
+		});
+		expect(res.events[0]?.status).toBe("differs");
+		expect(res.summary.partialCount).toBe(0);
+	});
+
+	test("an elapsed month is never in progress", () => {
+		const res = reconcile({
+			investments: sustvest,
+			credits: p2pCredits("2026-07", 6454 / 12),
+			month: "2026-07",
+			today: "2026-08-01",
+		});
+		expect(res.summary.inProgress).toBe(false);
 	});
 
 	test("distinct asset classes match distinct categories independently", () => {

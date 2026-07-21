@@ -72,7 +72,22 @@ export interface ExpectedEvent {
 	memberCount: number;
 }
 
-export type ReconcileStatus = "received" | "differs" | "pending" | "missed";
+/**
+ * - `received` — credits landed and the total is within the tolerance band.
+ * - `partial` — credits have landed but the total is short **and the month is still running**. Not a
+ *   discrepancy: payouts cluster late in the month, so mid-month a group is routinely short of its
+ *   month-end expectation. Calling that "amount differs" cries wolf every single month.
+ * - `differs` — the total is outside the band in a finished month, or above expectation in any month.
+ *   Above-expectation mid-month is a real signal (the plan is understating), so it is never `partial`.
+ * - `pending` — nothing has landed yet and the month has not elapsed.
+ * - `missed` — nothing landed and the month is over.
+ */
+export type ReconcileStatus =
+	| "received"
+	| "partial"
+	| "differs"
+	| "pending"
+	| "missed";
 
 /** An expected event with the credits it claimed and a status. */
 export interface ReconciledEvent extends ExpectedEvent {
@@ -97,8 +112,12 @@ export interface ReconcileSuggestion {
 
 export interface ReconcileSummary {
 	month: string;
+	/** The month has not finished — every shortfall here is provisional. */
+	inProgress: boolean;
 	expectedCount: number;
 	receivedCount: number;
+	/** landed but still short, in a month that hasn't finished */
+	partialCount: number;
 	differsCount: number;
 	pendingCount: number;
 	missedCount: number;
@@ -333,9 +352,14 @@ export function reconcile(input: {
 			for (const c of matches) used.add(c.txnId);
 			const within =
 				Math.abs(actualAmount - ev.expectedAmount) <= ev.expectedAmount * BAND;
+			const short = actualAmount < ev.expectedAmount;
 			reconciled.push({
 				...ev,
-				status: within ? "received" : "differs",
+				status: within
+					? "received"
+					: short && !monthElapsed
+						? "partial"
+						: "differs",
 				matches,
 				actualAmount,
 				delta: actualAmount - ev.expectedAmount,
@@ -366,8 +390,10 @@ export function reconcile(input: {
 		reconciled.filter((e) => e.status === s).length;
 	const summary: ReconcileSummary = {
 		month,
+		inProgress: !monthElapsed,
 		expectedCount: reconciled.length,
 		receivedCount: by("received"),
+		partialCount: by("partial"),
 		differsCount: by("differs"),
 		pendingCount: by("pending"),
 		missedCount: by("missed"),

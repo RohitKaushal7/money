@@ -17,6 +17,17 @@ function todayISO(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 
+const CREDIT_SELECT = `SELECT t.txn_id AS "txnId",
+		CAST(t.txn_date AS VARCHAR) AS date,
+		t.narration,
+		t.amount::DOUBLE AS amount,
+		t.month,
+		s.kind,
+		s.category_key AS "categoryKey"
+	FROM transactions t
+	LEFT JOIN transaction_splits s ON s.txn_id = t.txn_id AND s.seq = 0
+	WHERE t.amount > 0`;
+
 /** Pull month M's positive credits + their primary-split kind from the analytical DB (read-only). */
 async function monthCredits(
 	month: string,
@@ -24,20 +35,31 @@ async function monthCredits(
 ): Promise<StatementCredit[]> {
 	return withReader(uid, (reader) =>
 		reader.query<StatementCredit>(
-			`SELECT t.txn_id AS "txnId",
-				CAST(t.txn_date AS VARCHAR) AS date,
-				t.narration,
-				t.amount::DOUBLE AS amount,
-				t.month,
-				s.kind,
-				s.category_key AS "categoryKey"
-			FROM transactions t
-			LEFT JOIN transaction_splits s ON s.txn_id = t.txn_id AND s.seq = 0
-			WHERE t.amount > 0 AND t.month = ?
-			ORDER BY t.txn_date`,
+			`${CREDIT_SELECT} AND t.month = ? ORDER BY t.txn_date`,
 			[month],
 		),
 	);
+}
+
+/** Every credit from `from` (YYYY-MM) onward, in one read — the history chart reconciles N months. */
+async function creditsSince(
+	from: string,
+	uid: string,
+): Promise<StatementCredit[]> {
+	return withReader(uid, (reader) =>
+		reader.query<StatementCredit>(
+			`${CREDIT_SELECT} AND t.month >= ? ORDER BY t.txn_date`,
+			[from],
+		),
+	);
+}
+
+/** Step back n months from a YYYY-MM. */
+function minusMonths(month: string, n: number): string {
+	const [y, m] = month.split("-").map(Number);
+	return new Date(Date.UTC(y ?? 2026, (m ?? 1) - 1 - n, 1))
+		.toISOString()
+		.slice(0, 7);
 }
 
 /**
@@ -84,6 +106,45 @@ export const reconcileRouter = {
 				: [];
 			const credits = await applyOverrides(raw, context.appDb);
 			return reconcile({ investments, credits, month, today });
+		}),
+
+	/**
+	 * The last N months reconciled in one pass — expected vs actual per month, for the history chart.
+	 *
+	 * Investments and credits are each read **once** and the pure `reconcile` runs per month in memory, so
+	 * a twelve-month history costs two queries rather than twenty-four. Returns the summaries only; the
+	 * selected month's detail comes from `month` above.
+	 */
+	history: protectedProcedure
+		.input(
+			z.object({ months: z.coerce.number().int().min(1).max(36).default(12) }),
+		)
+		.handler(async ({ context, input }) => {
+			const today = todayISO();
+			const current = today.slice(0, 7);
+			const from = minusMonths(current, input.months - 1);
+			const investments = await listInvestments(context.appDb);
+			const raw = analyticsReady(context.uid)
+				? await creditsSince(from, context.uid)
+				: [];
+			const credits = await applyOverrides(raw, context.appDb);
+
+			const byMonth = new Map<string, StatementCredit[]>();
+			for (const c of credits) {
+				const arr = byMonth.get(c.month) ?? [];
+				arr.push(c);
+				byMonth.set(c.month, arr);
+			}
+
+			return Array.from({ length: input.months }, (_, i) => {
+				const month = minusMonths(current, input.months - 1 - i);
+				return reconcile({
+					investments,
+					credits: byMonth.get(month) ?? [],
+					month,
+					today,
+				}).summary;
+			});
 		}),
 
 	/** Statement months available to reconcile (newest first), for the picker. */

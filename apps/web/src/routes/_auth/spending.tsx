@@ -210,7 +210,7 @@ function LevelStrip({
 					note={
 						insights.yoy.pct == null
 							? "no prior period to compare"
-							: `${signedPct(insights.yoy.pct)} vs the ${insights.yoy.priorMonths} months before, at ${fmt(Math.round(insights.yoy.prior))} /mo`
+							: `${signedPct(insights.yoy.pct)} vs the ${insights.yoy.priorMonths} mo before, at ${fmt(Math.round(insights.yoy.prior))} /mo`
 					}
 					tone={insights.yoy.pct == null ? undefined : yoyUp ? OUT : IN}
 				/>
