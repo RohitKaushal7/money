@@ -111,9 +111,18 @@
  * still applies to the dash pattern in that case. Where it doesn't, `stroke-dasharray: 1` means one user
  * unit and the curve renders as dots. `clip-path` has no such ambiguity and needs no measurement.
  */
+/*
+ * Both endpoints must be `inset()`. Omitting `to` makes the end state the element's computed `clip-path`,
+ * which is `none` — and `inset()` cannot interpolate to `none`, so the browser silently downgrades to a
+ * discrete animation: the chart stays hidden, then pops. With an ease-out curve that flip lands around
+ * 13% of the duration, which looks exactly like no animation at all.
+ */
 @keyframes kpi-wipe {
 	from {
 		clip-path: inset(0 100% 0 0);
+	}
+	to {
+		clip-path: inset(0 0 0 0);
 	}
 }
 @keyframes kpi-dot-in {
