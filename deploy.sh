@@ -37,7 +37,10 @@ if [ ! -f .env ]; then
   exit 1
 fi
 gunzip -c "${TAR}" | docker load
-docker compose up -d
+# --remove-orphans: renaming a compose service leaves the old container running and
+# unmanaged. That once stranded a second app process bind-mounting the same ./data,
+# i.e. two writers on one set of SQLite files. Never again.
+docker compose up -d --remove-orphans
 docker image prune -f     # drop the now-dangling previous image (dangling only — leaves other apps alone)
 rm -f "${TAR}"
 EOF
