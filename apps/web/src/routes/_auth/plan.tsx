@@ -492,7 +492,7 @@ function IncomingColumn({
 							editRow={editRow}
 						/>
 					) : editing === r.members[0]?.id ? (
-						<li key={r.members[0]?.id} className="border-border border-b py-2">
+						<li key={r.members[0]?.id} className="py-2">
 							{r.members[0] && editRow(r.members[0])}
 						</li>
 					) : (
@@ -506,7 +506,7 @@ function IncomingColumn({
 				)}
 			</ul>
 			{adding ? (
-				<div className="border-border border-t py-2">
+				<div className="py-2">
 					<InvestmentForm
 						pending={add.isPending}
 						submitLabel="Add"
@@ -697,7 +697,7 @@ function OutgoingColumn({
 				)}
 				{rows.map((exp) =>
 					editing === exp.id ? (
-						<li key={exp.id} className="border-border border-b py-2">
+						<li key={exp.id} className="py-2">
 							<ExpenseForm
 								initial={exp}
 								pending={update.isPending}
@@ -733,7 +733,7 @@ function OutgoingColumn({
 				)}
 			</ul>
 			{adding ? (
-				<div className="border-border border-t py-2">
+				<div className="py-2">
 					<ExpenseForm
 						pending={add.isPending}
 						submitLabel="Add"
@@ -860,7 +860,18 @@ function InvestmentForm({
 	}
 
 	return (
-		<form onSubmit={submit} className="flex flex-col gap-2.5">
+		<form
+			onSubmit={submit}
+			className="flex flex-col gap-2.5 rounded-lg border p-3"
+			style={{ borderColor: tint(IN, 40), background: tint(IN, 6) }}
+		>
+			<FormActions
+				pending={pending}
+				submitLabel={submitLabel}
+				disabled={!name.trim()}
+				onCancel={onCancel}
+				onDelete={onDelete}
+			/>
 			<div className="flex flex-wrap gap-2">
 				<Pill active={cls === "income"} onClick={() => setCls("income")}>
 					Income
@@ -964,13 +975,6 @@ function InvestmentForm({
 					/>
 				</Field>
 			</div>
-			<FormActions
-				pending={pending}
-				submitLabel={submitLabel}
-				disabled={!name.trim()}
-				onCancel={onCancel}
-				onDelete={onDelete}
-			/>
 		</form>
 	);
 }
@@ -1013,7 +1017,18 @@ function ExpenseForm({
 	}
 
 	return (
-		<form onSubmit={submit} className="flex flex-col gap-2.5">
+		<form
+			onSubmit={submit}
+			className="flex flex-col gap-2.5 rounded-lg border p-3"
+			style={{ borderColor: tint(OUT, 40), background: tint(OUT, 6) }}
+		>
+			<FormActions
+				pending={pending}
+				submitLabel={submitLabel}
+				disabled={!name.trim() || !amount}
+				onCancel={onCancel}
+				onDelete={onDelete}
+			/>
 			<div className="grid grid-cols-2 gap-2">
 				<Field label="Name">
 					<Input
@@ -1060,13 +1075,6 @@ function ExpenseForm({
 					/>
 				</Field>
 			</div>
-			<FormActions
-				pending={pending}
-				submitLabel={submitLabel}
-				disabled={!name.trim() || !amount}
-				onCancel={onCancel}
-				onDelete={onDelete}
-			/>
 		</form>
 	);
 }
@@ -1123,23 +1131,22 @@ function FormActions({
 	onDelete?: () => void;
 }) {
 	return (
-		<div className="flex items-center gap-2">
-			<Button type="submit" size="sm" disabled={pending || disabled}>
-				<Check className="size-3.5" /> {submitLabel}
-			</Button>
-			{onCancel && (
-				<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-					<X className="size-3.5" /> Cancel
-				</Button>
-			)}
+		<div className="flex items-center gap-2 border-current/15 border-b pb-2.5">
+			{/* Delete sits opposite Save and Cancel, out of reach of the thumb that just opened this. Safe at
+			    the top of the tab order too, because the first press only arms it. */}
 			{onDelete && (
-				<ArmedDelete
-					onConfirm={onDelete}
-					label="Delete"
-					size="sm"
-					className="ml-auto"
-				/>
+				<ArmedDelete onConfirm={onDelete} label="Delete" size="sm" />
 			)}
+			<div className="ml-auto flex items-center gap-2">
+				<Button type="submit" size="sm" disabled={pending || disabled}>
+					<Check className="size-3.5" /> {submitLabel}
+				</Button>
+				{onCancel && (
+					<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+						<X className="size-3.5" /> Cancel
+					</Button>
+				)}
+			</div>
 		</div>
 	);
 }
