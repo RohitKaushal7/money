@@ -1,4 +1,4 @@
-import { createContext } from "@money/api/context";
+import { createContext, UNLOCK_HEADER } from "@money/api/context";
 import { appRouter } from "@money/api/routers/index";
 import { auth } from "@money/auth";
 import { env } from "@money/env/server";
@@ -20,7 +20,9 @@ app.use(
 	cors({
 		origin: env.CORS_ORIGIN ?? env.BETTER_AUTH_URL,
 		allowMethods: ["GET", "POST", "OPTIONS"],
-		allowHeaders: ["Content-Type", "Authorization"],
+		// x-unlock-token carries the screen-lock pass; without it here the browser drops the header in dev,
+		// where the SPA (:3001) and the API (:3000) are different origins, and every call reads as locked.
+		allowHeaders: ["Content-Type", "Authorization", UNLOCK_HEADER],
 		credentials: true,
 	}),
 );

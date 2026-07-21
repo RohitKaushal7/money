@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
+import { LockGate, useLockHotkey } from "@/components/lock-screen";
 import { usePrivacyHotkey } from "@/components/privacy-toggle";
 import { MobileBar, Sidebar } from "@/components/sidebar";
 import { authClient } from "@/lib/auth-client";
@@ -17,13 +18,16 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
 	usePrivacyHotkey();
+	useLockHotkey();
 	return (
-		<div className="flex h-svh">
-			<Sidebar />
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<MobileBar />
-				<Outlet />
+		<LockGate>
+			<div className="flex h-svh">
+				<Sidebar />
+				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+					<MobileBar />
+					<Outlet />
+				</div>
 			</div>
-		</div>
+		</LockGate>
 	);
 }

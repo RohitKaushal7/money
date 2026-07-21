@@ -10,6 +10,7 @@ import { currencyRouter } from "./currency";
 import { formatsRouter } from "./formats";
 import { importRouter } from "./import";
 import { ingestRouter } from "./ingest";
+import { lockRouter } from "./lock";
 import { networthRouter } from "./networth";
 import { overridesRouter } from "./overrides";
 import { planRouter } from "./plan";
@@ -30,6 +31,7 @@ export const appRouter = {
 		};
 	}),
 	admin: adminRouter,
+	lock: lockRouter,
 	analytics: analyticsRouter,
 	cards: cardsRouter,
 	categories: categoriesRouter,

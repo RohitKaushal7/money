@@ -5,11 +5,18 @@ import { RPCLink } from "@orpc/client/fetch";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { closeLock, unlockToken } from "@/lib/lock";
 
 export function createQueryClient() {
 	return new QueryClient({
 		queryCache: new QueryCache({
 			onError: (error, query) => {
+				// The screen lock closing mid-flight. Not an error to shout about — flip the UI to the lock
+				// screen and let the user back in. Without this the page would fill with error toasts.
+				if ((error as { code?: string }).code === "LOCKED") {
+					closeLock();
+					return;
+				}
 				if ((error as { code?: string }).code === "UNAUTHORIZED") {
 					if (
 						typeof window !== "undefined" &&
@@ -67,6 +74,12 @@ function getServerUrl(url: string) {
 }
 export const link = new RPCLink({
 	url: `${getServerUrl(env.VITE_SERVER_URL)}/rpc`,
+	// Read per request, not captured once: the token changes as you lock and unlock, and a stale closure
+	// here would send yesterday's pass forever.
+	headers: () => {
+		const token = unlockToken();
+		return token ? { "x-unlock-token": token } : {};
+	},
 	fetch(url, options) {
 		return fetch(url, {
 			...options,

@@ -153,6 +153,37 @@
 	}
 }
 
+/*
+ * Wrong PIN. A short, tight horizontal shake — the one motion everyone already reads as "no", and quick
+ * enough that it never delays the retry.
+ */
+@keyframes lock-shake {
+	0%,
+	100% {
+		transform: translateX(0);
+	}
+	20% {
+		transform: translateX(-7px);
+	}
+	40% {
+		transform: translateX(6px);
+	}
+	60% {
+		transform: translateX(-4px);
+	}
+	80% {
+		transform: translateX(2px);
+	}
+}
+.lock-shake {
+	animation: lock-shake 320ms ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.lock-shake {
+		animation: none;
+	}
+}
+
 /* For strips that scroll sideways on purpose — the overflow is the design, the bar is just noise. */
 @utility scrollbar-none {
 	scrollbar-width: none; /* Firefox */
