@@ -11,6 +11,7 @@
  * - `reconcile` — expected-vs-actual matching for the statement bridge (ADR-0014 / issue 008).
  * - `runway` — drawdown projection: how long the portfolio lasts if income stops (ADR-0016).
  * - `spending` — category spend trends vs plan budget (issue 009).
+ * - `spending-insights` — the window summarised: typical month, rolling level, partial-month, YoY.
  * - `statements` — the generic CSV importer mapping contract (spec 2026-07-21).
  */
 
@@ -26,6 +27,7 @@ export * from "./plan";
 export * from "./reconcile";
 export * from "./runway";
 export * from "./spending";
+export * from "./spending-insights";
 export * from "./statements";
 export * from "./tax";
 export * from "./tax-reference";

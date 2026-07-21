@@ -1,9 +1,15 @@
-import { type SpendingTrends, spendHistory } from "@money/shared";
+import {
+	ROLLING_MONTHS,
+	type SpendingInsights,
+	type SpendingTrends,
+	spendHistory,
+} from "@money/shared";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	Bar,
-	BarChart,
 	CartesianGrid,
+	ComposedChart,
+	Line,
 	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
@@ -41,11 +47,27 @@ interface ChartRow {
 	/** Raw window month "YYYY-MM" — carried for the click-through to Transactions. */
 	ym: string;
 	total: number;
-	[seriesKey: string]: number | string;
+	/** Trailing-average level at this month; null where the window hasn't filled or the month is partial. */
+	rolling: number | null;
+	[seriesKey: string]: number | string | null;
 }
 
-/** Monthly spend history: one stacked bar per month (top-5 categories + Other), with a flat budget line. */
-export function SpendingHistory({ res }: { res: SpendingTrends }) {
+/**
+ * Monthly spend history: one stacked bar per month (top-5 categories + Other), over three reference marks
+ * — the plan budget, the window's typical month, and the trailing average.
+ *
+ * The three are told apart by **dash pattern, not colour**: the five stack slots already own the palette
+ * (`--cat-*`, ADR-none/validated), so a sixth and seventh hue would collide with a category. Budget is
+ * dashed, typical is dotted, and the trailing average is the solid one because it is the line you actually
+ * read — bars this volatile (₹3.9k to ₹1.8L across two years) don't show a direction on their own.
+ */
+export function SpendingHistory({
+	res,
+	insights,
+}: {
+	res: SpendingTrends;
+	insights: SpendingInsights;
+}) {
 	const { fmt } = useMoney();
 	const navigate = useNavigate();
 	const hist = spendHistory(res, 5);
@@ -55,12 +77,15 @@ export function SpendingHistory({ res }: { res: SpendingTrends }) {
 			month: formatMonth(month),
 			ym: month,
 			total: hist.totalByMonth[i] ?? 0,
+			rolling: insights.rolling[i] ?? null,
 		};
 		for (const s of hist.series) row[s.key] = hist.amounts[s.key]?.[i] ?? 0;
 		return row;
 	});
 
 	const showBudget = hist.budget > 0;
+	const showAverage = insights.average > 0;
+	const showRolling = insights.rolling.some((v) => v != null);
 	// Thin X labels once the window is wide enough that every-month labels would collide.
 	const interval =
 		hist.months.length > 14 ? Math.ceil(hist.months.length / 12) - 1 : 0;
@@ -85,14 +110,32 @@ export function SpendingHistory({ res }: { res: SpendingTrends }) {
 					{hist.series.map((s, i) => (
 						<Swatch key={s.key} color={colorAt(i, s.isOther)} label={s.label} />
 					))}
+					{showRolling && (
+						<Swatch
+							color="var(--foreground)"
+							label={`${ROLLING_MONTHS}-mo avg`}
+							line="solid"
+						/>
+					)}
+					{showAverage && (
+						<Swatch
+							color="var(--foreground)"
+							label={`Typical ${fmt(Math.round(insights.average))}`}
+							line="dotted"
+						/>
+					)}
 					{showBudget && (
-						<Swatch color="var(--muted-foreground)" label="Budget" dashed />
+						<Swatch
+							color="var(--muted-foreground)"
+							label="Budget"
+							line="dashed"
+						/>
 					)}
 				</div>
 			</div>
 			<div className="h-64 w-full cursor-pointer">
 				<ResponsiveContainer width="100%" height="100%">
-					<BarChart
+					<ComposedChart
 						data={data}
 						margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
 						onClick={goToMonth}
@@ -152,7 +195,29 @@ export function SpendingHistory({ res }: { res: SpendingTrends }) {
 								strokeWidth={1.5}
 							/>
 						)}
-					</BarChart>
+						{showAverage && (
+							<ReferenceLine
+								y={insights.average}
+								stroke="var(--foreground)"
+								strokeDasharray="1 4"
+								strokeOpacity={0.65}
+								strokeWidth={1.5}
+							/>
+						)}
+						{showRolling && (
+							<Line
+								type="monotone"
+								dataKey="rolling"
+								name={`${ROLLING_MONTHS}-month average`}
+								stroke="var(--foreground)"
+								strokeWidth={2}
+								dot={false}
+								activeDot={{ r: 3, fill: "var(--foreground)" }}
+								isAnimationActive={false}
+								connectNulls={false}
+							/>
+						)}
+					</ComposedChart>
 				</ResponsiveContainer>
 			</div>
 		</section>
@@ -182,7 +247,11 @@ function HistoryTooltip({
 }) {
 	if (!active || !payload?.length) return null;
 	const total = Number(payload[0]?.payload?.total ?? 0);
+	// The trailing-average Line shares the payload with the stack Bars — it is a level, not a slice of
+	// this month's spend, so it belongs below the total rather than in the category list.
+	const rolling = payload.find((p) => p.dataKey === "rolling")?.value;
 	const rows = payload
+		.filter((p) => p.dataKey !== "rolling")
 		.map((p) => ({
 			label: p.name ?? p.dataKey ?? "",
 			value: Number(p.value ?? 0),
@@ -206,6 +275,14 @@ function HistoryTooltip({
 				<span className="text-muted-foreground">Total</span>
 				<span className="font-medium">{fmt(total)}</span>
 			</div>
+			{rolling != null && (
+				<div className="tnum flex items-center justify-between gap-6 text-xs">
+					<span className="text-muted-foreground">
+						{ROLLING_MONTHS}-mo average
+					</span>
+					<span>{fmt(Number(rolling))}</span>
+				</div>
+			)}
 			{budget > 0 && (
 				<p className="tnum text-xs" style={{ color: over ? OUT : IN }}>
 					{over
@@ -240,20 +317,29 @@ function Row({
 	);
 }
 
+const LINE_CLASS = {
+	solid: "border-solid",
+	dashed: "border-dashed",
+	dotted: "border-dotted",
+} as const;
+
+/** A stack colour (filled square) or a reference mark, identified by its dash pattern. */
 function Swatch({
 	color,
 	label,
-	dashed,
+	line,
 }: {
 	color: string;
 	label: string;
-	dashed?: boolean;
+	line?: "solid" | "dashed" | "dotted";
 }) {
 	return (
 		<span className="flex items-center gap-1.5">
-			{dashed ? (
+			{line ? (
+				// Spelled out, not interpolated: Tailwind's JIT scans for literal class names, so a
+				// `border-${line}` template would compile to nothing and every mark would look solid.
 				<span
-					className="inline-block w-3 border-t-2 border-dashed"
+					className={`inline-block w-3 border-t-2 ${LINE_CLASS[line]}`}
 					style={{ borderColor: color }}
 				/>
 			) : (

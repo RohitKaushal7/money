@@ -1,8 +1,14 @@
-import type { SpendingCategory, SpendingTrends } from "@money/shared";
+import {
+	type CoverageLadder,
+	type SpendingCategory,
+	type SpendingInsights,
+	type SpendingTrends,
+	spendingInsights,
+} from "@money/shared";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight, Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	type DateRange,
 	DateRangePicker,
@@ -29,6 +35,9 @@ function SpendingPage() {
 	);
 	const res = q.data as SpendingTrends | undefined;
 	const hasData = !!res && res.months.length > 0;
+	// One computation shared by the summary, the level strip and the chart, so the three can never disagree
+	// about what a typical month costs or whether this one is finished.
+	const insights = useMemo(() => (res ? spendingInsights(res) : null), [res]);
 
 	return (
 		<main className="h-full overflow-y-auto">
@@ -49,10 +58,11 @@ function SpendingPage() {
 				{q.isLoading && <Muted>Loading…</Muted>}
 				{!q.isLoading && !hasData && <EmptyState />}
 
-				{hasData && res && (
+				{hasData && res && insights && (
 					<>
-						<SummaryBar res={res} />
-						<SpendingHistory res={res} />
+						<SummaryBar res={res} insights={insights} />
+						<LevelStrip res={res} insights={insights} />
+						<SpendingHistory res={res} insights={insights} />
 						<section className="flex flex-col">
 							<SectionHead>
 								Categories{" "}
@@ -77,16 +87,38 @@ function SpendingPage() {
 }
 
 // ── summary ─────────────────────────────────────────────────────────────────────────────────────────
-function SummaryBar({ res }: { res: SpendingTrends }) {
+/**
+ * The month so far, judged fairly.
+ *
+ * Two corrections over a raw total-vs-budget comparison, both of which flipped a real reading on this
+ * data. **Lumpy categories are held out**: an annual tax payment landing in one month out of twenty-four
+ * is not a monthly budget overrun, and counting it turned "₹830 over" into "₹40,240 over". **A month in
+ * progress says so**: three weeks of spending compared against a full month's budget is not a verdict.
+ */
+function SummaryBar({
+	res,
+	insights,
+}: {
+	res: SpendingTrends;
+	insights: SpendingInsights;
+}) {
 	const { fmt } = useMoney();
 	const latestMonth = res.months[res.months.length - 1] ?? "";
-	const overBudget = res.totalBudget > 0 && res.latestTotal > res.totalBudget;
+	const hasBudget = res.totalBudget > 0;
+	// Judge the recurring side only — that is what the plan budgets.
+	const diff = insights.latestRecurring - res.totalBudget;
+	const overBudget = diff > 0;
 	return (
 		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
 					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 						Out in {formatMonth(latestMonth)}
+						{insights.latestIsPartial && (
+							<span className="ml-2 normal-case tracking-normal">
+								· {insights.daysElapsed} of {insights.daysInMonth} days
+							</span>
+						)}
 					</p>
 					<p
 						className="tnum font-display font-medium text-3xl leading-none"
@@ -94,8 +126,19 @@ function SummaryBar({ res }: { res: SpendingTrends }) {
 					>
 						{fmt(res.latestTotal)}
 					</p>
+					{insights.latestOneOff > 0 && (
+						<p className="mt-2 text-muted-foreground text-sm">
+							<span className="tnum">{fmt(insights.latestRecurring)}</span>{" "}
+							recurring ·{" "}
+							<span className="tnum">{fmt(insights.latestOneOff)}</span> one-off
+							<span className="text-muted-foreground/70">
+								{" "}
+								({insights.oneOffLabels.join(", ")})
+							</span>
+						</p>
+					)}
 				</div>
-				{res.totalBudget > 0 && (
+				{hasBudget && (
 					<div className="text-right">
 						<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 							Monthly budget
@@ -106,15 +149,119 @@ function SummaryBar({ res }: { res: SpendingTrends }) {
 					</div>
 				)}
 			</div>
-			{res.totalBudget > 0 && (
+			{hasBudget && (
 				<p className="text-sm" style={{ color: overBudget ? OUT : IN }}>
-					{overBudget
-						? `${fmt(res.latestTotal - res.totalBudget)} over budget this month`
-						: `${fmt(res.totalBudget - res.latestTotal)} under budget this month`}
+					{fmt(Math.abs(Math.round(diff)))} {overBudget ? "over" : "under"}{" "}
+					budget
+					{insights.latestOneOff > 0 && " on recurring spend"}
+					{insights.latestIsPartial && (
+						<span className="text-muted-foreground">
+							{" "}
+							— with {insights.daysInMonth - insights.daysElapsed} days still to
+							go
+						</span>
+					)}
 				</p>
 			)}
 		</section>
 	);
+}
+
+/**
+ * The two facts the movers table can't tell you: what a month actually costs against what the plan says it
+ * costs, and whether that is moving. The budget gap matters beyond this page — it is the denominator of the
+ * north-star coverage ratio, so a plan that understates reality overstates how free you are.
+ */
+function LevelStrip({
+	res,
+	insights,
+}: {
+	res: SpendingTrends;
+	insights: SpendingInsights;
+}) {
+	const { fmt } = useMoney();
+	const ladder = useQuery(orpc.plan.ladder.queryOptions());
+	const passive = (ladder.data as CoverageLadder | undefined)?.total.income;
+	const planRatio = (ladder.data as CoverageLadder | undefined)?.total.ratio;
+	const actualRatio =
+		passive != null && insights.average > 0 ? passive / insights.average : null;
+	const over = (insights.vsBudgetPct ?? 0) > 0;
+	const yoyUp = (insights.yoy?.pct ?? 0) > 0;
+
+	if (insights.average <= 0) return null;
+
+	return (
+		<section className="grid gap-x-8 gap-y-6 rounded-2xl border border-border px-6 py-6 sm:grid-cols-2 lg:grid-cols-3">
+			<Figure
+				label="Typical month"
+				value={fmt(Math.round(insights.average))}
+				note={
+					insights.vsBudgetPct == null
+						? "average over this window"
+						: `${signedPct(insights.vsBudgetPct)} vs the ${fmt(res.totalBudget)} plan budget`
+				}
+				tone={insights.vsBudgetPct == null ? undefined : over ? OUT : IN}
+			/>
+
+			{insights.yoy && (
+				<Figure
+					label={`Last ${insights.yoy.recentMonths} months`}
+					value={`${fmt(Math.round(insights.yoy.recent))} /mo`}
+					note={
+						insights.yoy.pct == null
+							? "no prior period to compare"
+							: `${signedPct(insights.yoy.pct)} vs the ${insights.yoy.priorMonths} months before, at ${fmt(Math.round(insights.yoy.prior))} /mo`
+					}
+					tone={insights.yoy.pct == null ? undefined : yoyUp ? OUT : IN}
+				/>
+			)}
+
+			{actualRatio != null && (
+				<Figure
+					label="Covered by passive income"
+					value={`${actualRatio.toFixed(2)}×`}
+					note={
+						planRatio != null
+							? `${planRatio.toFixed(2)}× when measured against the plan`
+							: "against what you actually spend"
+					}
+					tone={actualRatio >= 1 ? IN : OUT}
+				/>
+			)}
+		</section>
+	);
+}
+
+function Figure({
+	label,
+	value,
+	note,
+	tone,
+}: {
+	label: string;
+	value: string;
+	note: string;
+	tone?: string;
+}) {
+	return (
+		<div className="flex flex-col gap-1">
+			<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				{label}
+			</p>
+			<p className="tnum font-display font-medium text-2xl leading-none">
+				{value}
+			</p>
+			<p className="text-xs" style={tone ? { color: tone } : undefined}>
+				{note}
+			</p>
+		</div>
+	);
+}
+
+/** signed one-decimal percent, e.g. +28.3% / −4.1% */
+function signedPct(r: number): string {
+	const v = r * 100;
+	return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
 }
 
 // ── one category ────────────────────────────────────────────────────────────────────────────────────
