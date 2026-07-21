@@ -118,6 +118,17 @@ export const categoriesRouter = {
 				kind: z.enum(KINDS).optional(),
 				taxable: z.boolean().nullable().optional(),
 				active: z.boolean().optional(),
+				/** null clears the pin, letting the category claim a free slot instead. */
+				colorSlot: z
+					.union([
+						z.literal(1),
+						z.literal(2),
+						z.literal(3),
+						z.literal(4),
+						z.literal(5),
+					])
+					.nullable()
+					.optional(),
 			}),
 		)
 		.handler(async ({ context, input }) => {
@@ -140,6 +151,9 @@ export const categoriesRouter = {
 			const set: Record<string, unknown> = {};
 			if (input.label !== undefined) set.label = input.label;
 			if (input.active !== undefined) set.active = input.active;
+			// Colour is presentation, not taxonomy — editable on system rows too, and it has to be, since
+			// the seeded pins sit on system categories.
+			if (input.colorSlot !== undefined) set.colorSlot = input.colorSlot;
 			if (!row.system) {
 				if (input.kind !== undefined) set.kind = input.kind;
 				if (input.taxable !== undefined) set.taxable = input.taxable;

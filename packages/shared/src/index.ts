@@ -18,6 +18,7 @@
 export * from "./card-categories";
 export * from "./cards";
 export * from "./categories";
+export * from "./category-colors";
 export * from "./coverage-history";
 export * from "./currency";
 export * from "./fy";

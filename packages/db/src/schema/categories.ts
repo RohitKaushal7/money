@@ -19,6 +19,12 @@ export const categories = sqliteTable("categories", {
 	system: integer("system", { mode: "boolean" }).notNull().default(false),
 	/** false = hidden from pickers; the key still resolves in compute. */
 	active: integer("active", { mode: "boolean" }).notNull().default(true),
+	/**
+	 * Which `--cat-*` slot (1–5) this category wears in charts and chips, or null to let it claim a free
+	 * one. A slot rather than a colour: it resolves per theme, and it can't be set to something that fails
+	 * the palette's colour-blindness checks. See `resolveCategoryColors` in @money/shared.
+	 */
+	colorSlot: integer("color_slot"),
 	sortOrder: integer("sort_order").notNull().default(0),
 	...timestamps,
 });

@@ -1,3 +1,4 @@
+import { type ColorSlot, isColorSlot } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
@@ -12,8 +13,9 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ColorPin } from "@/components/categories/color-pin";
 import {
 	type CategoryItem,
 	groupByKind,
@@ -34,6 +36,16 @@ export function CategoriesTab() {
 	const qc = useQueryClient();
 	const catsQ = useCategories();
 	const cats = catsQ.data ?? [];
+	// Who already holds each slot. Sharing is allowed — two categories only clash if they appear in the
+	// same chart together — so the picker reports the overlap instead of refusing the pick.
+	const slotUsers = useMemo(() => {
+		const m = new Map<ColorSlot, string[]>();
+		for (const c of cats) {
+			if (!isColorSlot(c.colorSlot)) continue;
+			m.set(c.colorSlot, [...(m.get(c.colorSlot) ?? []), c.label]);
+		}
+		return m;
+	}, [cats]);
 	const invalidate = () => {
 		qc.invalidateQueries({ queryKey: orpc.categories.list.queryKey() });
 	};
@@ -130,7 +142,12 @@ export function CategoriesTab() {
 					</h3>
 					<ul className="flex flex-col divide-y divide-border">
 						{g.cats.map((c) => (
-							<CategoryRow key={c.id} cat={c} onChanged={invalidate} />
+							<CategoryRow
+								key={c.id}
+								cat={c}
+								slotUsers={slotUsers}
+								onChanged={invalidate}
+							/>
 						))}
 					</ul>
 				</div>
@@ -141,8 +158,10 @@ export function CategoriesTab() {
 
 function CategoryRow({
 	cat,
+	slotUsers,
 	onChanged,
 }: {
+	slotUsers: Map<ColorSlot, string[]>;
 	cat: CategoryItem;
 	onChanged: () => void;
 }) {
@@ -246,6 +265,12 @@ function CategoryRow({
 						`${cat.refTxns} txn${cat.refTxns === 1 ? "" : "s"}`}
 				</span>
 			)}
+			<ColorPin
+				slot={isColorSlot(cat.colorSlot) ? cat.colorSlot : null}
+				slotUsers={slotUsers}
+				onPick={(slot) => update.mutate({ id: cat.id, colorSlot: slot })}
+				disabled={update.isPending}
+			/>
 			<button
 				type="button"
 				onClick={() => update.mutate({ id: cat.id, active: !cat.active })}

@@ -1,9 +1,13 @@
 import {
+	type ColorSlot,
+	OTHER_COLOR,
 	ROLLING_MONTHS,
+	resolveCategoryColors,
 	type SpendingInsights,
 	type SpendingTrends,
 	spendHistory,
 } from "@money/shared";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	Bar,
@@ -18,27 +22,28 @@ import {
 } from "recharts";
 import { useMoney } from "@/lib/currency";
 import { formatMonth } from "@/lib/format";
+import { orpc } from "@/utils/orpc";
 
 const OUT = "var(--uncovered)"; // over budget = pressure
 const IN = "var(--covered)"; // under budget = relief
 
 /**
- * Categorical stack colours — the dataviz-validated `--cat-*` slots (index.css), in slot order. The palette
- * is assigned by stack position (biggest-total category → slot 1); with a fixed 5-hue palette + "Other",
- * per-window rank ordering is unavoidable, so the always-on legend and hover tooltip carry identity, never
- * colour alone. "Other" is a muted neutral, deliberately recessive.
+ * Stack colours come from the category, never from its position in the stack.
+ *
+ * This used to index the palette by stack slot — biggest total got slot 1 — so changing the range, or
+ * recategorising anything, repainted every series that survived. A colour you can't rely on is one you
+ * can't learn, which defeats the point of having one. `resolveCategoryColors` keys off the category
+ * instead; see @money/shared/category-colors.
+ *
+ * The legend and tooltip still carry the label, so identity is never colour alone — which is also what
+ * licenses the palette's two contrast warnings.
  */
-const PALETTE = [
-	"var(--cat-1)",
-	"var(--cat-2)",
-	"var(--cat-3)",
-	"var(--cat-4)",
-	"var(--cat-5)",
-];
-const OTHER_COLOR = "var(--muted-foreground)";
-
-function colorAt(index: number, isOther: boolean): string {
-	return isOther ? OTHER_COLOR : (PALETTE[index % PALETTE.length] as string);
+function useCategoryColors(keys: readonly string[]): Map<string, string> {
+	const cats = useQuery(orpc.categories.list.queryOptions());
+	const pinned: Record<string, ColorSlot | null> = {};
+	for (const c of cats.data ?? [])
+		pinned[c.key] = (c.colorSlot ?? null) as ColorSlot | null;
+	return resolveCategoryColors(keys, pinned);
 }
 
 interface ChartRow {
@@ -73,6 +78,11 @@ export function SpendingHistory({
 	const { fmt, fmtc } = useMoney();
 	const navigate = useNavigate();
 	const hist = spendHistory(res, 5);
+	const colorByKey = useCategoryColors(
+		hist.series.filter((s) => !s.isOther).map((s) => s.key),
+	);
+	const colorOf = (s: { key: string; isOther: boolean }) =>
+		s.isOther ? OTHER_COLOR : (colorByKey.get(s.key) ?? OTHER_COLOR);
 
 	const data: ChartRow[] = hist.months.map((month, i) => {
 		const row: ChartRow = {
@@ -109,8 +119,8 @@ export function SpendingHistory({
 					Spending history
 				</h2>
 				<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-muted-foreground text-xs">
-					{hist.series.map((s, i) => (
-						<Swatch key={s.key} color={colorAt(i, s.isOther)} label={s.label} />
+					{hist.series.map((s) => (
+						<Swatch key={s.key} color={colorOf(s)} label={s.label} />
 					))}
 					{showRolling && (
 						<Swatch
@@ -180,7 +190,7 @@ export function SpendingHistory({
 								dataKey={s.key}
 								name={s.label}
 								stackId="spend"
-								fill={colorAt(i, s.isOther)}
+								fill={colorOf(s)}
 								stroke="var(--background)"
 								strokeWidth={1}
 								maxBarSize={34}

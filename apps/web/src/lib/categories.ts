@@ -49,6 +49,8 @@ export type CategoryItem = {
 	system: boolean;
 	active: boolean;
 	sortOrder: number;
+	/** Pinned `--cat-*` slot (1–5), or null to claim a free one at render time. */
+	colorSlot: number | null;
 	refRules: number;
 	refTxns: number;
 };
