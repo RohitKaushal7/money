@@ -27,15 +27,20 @@ export const OTHER_COLOR = "var(--muted-foreground)";
 /**
  * Default pins for the categories that actually dominate spend.
  *
- * Chosen from the data rather than by taste: over 24 months these are the only expense categories that
- * ever entered a month's top five. They seed the `categories.color_slot` column; a user re-pin overrides
- * this and is never overwritten.
+ * Which categories, from the data rather than by taste: over 24 months these are the only expense
+ * categories that ever entered a month's top five. They seed the `categories.color_slot` column; a user
+ * re-pin overrides this and is never overwritten.
+ *
+ * Which colours, from two constraints. The biggest series takes red, because it is the bar you spend the
+ * most time looking at and a saturated blue at that size dominates the page. Green stays unpinned: it
+ * means "covered" everywhere else in this app, and reading "good" inside an all-expenses stack is worse
+ * than leaving a slot spare.
  */
 export const DEFAULT_COLOR_SLOTS: Record<string, ColorSlot> = {
-	card_bill: 1,
-	upi_merchant: 2,
-	rent: 3,
-	tax_paid: 4,
+	card_bill: 3, // red — the biggest bar
+	upi_merchant: 4, // yellow
+	rent: 5, // purple
+	tax_paid: 1, // blue
 };
 
 /** Position in the seed taxonomy — a category's fixed identity, independent of how big it is. */

@@ -47,12 +47,17 @@
 	 * deuteranopia and 11.9 from green even with full colour vision. Purple is the only hue family that
 	 * survives all-pairs alongside the other four; a sixth slot does not exist at any lightness or chroma.
 	 *
+	 * Slot 3 is a muted brick red rather than a vivid one, and that is the only red on offer: sweeping hue
+	 * 15–50° at every legal lightness and chroma, only 15–19° survives all-pairs, because red and yellow
+	 * collapse into each other under protanopia and deuteranopia. It replaced magenta rather than joining
+	 * it — there is no sixth slot to join.
+	 *
 	 * Never add or restep a slot without re-running the dataviz validator with `--pairs all` in BOTH modes.
 	 * See docs/superpowers/plans/2026-07-21-spending-history-chart.md.
 	 */
 	--cat-1: #2a78d6; /* blue */
 	--cat-2: #008300; /* green */
-	--cat-3: #e87ba4; /* magenta */
+	--cat-3: #9d3343; /* red */
 	--cat-4: #eda100; /* yellow */
 	--cat-5: #6b3db4; /* purple */
 
@@ -91,7 +96,7 @@
 	/* Categorical palette — dark steps of the same hues, validated on the dark surface (see :root). */
 	--cat-1: #3987e5; /* blue */
 	--cat-2: #008300; /* green */
-	--cat-3: #d55181; /* magenta */
+	--cat-3: #af535d; /* red */
 	--cat-4: #c98500; /* yellow */
 	--cat-5: #724bc4; /* purple */
 }

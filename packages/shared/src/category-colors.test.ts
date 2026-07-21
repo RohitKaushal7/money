@@ -18,17 +18,21 @@ describe("pinned categories", () => {
 
 	test("the seeded defaults apply when nothing is pinned in the database", () => {
 		const m = colors(["card_bill", "upi_merchant", "rent", "tax_paid"]);
-		// The four that actually dominate spend, in the order the migration seeds them.
-		expect(m.get("card_bill")).toBe(slotVar(1));
-		expect(m.get("upi_merchant")).toBe(slotVar(2));
-		expect(m.get("rent")).toBe(slotVar(3));
-		expect(m.get("tax_paid")).toBe(slotVar(4));
+		// The four that actually dominate spend, matching what the migration seeds.
+		expect(m.get("card_bill")).toBe(slotVar(3));
+		expect(m.get("upi_merchant")).toBe(slotVar(4));
+		expect(m.get("rent")).toBe(slotVar(5));
+		expect(m.get("tax_paid")).toBe(slotVar(1));
 		expect(DEFAULT_COLOR_SLOTS).toEqual({
-			card_bill: 1,
-			upi_merchant: 2,
-			rent: 3,
-			tax_paid: 4,
+			card_bill: 3,
+			upi_merchant: 4,
+			rent: 5,
+			tax_paid: 1,
 		});
+	});
+
+	test("green is left unpinned — it means 'covered' elsewhere in the app", () => {
+		expect(Object.values(DEFAULT_COLOR_SLOTS)).not.toContain(2);
 	});
 
 	test("a user pin overrides the seeded default", () => {
@@ -71,8 +75,14 @@ describe("colour follows the category, not its rank", () => {
 
 describe("unpinned categories claim free slots", () => {
 	test("a leftover takes the lowest slot no pin is holding", () => {
-		// card_bill pins slot 1 and rent pins slot 3, so the first leftover gets 2.
+		// card_bill pins 3 and rent pins 5, so the lowest still free is 1.
 		const m = colors(["card_bill", "rent", "groceries"]);
+		expect(m.get("groceries")).toBe(slotVar(1));
+	});
+
+	test("a leftover skips a slot a pin already holds", () => {
+		// tax_paid pins 1, so the leftover has to move on to 2.
+		const m = colors(["tax_paid", "groceries"]);
 		expect(m.get("groceries")).toBe(slotVar(2));
 	});
 
