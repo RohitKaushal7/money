@@ -512,7 +512,7 @@ function MonthStrip({
 
 	return (
 		<div
-			className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+			className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
 			role="tablist"
 			aria-label="Month"
 		>

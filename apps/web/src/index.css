@@ -101,6 +101,15 @@
 	font-feature-settings: "tnum" 1;
 }
 
+/* For strips that scroll sideways on purpose — the overflow is the design, the bar is just noise. */
+@utility scrollbar-none {
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* old Edge */
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
 /* Fraunces looks best with optical sizing on wherever the display face is used. */
 .font-display {
 	font-optical-sizing: auto;
