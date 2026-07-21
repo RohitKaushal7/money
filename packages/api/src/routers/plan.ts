@@ -13,6 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure } from "../index";
+import { captureCoverageSnapshot, loadCoverageHistory } from "./coverage";
 import { loadRates } from "./currency";
 import { loadAfterTaxEnabled, loadKpiTaxRate } from "./tax";
 
@@ -164,13 +165,42 @@ export const planRouter = {
 			loadAfterTaxEnabled(context.appDb),
 			loadKpiTaxRate(context.appDb, context.uid),
 		]);
-		const mapInv = (i: Investment) => {
-			const inr = investmentToInr(i, rates);
-			return afterTax ? netIncomeOfTax(inr, taxRate) : inr;
-		};
+		const inrInvestments = invs.map((i) => investmentToInr(i, rates));
+		const inrRecurring = recs.map((r) => recurringToInr(r, rates));
+
+		// Record this month's plan so the KPI's "trending up" half has something to draw. Stored pre-tax so
+		// the after-tax toggle stays a read-time concern. Opportunistic: a snapshot failure must never take
+		// down the headline KPI, so it is logged and swallowed rather than propagated.
+		try {
+			await captureCoverageSnapshot(context.appDb, {
+				investments: inrInvestments,
+				recurring: inrRecurring,
+			});
+		} catch (e) {
+			console.error("[coverage] snapshot failed:", e);
+		}
+
 		return coverageLadder({
-			investments: invs.map(mapInv),
-			recurring: recs.map((r) => recurringToInr(r, rates)),
+			investments: afterTax
+				? inrInvestments.map((i) => netIncomeOfTax(i, taxRate))
+				: inrInvestments,
+			recurring: inrRecurring,
+			today: todayISO(),
+		});
+	}),
+
+	/**
+	 * The KPI over time — every captured month replayed through the current ladder. Empty until the first
+	 * snapshot lands; there is no backfill, because the plan never stored history to reconstruct from.
+	 */
+	coverageHistory: protectedProcedure.handler(async ({ context }) => {
+		const [afterTax, taxRate] = await Promise.all([
+			loadAfterTaxEnabled(context.appDb),
+			loadKpiTaxRate(context.appDb, context.uid),
+		]);
+		return loadCoverageHistory(context.appDb, {
+			afterTax,
+			taxRate,
 			today: todayISO(),
 		});
 	}),
