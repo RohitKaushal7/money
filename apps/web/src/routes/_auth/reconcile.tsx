@@ -5,7 +5,7 @@ import type {
 	ReconcileSuggestion,
 	ReconcileSummary,
 } from "@money/shared";
-import { CATEGORIES } from "@money/shared";
+import { CATEGORIES, reconcileByFy } from "@money/shared";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -219,10 +219,14 @@ function History({
 	selected: string;
 	onSelect: (m: string) => void;
 }) {
+	// 24 months in one query: the chart shows the last 12, the FY rollup needs a full previous April–March
+	// underneath it. From any month in an Indian FY, reaching the start of the previous one is at most 24
+	// months back.
 	const q = useQuery(
-		orpc.reconcile.history.queryOptions({ input: { months: 12 } }),
+		orpc.reconcile.history.queryOptions({ input: { months: 24 } }),
 	);
-	const rows = (q.data as ReconcileSummary[] | undefined) ?? [];
+	const all = (q.data as ReconcileSummary[] | undefined) ?? [];
+	const rows = all.slice(-12);
 	const withData = rows.filter((r) => r.expectedAmount > 0);
 	if (withData.length < 2) return null;
 
@@ -292,7 +296,85 @@ function History({
 					</span>
 				))}
 			</div>
+
+			<FyBars summaries={all} />
 		</section>
+	);
+}
+
+/** "2025-04" + "2026-03" → "Apr 2025 – Mar 2026"; same year → "Apr – Jun 2026". */
+function monthRange(months: string[]): string {
+	const a = months[0];
+	const b = months.at(-1);
+	if (!a || !b) return "";
+	const short = (m: string) => formatMonth(m).split(" ")[0] ?? m;
+	const year = (m: string) => m.slice(0, 4);
+	if (a === b) return `${short(a)} ${year(a)}`;
+	return year(a) === year(b)
+		? `${short(a)} – ${short(b)} ${year(b)}`
+		: `${short(a)} ${year(a)} – ${short(b)} ${year(b)}`;
+}
+
+/**
+ * The same question at financial-year scale (Apr–Mar): across a whole year, did the interest turn up?
+ * Current FY first at full strength, last FY dimmed beneath it — the pair exists for the comparison, so the
+ * older one recedes rather than competing.
+ *
+ * Only complete months are summed, which is why the range is spelled out: a year reading "Apr – Jun" is
+ * three months of evidence, not a year's worth, and the label is the only thing that can say so.
+ */
+function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
+	const fys = reconcileByFy(summaries, { limit: 2 });
+	if (fys.length === 0) return null;
+
+	return (
+		<div className="mt-4 flex flex-col gap-3 border-border border-t pt-4">
+			{fys.map((fy, i) => {
+				const pct = fy.ratio == null ? 0 : Math.min(100, fy.ratio * 100);
+				const color =
+					fy.ratio == null || fy.ratio >= 0.8
+						? IN
+						: fy.ratio >= 0.5
+							? DIFFERS_C
+							: OUT;
+				return (
+					<div
+						key={fy.label}
+						className="flex flex-col gap-1.5"
+						style={{ opacity: i === 0 ? 1 : 0.5 }}
+					>
+						<div className="flex flex-wrap items-baseline justify-between gap-x-4 text-xs">
+							<span>
+								<span className="font-medium">{fy.label}</span>
+								<span className="text-muted-foreground">
+									{" · "}
+									{monthRange(fy.months)}
+									{fy.inProgress ? " so far" : ""}
+								</span>
+							</span>
+							<span className="tnum text-muted-foreground">
+								<span className="text-foreground/80">
+									{formatINR(fy.actualAmount)}
+								</span>{" "}
+								of {formatINR(fy.expectedAmount)}
+								{fy.ratio != null && (
+									<span style={{ color }}>
+										{" · "}
+										{Math.round(fy.ratio * 100)}%
+									</span>
+								)}
+							</span>
+						</div>
+						<div className="h-2 overflow-hidden rounded-full bg-muted">
+							<div
+								className="h-full rounded-full"
+								style={{ width: `${pct}%`, backgroundColor: color }}
+							/>
+						</div>
+					</div>
+				);
+			})}
+		</div>
 	);
 }
 

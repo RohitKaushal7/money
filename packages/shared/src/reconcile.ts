@@ -16,6 +16,7 @@
  * refine with a per-group signature or a split-level platform tag when that arises.)
  */
 
+import { fiscalYearStart, fyLabel } from "./fy";
 import { PERIODS_PER_YEAR } from "./plan";
 import type { Cadence, IncomeClass, Investment, InvestmentType } from "./types";
 
@@ -402,4 +403,74 @@ export function reconcile(input: {
 	};
 
 	return { month, events: reconciled, suggestions, summary };
+}
+
+// ── financial-year rollup ──────────────────────────────────────────────────────────────────────────────
+
+/** One Indian financial year (Apr–Mar) of monthly reconciliations, summed. */
+export interface FyReconcileBucket {
+	/** calendar year the FY starts in — 2026 for FY2026-27 */
+	startYear: number;
+	/** `FY2026-27` */
+	label: string;
+	/** the complete months that fed this bucket, ascending */
+	months: string[];
+	expectedAmount: number;
+	actualAmount: number;
+	/** `actualAmount / expectedAmount`; null when nothing was expected */
+	ratio: number | null;
+	/** the financial year has not finished */
+	inProgress: boolean;
+}
+
+/**
+ * Roll monthly reconciliations up into financial years, newest first.
+ *
+ * **Only complete months count.** A month still in progress contributes part of its credits against a whole
+ * month's expectation, so including it would drag every in-flight FY below where it is really tracking —
+ * the same trap as judging a part-finished month against a full month's budget. The bucket carries the
+ * months it actually used so the caller can label the range honestly ("Apr–Jun") rather than implying a
+ * full year. A FY with no complete months yet is omitted entirely, not shown as a zero.
+ */
+export function reconcileByFy(
+	summaries: ReconcileSummary[],
+	opts: { limit?: number } = {},
+): FyReconcileBucket[] {
+	const byYear = new Map<number, FyReconcileBucket>();
+
+	for (const s of summaries) {
+		if (s.inProgress) continue;
+		const [y, m] = s.month.split("-").map(Number);
+		if (!y || !m) continue;
+		const startYear = fiscalYearStart(y, m);
+		const bucket = byYear.get(startYear) ?? {
+			startYear,
+			label: fyLabel(startYear),
+			months: [],
+			expectedAmount: 0,
+			actualAmount: 0,
+			ratio: null,
+			inProgress: false,
+		};
+		bucket.months.push(s.month);
+		bucket.expectedAmount += s.expectedAmount;
+		bucket.actualAmount += s.actualAmount;
+		byYear.set(startYear, bucket);
+	}
+
+	const newest = Math.max(
+		...Array.from(byYear.keys()),
+		Number.NEGATIVE_INFINITY,
+	);
+	const out = Array.from(byYear.values())
+		.sort((a, b) => b.startYear - a.startYear)
+		.map((b) => ({
+			...b,
+			months: b.months.sort(),
+			ratio: b.expectedAmount > 0 ? b.actualAmount / b.expectedAmount : null,
+			// The newest FY present is the one still being filled — earlier ones are closed.
+			inProgress: b.startYear === newest && b.months.length < 12,
+		}));
+
+	return opts.limit != null ? out.slice(0, opts.limit) : out;
 }

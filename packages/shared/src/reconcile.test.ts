@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	expectedInterestEvents,
 	reconcile,
+	reconcileByFy,
 	type StatementCredit,
 } from "./reconcile";
 import type { Investment } from "./types";
@@ -323,5 +324,100 @@ describe("reconcile", () => {
 			today: "2026-07-20",
 		});
 		expect(res.suggestions).toHaveLength(0);
+	});
+});
+
+describe("reconcileByFy", () => {
+	const s = (
+		month: string,
+		expectedAmount: number,
+		actualAmount: number,
+		inProgress = false,
+	) => ({
+		month,
+		inProgress,
+		expectedCount: 1,
+		receivedCount: 1,
+		partialCount: 0,
+		differsCount: 0,
+		pendingCount: 0,
+		missedCount: 0,
+		expectedAmount,
+		actualAmount,
+	});
+
+	/** Apr 2025 – Mar 2026 is FY2025-26; Apr 2026 onward is FY2026-27. */
+	const closed = [
+		"2025-04",
+		"2025-05",
+		"2025-06",
+		"2025-07",
+		"2025-08",
+		"2025-09",
+		"2025-10",
+		"2025-11",
+		"2025-12",
+		"2026-01",
+		"2026-02",
+		"2026-03",
+	].map((m) => s(m, 1000, 800));
+	const current = [s("2026-04", 1000, 1100), s("2026-05", 1000, 900)];
+
+	test("splits on the Indian April boundary, newest first", () => {
+		const fys = reconcileByFy([...closed, ...current]);
+		expect(fys.map((f) => f.label)).toEqual(["FY2026-27", "FY2025-26"]);
+		expect(fys[1]?.months).toHaveLength(12);
+		expect(fys[1]?.months[0]).toBe("2025-04");
+	});
+
+	test("sums each year and reports the landed ratio", () => {
+		const fys = reconcileByFy([...closed, ...current]);
+		expect(fys[0]?.expectedAmount).toBe(2000);
+		expect(fys[0]?.actualAmount).toBe(2000);
+		expect(fys[0]?.ratio).toBe(1);
+		expect(fys[1]?.expectedAmount).toBe(12_000);
+		expect(fys[1]?.ratio).toBeCloseTo(0.8, 6);
+	});
+
+	/**
+	 * The same trap as judging a part-finished month against a full month's budget: a month still running
+	 * contributes some of its credits against all of its expectation, dragging the whole year down.
+	 */
+	test("a month still in progress is excluded, not counted short", () => {
+		const fys = reconcileByFy([...current, s("2026-06", 1000, 120, true)]);
+		expect(fys[0]?.months).toEqual(["2026-04", "2026-05"]);
+		expect(fys[0]?.expectedAmount).toBe(2000);
+	});
+
+	test("only the newest year is in progress, and only while it is short of 12 months", () => {
+		const fys = reconcileByFy([...closed, ...current]);
+		expect(fys[0]?.inProgress).toBe(true);
+		expect(fys[1]?.inProgress).toBe(false);
+	});
+
+	test("a complete newest year is not marked in progress", () => {
+		const fys = reconcileByFy(closed);
+		expect(fys[0]?.label).toBe("FY2025-26");
+		expect(fys[0]?.inProgress).toBe(false);
+	});
+
+	test("a year with no complete months is omitted rather than shown as zero", () => {
+		const fys = reconcileByFy([...closed, s("2026-04", 1000, 50, true)]);
+		expect(fys.map((f) => f.label)).toEqual(["FY2025-26"]);
+	});
+
+	test("limit keeps the most recent years", () => {
+		const older = ["2024-04", "2024-05"].map((m) => s(m, 500, 500));
+		const fys = reconcileByFy([...older, ...closed, ...current], { limit: 2 });
+		expect(fys.map((f) => f.label)).toEqual(["FY2026-27", "FY2025-26"]);
+	});
+
+	test("nothing expected yields a null ratio rather than a divide by zero", () => {
+		const fys = reconcileByFy([s("2026-04", 0, 0)]);
+		expect(fys[0]?.ratio).toBeNull();
+	});
+
+	test("an empty input is an empty rollup, not a crash", () => {
+		expect(reconcileByFy([])).toEqual([]);
 	});
 });
