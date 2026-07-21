@@ -42,13 +42,13 @@ export const rulesRouter = {
 	create: protectedProcedure
 		.input(ruleInput)
 		.handler(async ({ context, input }) => {
-			const [{ m }] = await context.appDb
+			const [maxRow] = await context.appDb
 				.select({ m: max(rules.priority) })
 				.from(rules);
 			const [row] = await context.appDb
 				.insert(rules)
 				.values({
-					priority: (m ?? 0) + 1,
+					priority: (maxRow?.m ?? 0) + 1,
 					pattern: input.pattern,
 					matchType: input.matchType,
 					assignKind: input.assignKind,

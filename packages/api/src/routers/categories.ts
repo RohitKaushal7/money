@@ -91,7 +91,7 @@ export const categoriesRouter = {
 			for (let i = 2; taken.has(key); i += 1) {
 				key = `${slugify(input.label)}_${i}`;
 			}
-			const [{ m }] = await context.appDb
+			const [maxRow] = await context.appDb
 				.select({ m: max(categories.sortOrder) })
 				.from(categories);
 			const [row] = await context.appDb
@@ -103,7 +103,7 @@ export const categoriesRouter = {
 					taxable: input.taxable ?? null,
 					system: false,
 					active: true,
-					sortOrder: (m ?? 0) + 1,
+					sortOrder: (maxRow?.m ?? 0) + 1,
 				})
 				.returning();
 			return row;
