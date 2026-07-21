@@ -11,11 +11,16 @@ import { accounts } from "./schema/accounts";
 import { categories } from "./schema/categories";
 import { statementFormats } from "./schema/formats";
 import { rules } from "./schema/ledger";
+import { GENERIC_SEED_RULES } from "./seed-rules";
 
 /**
  * Per-user app.db seed defaults (spec 2026-07-21 §5, §7). Seeded idempotently on provisioning and via the
- * one-time owner backfill. Categories come from the shared template (locked `system` rows); rules are a tiny,
- * bank-agnostic starter — NOT the owner's SBI-tuned `SEED_RULES` (that stays in `@money/analytics`).
+ * one-time owner backfill. Categories come from the shared template (locked `system` rows); rules come from
+ * {@link GENERIC_SEED_RULES} — bank-mechanics + mass-market Indian merchants, NOT the owner's SBI-tuned
+ * `SEED_RULES` (that stays in `@money/analytics`).
+ *
+ * Rule seeding is all-or-nothing by design: an account that already has rules is never topped up, so a
+ * later expansion of the defaults can't silently re-tag anyone's history.
  */
 
 type SeedCategory = {
@@ -38,61 +43,6 @@ export const SEED_CATEGORIES: SeedCategory[] = CATEGORIES.map((c, i) => ({
 	active: true,
 	sortOrder: i,
 }));
-
-type SeedRuleRow = {
-	priority: number;
-	matchType: "substring" | "regex";
-	pattern: string;
-	assignKind: Kind;
-	assignCategoryKey: string;
-	minAmount?: number;
-	maxAmount?: number;
-};
-
-/**
- * Generic starter rules for a new user. Deliberately minimal + low-false-positive; the friend builds the rest
- * via "Create rule from transaction". `UPI` is the lowest-priority catch-all. Amount bounds encode the sign
- * (rent is a debit, interest a credit) since narration alone is bank-specific.
- */
-export const GENERIC_SEED_RULES: SeedRuleRow[] = [
-	{
-		priority: 10,
-		matchType: "substring",
-		pattern: "SALARY",
-		assignKind: "active_income",
-		assignCategoryKey: "salary",
-	},
-	{
-		priority: 20,
-		matchType: "substring",
-		pattern: "RENT",
-		assignKind: "expense",
-		assignCategoryKey: "rent",
-		maxAmount: 0,
-	},
-	{
-		priority: 30,
-		matchType: "substring",
-		pattern: "INTEREST",
-		assignKind: "passive_income",
-		assignCategoryKey: "savings_interest",
-		minAmount: 0,
-	},
-	{
-		priority: 40,
-		matchType: "substring",
-		pattern: "ATM",
-		assignKind: "expense",
-		assignCategoryKey: "misc_expense",
-	},
-	{
-		priority: 100,
-		matchType: "substring",
-		pattern: "UPI",
-		assignKind: "expense",
-		assignCategoryKey: "upi_merchant",
-	},
-];
 
 /**
  * Seed a user's `app.db` with default categories, rules, the primary account (id 1 — where the historic
