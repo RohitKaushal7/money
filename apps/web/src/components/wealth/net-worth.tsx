@@ -4,7 +4,7 @@ import {
 	networthSeries,
 } from "@money/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import {
 	Area,
@@ -17,6 +17,7 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
+import { ArmedDelete } from "@/components/armed-delete";
 import {
 	type DateRange,
 	DateRangePicker,
@@ -306,11 +307,12 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 
 	return (
 		<div className="overflow-hidden rounded-xl border border-border">
-			<div className="grid grid-cols-[1fr_auto_auto_2rem] items-center gap-3 border-border border-b bg-muted/30 px-4 py-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.15em]">
+			<div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-border border-b bg-muted/30 px-4 py-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.15em]">
 				<span>Date</span>
 				<span className="text-right">Value</span>
 				<span className="w-20 text-right">Growth /yr</span>
-				<span />
+				{/* Reserves the delete column's idle width — the track is `auto` so an armed row can grow. */}
+				<span className="w-6" />
 			</div>
 			<ul className="max-h-80 divide-y divide-border overflow-y-auto">
 				{rows.map((p) => {
@@ -318,7 +320,7 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 					return (
 						<li
 							key={p.asOf}
-							className="group grid grid-cols-[1fr_auto_auto_2rem] items-center gap-3 px-4 py-2.5 text-sm hover:bg-secondary/20"
+							className="group grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-2.5 text-sm hover:bg-secondary/20"
 						>
 							<span className="flex items-center gap-2">
 								{fmtDate(p.asOf)}
@@ -342,14 +344,13 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 							>
 								{p.growth == null ? "—" : signedPct(p.growth)}
 							</span>
-							<button
-								type="button"
-								aria-label={`Delete ${fmtDate(p.asOf)}`}
-								onClick={() => p.id != null && remove.mutate({ id: p.id })}
-								className="flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-[var(--uncovered)] group-hover:opacity-100"
-							>
-								<X className="size-3.5" />
-							</button>
+							{/* Always visible, not hover-revealed: it's the row's only action, and hover-reveal is
+							    unreachable on touch. Safe to leave on screen because it takes two taps. */}
+							<ArmedDelete
+								size="icon-xs"
+								title={`Delete ${fmtDate(p.asOf)}`}
+								onConfirm={() => p.id != null && remove.mutate({ id: p.id })}
+							/>
 						</li>
 					);
 				})}

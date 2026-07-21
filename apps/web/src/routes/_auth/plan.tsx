@@ -15,16 +15,9 @@ import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	AlertTriangle,
-	Check,
-	ChevronRight,
-	Pencil,
-	Plus,
-	Trash2,
-	X,
-} from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Plus, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
+import { ArmedDelete } from "@/components/armed-delete";
 import { CoverageHistory } from "@/components/plan/coverage-history";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
@@ -401,14 +394,10 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 								>
 									Update
 								</button>
-								<button
-									type="button"
-									onClick={() => del.mutate({ id: Number(inv.id) })}
-									aria-label={`Delete ${inv.name}`}
-									className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
-								>
-									<Trash2 className="size-3.5" />
-								</button>
+								<ArmedDelete
+									onConfirm={() => del.mutate({ id: Number(inv.id) })}
+									title={`Delete ${inv.name}`}
+								/>
 							</li>
 						),
 					)}
@@ -512,9 +501,6 @@ function IncomingColumn({
 							rollup={r}
 							pct={(r.monthly / max) * 100}
 							onEdit={() => setEditing(r.members[0]?.id ?? null)}
-							onDelete={() =>
-								r.members[0] && del.mutate({ id: Number(r.members[0].id) })
-							}
 						/>
 					),
 				)}
@@ -542,28 +528,35 @@ function StandaloneRow({
 	rollup,
 	pct,
 	onEdit,
-	onDelete,
 }: {
 	rollup: Rollup;
 	pct: number;
 	onEdit: () => void;
-	onDelete: () => void;
 }) {
 	return (
-		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
+		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
 			<Depth pct={pct} side="right" tone={IN} />
-			<RowActions onEdit={onEdit} onDelete={onDelete} />
-			<div className="relative min-w-0 flex-1">
-				<p className="truncate font-medium">{rollup.name}</p>
-				<p className="flex items-center gap-2 text-muted-foreground text-xs">
-					<span>
-						{rollup.incomeClass === "growth" ? "growth" : "income"}
-						{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
+			{/* The whole tile opens the editor, which is where both edit and delete live. Hover-revealed
+			    icons used to sit here, but `group-hover` is gated behind `@media (hover: hover)`: on a phone
+			    they never appeared, yet `opacity: 0` still takes taps — an invisible delete on every row. */}
+			<button
+				type="button"
+				onClick={onEdit}
+				aria-label={`Edit ${rollup.name}`}
+				className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+			>
+				<span className="min-w-0 flex-1">
+					<span className="block truncate font-medium">{rollup.name}</span>
+					<span className="flex items-center gap-2 text-muted-foreground text-xs">
+						<span>
+							{rollup.incomeClass === "growth" ? "growth" : "income"}
+							{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
+						</span>
+						<MaturityMini inv={rollup.members[0]} />
 					</span>
-					<MaturityMini inv={rollup.members[0]} />
-				</p>
-			</div>
-			<Amount value={rollup.value} monthly={rollup.monthly} />
+				</span>
+				<Amount value={rollup.value} monthly={rollup.monthly} />
+			</button>
 		</li>
 	);
 }
@@ -584,12 +577,12 @@ function GroupRow({
 	const [open, setOpen] = useState(false);
 	return (
 		<li className="border-border border-b">
-			<div className="group relative flex items-center gap-3 py-2.5">
+			<div className="relative flex items-center gap-3 py-2.5 transition-colors hover:bg-secondary/20">
 				<Depth pct={pct} side="right" tone={IN} />
 				<button
 					type="button"
 					onClick={() => setOpen((o) => !o)}
-					className="relative flex min-w-0 flex-1 items-center gap-2 text-left"
+					className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
 				>
 					<ChevronRight
 						className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
@@ -627,43 +620,45 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 		inv.expectedMonthlyInterest ??
 		((inv.currentValue ?? 0) * (inv.annualRate ?? 0)) / 12;
 	return (
-		<li className="group flex items-center gap-3 py-1.5">
-			<div className="min-w-0 flex-1">
-				<p className="truncate text-sm">{inv.name}</p>
-				<p className="flex items-center gap-2 text-muted-foreground text-xs">
-					<span>
-						{fmt(inv.currentValue ?? 0)}
-						{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
-					</span>
-					<MaturityMini inv={inv} />
-				</p>
-			</div>
-			<span className="tnum text-sm" style={{ color: IN }}>
-				{fmt(monthly)}
-				<span className="text-[0.6rem] text-muted-foreground">/mo</span>
-			</span>
+		<li className="flex items-center gap-3 py-1.5 transition-colors hover:bg-secondary/20">
 			<button
 				type="button"
 				onClick={onEdit}
 				aria-label={`Edit ${inv.name}`}
-				className="rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100"
+				className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
 			>
-				<Pencil className="size-3.5" />
+				<span className="block min-w-0 flex-1">
+					<span className="block truncate text-sm">{inv.name}</span>
+					<span className="flex items-center gap-2 text-muted-foreground text-xs">
+						<span>
+							{fmt(inv.currentValue ?? 0)}
+							{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
+						</span>
+						<MaturityMini inv={inv} />
+					</span>
+				</span>
+				<span className="tnum text-sm" style={{ color: IN }}>
+					{fmt(monthly)}
+					<span className="text-[0.6rem] text-muted-foreground">/mo</span>
+				</span>
 			</button>
 		</li>
 	);
 }
 
+/** Spans rather than divs: this renders inside a row's button, which only accepts phrasing content. */
 function Amount({ value, monthly }: { value: number; monthly: number }) {
 	const { fmt } = useMoney();
 	return (
-		<div className="relative text-right">
-			<p className="tnum font-medium" style={{ color: IN }}>
+		<span className="relative block text-right">
+			<span className="tnum block font-medium" style={{ color: IN }}>
 				{fmt(monthly)}
 				<span className="text-[0.6rem] text-muted-foreground"> /mo</span>
-			</p>
-			<p className="tnum text-muted-foreground text-xs">{fmt(value)}</p>
-		</div>
+			</span>
+			<span className="tnum block text-muted-foreground text-xs">
+				{fmt(value)}
+			</span>
+		</span>
 	);
 }
 
@@ -733,7 +728,6 @@ function OutgoingColumn({
 								100
 							}
 							onEdit={() => setEditing(exp.id)}
-							onDelete={() => del.mutate({ id: Number(exp.id) })}
 						/>
 					),
 				)}
@@ -763,43 +757,48 @@ function OutgoingRow({
 	exp,
 	pct,
 	onEdit,
-	onDelete,
 }: {
 	exp: RecurringExpense;
 	pct: number;
 	onEdit: () => void;
-	onDelete: () => void;
 }) {
 	return (
-		<li className="group relative flex items-center gap-3 border-border border-b py-2.5">
+		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
 			<Depth pct={pct} side="left" tone={OUT} />
-			<div className="relative text-left">
-				<p className="tnum font-medium" style={{ color: OUT }}>
-					<MoneyNative
-						amount={monthlyAmount(exp)}
-						code={exp.currency ?? "INR"}
-					/>
-				</p>
-				<p className="text-[0.6rem] text-muted-foreground">
-					{exp.cadence === "monthly" ? (
-						"/mo"
-					) : (
-						<>
-							<MoneyNative amount={exp.amount} code={exp.currency ?? "INR"} />
-							{CADENCE_LABEL[exp.cadence] ?? ""}
-						</>
+			{/* The whole tile opens the editor — see StandaloneRow for why the hover icons are gone. */}
+			<button
+				type="button"
+				onClick={onEdit}
+				aria-label={`Edit ${exp.name}`}
+				className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+			>
+				<span className="block text-left">
+					<span className="tnum block font-medium" style={{ color: OUT }}>
+						<MoneyNative
+							amount={monthlyAmount(exp)}
+							code={exp.currency ?? "INR"}
+						/>
+					</span>
+					<span className="block text-[0.6rem] text-muted-foreground">
+						{exp.cadence === "monthly" ? (
+							"/mo"
+						) : (
+							<>
+								<MoneyNative amount={exp.amount} code={exp.currency ?? "INR"} />
+								{CADENCE_LABEL[exp.cadence] ?? ""}
+							</>
+						)}
+					</span>
+				</span>
+				<span className="block min-w-0 flex-1 text-right">
+					<span className="block truncate font-medium">{exp.name}</span>
+					{exp.category && (
+						<span className="block text-muted-foreground text-xs">
+							{CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category}
+						</span>
 					)}
-				</p>
-			</div>
-			<div className="relative min-w-0 flex-1 text-right">
-				<p className="truncate font-medium">{exp.name}</p>
-				{exp.category && (
-					<p className="text-muted-foreground text-xs">
-						{CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category}
-					</p>
-				)}
-			</div>
-			<RowActions onEdit={onEdit} onDelete={onDelete} />
+				</span>
+			</button>
 		</li>
 	);
 }
@@ -1110,35 +1109,6 @@ function Depth({
 	);
 }
 
-function RowActions({
-	onEdit,
-	onDelete,
-}: {
-	onEdit: () => void;
-	onDelete: () => void;
-}) {
-	return (
-		<div className="relative flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-			<button
-				type="button"
-				onClick={onEdit}
-				aria-label="Edit"
-				className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
-			>
-				<Pencil className="size-3.5" />
-			</button>
-			<button
-				type="button"
-				onClick={onDelete}
-				aria-label="Delete"
-				className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-[var(--uncovered)]"
-			>
-				<Trash2 className="size-3.5" />
-			</button>
-		</div>
-	);
-}
-
 function FormActions({
 	pending,
 	submitLabel,
@@ -1163,15 +1133,12 @@ function FormActions({
 				</Button>
 			)}
 			{onDelete && (
-				<Button
-					type="button"
+				<ArmedDelete
+					onConfirm={onDelete}
+					label="Delete"
 					size="sm"
-					variant="ghost"
-					onClick={onDelete}
-					className="ml-auto text-muted-foreground hover:text-[var(--uncovered)]"
-				>
-					<Trash2 className="size-3.5" /> Delete
-				</Button>
+					className="ml-auto"
+				/>
 			)}
 		</div>
 	);
