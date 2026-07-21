@@ -115,6 +115,10 @@ The password must be at least 8 characters. Now open your `BETTER_AUTH_URL` and 
 docker compose pull && docker compose up -d   # upgrade to the latest image
 ```
 
+Every release is also published under its commit SHA, so you can pin to a known-good
+build instead of tracking `latest` — set `image: rohitkaushal7/money:a1b2c3d` in your
+compose file. Migrations run automatically on start, so upgrading is just a pull.
+
 Everything durable lives in `./data`: a shared `control.db` (auth + reference data) and one folder per user
 (`users/<id>/` with their SQLite + DuckDB files and raw imports). Back up that directory — ideally stop the
 container first (`docker compose down`) for a consistent snapshot.
