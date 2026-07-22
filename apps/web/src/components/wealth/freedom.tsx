@@ -150,7 +150,9 @@ export function FreedomView({ points }: { points: NetworthPoint[] }) {
 	const base = dirty ? run(actual) : now;
 
 	return (
-		<div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
+		// `items-start` so neither card stretches to the other's height — the answer is short and the panel
+		// is tall, and equalising them just draws a box around empty space.
+		<div className="grid items-start gap-6 lg:grid-cols-[1.35fr_1fr]">
 			<Answer
 				result={now}
 				baseline={dirty ? base : null}
@@ -440,28 +442,32 @@ function Panel({
 				hint="observed from your net-worth logs"
 				onChange={(v) => onChange("saving", v)}
 			/>
-			<Knob
-				label="Return"
-				unit="% /yr"
-				value={knobs.annualReturn * 100}
-				actual={actual.annualReturn * 100}
-				step={0.5}
-				decimals={1}
-				format={(v) => `${v.toFixed(1)}%`}
-				hint="your blended portfolio rate, after tax"
-				onChange={(v) => onChange("annualReturn", v / 100)}
-			/>
-			<Knob
-				label="Inflation"
-				unit="% /yr"
-				value={knobs.inflation * 100}
-				actual={actual.inflation * 100}
-				step={0.5}
-				decimals={1}
-				format={(v) => `${v.toFixed(1)}%`}
-				hint="India's long-run CPI sits near 6%"
-				onChange={(v) => onChange("inflation", v / 100)}
-			/>
+			{/* Paired on one row because they are one decision: the target divides by the gap between them,
+			    so reading either alone tells you nothing about the answer. */}
+			<div className="grid grid-cols-2 gap-3">
+				<Knob
+					label="Return"
+					unit="%"
+					value={knobs.annualReturn * 100}
+					actual={actual.annualReturn * 100}
+					step={0.5}
+					decimals={1}
+					format={(v) => `${v.toFixed(1)}%`}
+					hint="blended, after tax"
+					onChange={(v) => onChange("annualReturn", v / 100)}
+				/>
+				<Knob
+					label="Inflation"
+					unit="%"
+					value={knobs.inflation * 100}
+					actual={actual.inflation * 100}
+					step={0.5}
+					decimals={1}
+					format={(v) => `${v.toFixed(1)}%`}
+					hint="India's CPI runs near 6%"
+					onChange={(v) => onChange("inflation", v / 100)}
+				/>
+			</div>
 
 			<p className="text-[0.7rem] text-muted-foreground leading-relaxed">
 				Return and inflation are the fragile pair — the target divides by the
