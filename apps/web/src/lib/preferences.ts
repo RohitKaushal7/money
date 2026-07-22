@@ -12,7 +12,7 @@ import { useCallback, useSyncExternalStore } from "react";
  */
 const DEFAULTS = {
 	/** which view the net-worth chart is showing */
-	"wealth.chartMode": "history" as "history" | "runway",
+	"wealth.chartMode": "history" as "history" | "runway" | "freedom",
 	/** does the runway projection let the balance keep earning? */
 	"runway.returns": true,
 	/** does it let spending get more expensive? */

@@ -1,6 +1,7 @@
 /**
  * `@money/shared` — framework-agnostic domain helpers and types (ADR-0007).
  *
+ * - `freedom` — when the portfolio becomes big enough to never run out (spec 2026-07-22).
  * - `fy` — Indian financial-year calendar helpers.
  * - `kinds` — the split `Kind` + `CashflowType` axes (ADR-0012).
  * - `categories` — the seed category taxonomy.
@@ -21,6 +22,7 @@ export * from "./categories";
 export * from "./category-colors";
 export * from "./coverage-history";
 export * from "./currency";
+export * from "./freedom";
 export * from "./fy";
 export * from "./kinds";
 export * from "./networth";

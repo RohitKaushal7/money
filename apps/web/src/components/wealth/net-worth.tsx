@@ -22,6 +22,7 @@ import {
 	type DateRange,
 	DateRangePicker,
 } from "@/components/date-range-picker";
+import { FreedomView } from "@/components/wealth/freedom";
 import { RunwayView } from "@/components/wealth/runway";
 import { useMoney } from "@/lib/currency";
 import { usePreference } from "@/lib/preferences";
@@ -131,6 +132,8 @@ export function NetWorthOverTime() {
 				<>
 					{mode === "runway" ? (
 						<RunwayView points={view.points} />
+					) : mode === "freedom" ? (
+						<FreedomView points={view.points} />
 					) : (
 						<NetWorthChart points={view.points} />
 					)}
@@ -145,13 +148,18 @@ export function NetWorthOverTime() {
 	);
 }
 
-/** Where the chart looks: back at what happened, or forward at where it's heading. */
+type Mode = "history" | "runway" | "freedom";
+
+/**
+ * Where the chart looks: back at what happened, forward at the money draining, or forward at it growing
+ * past the point of needing to.
+ */
 function ModeSwitch({
 	mode,
 	onChange,
 }: {
-	mode: "history" | "runway";
-	onChange: (m: "history" | "runway") => void;
+	mode: Mode;
+	onChange: (m: Mode) => void;
 }) {
 	return (
 		<div className="flex gap-1 rounded-full bg-muted/50 p-1 text-xs">
@@ -159,6 +167,7 @@ function ModeSwitch({
 				[
 					["history", "History"],
 					["runway", "Runway"],
+					["freedom", "Freedom"],
 				] as const
 			).map(([k, label]) => (
 				<button
