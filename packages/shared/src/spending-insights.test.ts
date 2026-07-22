@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { SpendingCategory, SpendingTrends } from "./spending";
-import { ROLLING_MONTHS, spendingInsights } from "./spending-insights";
+import {
+	RECENT_MONTHS,
+	ROLLING_MONTHS,
+	spendingInsights,
+} from "./spending-insights";
 
 function cat(key: string, label: string, byMonth: number[]): SpendingCategory {
 	const total = byMonth.reduce((s, v) => s + v, 0);
@@ -23,6 +27,7 @@ function trends(
 	months: string[],
 	categories: SpendingCategory[],
 	totalBudget = 0,
+	budgetedNoActual: SpendingTrends["budgetedNoActual"] = [],
 ): SpendingTrends {
 	const totalByMonth = months.map((_, i) =>
 		categories.reduce((s, c) => s + (c.byMonth[i] ?? 0), 0),
@@ -34,8 +39,19 @@ function trends(
 		grandTotal: totalByMonth.reduce((s, v) => s + v, 0),
 		latestTotal: totalByMonth.at(-1) ?? 0,
 		totalBudget,
-		budgetedNoActual: [],
+		budgetedNoActual,
 	};
+}
+
+const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
+
+/** A category carrying a plan budget, so it counts as attributable. */
+function budgeted(
+	key: string,
+	byMonth: number[],
+	budget: number,
+): SpendingCategory {
+	return { ...cat(key, key, byMonth), budget };
 }
 
 /** 24 months ending in the month `today` sits in, so the last one is genuinely in progress. */
@@ -231,12 +247,141 @@ describe("against the plan budget", () => {
 	});
 });
 
+describe("the recent level", () => {
+	test("is the mean of the last 12 complete months, not the whole window", () => {
+		// 11 cheap months then 12 expensive ones; the 24th is in progress.
+		const values = [...Array(11).fill(20_000), ...Array(12).fill(100_000), 500];
+		const i = spendingInsights(trends(MONTHS_24, [cat("x", "X", values)]), {
+			today: TODAY,
+		});
+		expect(i.recentMean).toBe(100_000);
+		expect(i.recentMonths).toBe(RECENT_MONTHS);
+		// the window average is dragged down by the cheap months — that is the number it replaces
+		expect(i.average).toBeLessThan(i.recentMean);
+	});
+
+	test("falls back to however many complete months exist", () => {
+		const months = ["2026-04", "2026-05", "2026-06", "2026-07"];
+		const i = spendingInsights(
+			trends(months, [cat("x", "X", [1000, 2000, 3000, 99])]),
+			{ today: TODAY },
+		);
+		expect(i.recentMonths).toBe(3); // the in-progress month is not one of them
+		expect(i.recentMean).toBe(2000);
+	});
+
+	test("agrees with the year-over-year recent side, which spans the same months", () => {
+		const values = [...Array(11).fill(1000), ...Array(12).fill(2000), 50];
+		const i = spendingInsights(trends(MONTHS_24, [cat("x", "X", values)]), {
+			today: TODAY,
+		});
+		expect(i.yoy?.recent).toBe(i.recentMean);
+	});
+});
+
+describe("the budget gap", () => {
+	/** 12 complete months: 10 over a 50k budget, 2 under. The 13th is in progress. */
+	const shape = [
+		60_000, 10_000, 20_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000,
+		60_000, 60_000, 60_000, 999,
+	];
+	const months = Array.from({ length: 13 }, (_, i) =>
+		new Date(Date.UTC(2025, 6 + i, 1)).toISOString().slice(0, 7),
+	);
+	const i = spendingInsights(trends(months, [cat("x", "X", shape)], 50_000), {
+		today: TODAY,
+	});
+
+	test("measures the recent level against the plan budget", () => {
+		expect(i.gap?.gap).toBe(i.recentMean - 50_000);
+		expect(i.gap?.gapPct).toBeCloseTo((i.recentMean - 50_000) / 50_000, 6);
+	});
+
+	test("counts how many months ran over — the raise-or-cut signal", () => {
+		expect(i.gap?.monthsOver).toBe(10);
+		expect(i.gap?.overByMonth).toHaveLength(12);
+		expect(i.gap?.overByMonth[0]).toBe(true);
+		expect(i.gap?.overByMonth[1]).toBe(false);
+	});
+
+	test("spending exactly the budget is not over it", () => {
+		const flat = spendingInsights(
+			trends(["2026-01", "2026-02"], [cat("x", "X", [50_000, 50_000])], 50_000),
+			{ today: TODAY },
+		);
+		expect(flat.gap?.monthsOver).toBe(0);
+		expect(flat.gap?.gap).toBe(0);
+	});
+
+	test("excludes the in-progress month, which would read as a sudden improvement", () => {
+		// The 13th month holds ₹999 against a ₹50,000 budget. Counted, it would add a 13th `false` to the
+		// tally and pull the mean down by a fifth — three weeks of data reading as a month of restraint.
+		expect(i.gap?.overByMonth).toHaveLength(12);
+		expect(i.recentMonths).toBe(12);
+		expect(i.recentMean).toBe(mean(shape.slice(0, 12)));
+	});
+
+	test("is null when nothing is budgeted, but the recent level still resolves", () => {
+		const none = spendingInsights(
+			trends(["2026-01", "2026-02"], [cat("x", "X", [90_000, 110_000])]),
+			{ today: TODAY },
+		);
+		expect(none.gap).toBeNull();
+		expect(none.recentMean).toBe(100_000);
+	});
+});
+
+describe("attribution", () => {
+	test("sums recent spend in categories carrying no budget", () => {
+		const t = trends(
+			["2026-01", "2026-02"],
+			[
+				budgeted("rent", [5000, 5000], 5000),
+				cat("card_bill", "Card bill", [70_000, 80_000]),
+			],
+			5000,
+		);
+		expect(
+			spendingInsights(t, { today: TODAY }).attribution.unattributableSpend,
+		).toBe(75_000);
+	});
+
+	test("sums budget for categories the statement never produced", () => {
+		const t = trends(["2026-01"], [budgeted("rent", [5000], 5000)], 19_000, [
+			{ key: "groceries", label: "Groceries", budget: 5000 },
+			{ key: "shopping", label: "Shopping", budget: 9000 },
+		]);
+		expect(
+			spendingInsights(t, { today: TODAY }).attribution.unmatchedBudget,
+		).toBe(14_000);
+	});
+
+	test("is zero on both counts when the two vocabularies line up", () => {
+		const t = trends(["2026-01"], [budgeted("rent", [5000], 5000)], 5000);
+		const a = spendingInsights(t, { today: TODAY }).attribution;
+		expect(a.unattributableSpend).toBe(0);
+		expect(a.unmatchedBudget).toBe(0);
+	});
+});
+
 describe("degenerate windows", () => {
 	test("an empty window averages zero instead of NaN", () => {
 		const i = spendingInsights(trends([], []), { today: TODAY });
 		expect(i.average).toBe(0);
+		expect(i.recentMean).toBe(0);
+		expect(i.recentMonths).toBe(0);
 		expect(i.rolling).toEqual([]);
 		expect(i.yoy).toBeNull();
+	});
+
+	test("a budget with no complete months gives a gap against zero spend, not NaN", () => {
+		const i = spendingInsights(
+			trends(["2026-07"], [cat("x", "X", [1234])], 50_000),
+			{ today: TODAY },
+		);
+		expect(i.recentMean).toBe(0);
+		expect(i.gap?.gap).toBe(-50_000);
+		expect(i.gap?.overByMonth).toEqual([]);
 	});
 
 	test("a window that is only the in-progress month has no complete months", () => {

@@ -14,6 +14,15 @@ import type { SpendingTrends } from "./spending";
 export const ROLLING_MONTHS = 3;
 
 /**
+ * Months in the **recent window** — the level the page judges you at.
+ *
+ * The window average spans whatever range is selected (24 months by default), which on real data is held
+ * down by cheaper older months: ₹55,000 typical against ₹60,000 actually spent over the last year. The gap
+ * against plan, and the coverage ratio measured against it, both read the recent level instead.
+ */
+export const RECENT_MONTHS = 12;
+
+/**
  * A category that appears in this fraction of window months or less is treated as lumpy rather than
  * recurring — an annual tax payment lands in one month out of twenty-four and would otherwise be reported
  * as a monthly budget overrun.
@@ -46,9 +55,54 @@ export interface YoyComparison {
 	pct: number | null;
 }
 
+/**
+ * How far the recent level runs above (or below) the plan budget, and **how consistently**.
+ *
+ * The size of the gap says how wrong the plan is; `monthsOver` says whether the plan is wrong at all. Over
+ * in ten months of twelve is a budget that needs raising; over in three is three months that got away. The
+ * page cannot give that advice from the rupee figure alone, which is why the tally is part of the type.
+ */
+export interface BudgetGap {
+	/** `recentMean − totalBudget`. Positive = over. */
+	gap: number;
+	/** `gap / totalBudget`. */
+	gapPct: number;
+	/** Whether each recent-window month ran over budget, oldest first. */
+	overByMonth: boolean[];
+	/** Count of `true` in {@link overByMonth}. */
+	monthsOver: number;
+}
+
+/**
+ * How much of the picture the category breakdown can actually explain.
+ *
+ * Both sides of the comparison are named by category, but the two vocabularies need not overlap — spend can
+ * land in categories the plan never budgets (a consolidated card bill), and the plan can budget categories
+ * the statement never produces (what that card bill is *made of*). Where both are large, a per-category
+ * verdict would be fiction, and the page says so rather than inventing one.
+ */
+export interface Attribution {
+	/** Recent-window monthly spend in categories carrying no plan budget. */
+	unattributableSpend: number;
+	/** Budget for categories the statement produced no spend for at all. */
+	unmatchedBudget: number;
+}
+
 export interface SpendingInsights {
 	/** Mean monthly spend across the window, **excluding an in-progress month**. */
 	average: number;
+	/**
+	 * Mean monthly spend over the last {@link RECENT_MONTHS} complete months — the level you are at *now*,
+	 * as opposed to {@link average} over the whole selected range. Falls back to however many complete
+	 * months exist; 0 when there are none.
+	 */
+	recentMean: number;
+	/** Months actually in the recent window — `min(RECENT_MONTHS, complete months)`. */
+	recentMonths: number;
+	/** The recent level against the plan budget; null when nothing is budgeted. */
+	gap: BudgetGap | null;
+	/** What the category breakdown can and cannot account for. */
+	attribution: Attribution;
 	/**
 	 * Trailing {@link ROLLING_MONTHS}-month mean, aligned to `trends.months`. `null` until the window has
 	 * filled, and `null` for an in-progress month — a part-finished month would bend the curve downward and
@@ -133,24 +187,57 @@ export function spendingInsights(
 		}
 	}
 
+	// The recent window, as an index range into `months` — so the per-category slices below line up with the
+	// per-month totals without either side re-deriving where the window starts.
+	const completeCount = complete.length;
+	const recentFrom = Math.max(0, completeCount - RECENT_MONTHS);
+	const recentTotals = complete.slice(recentFrom);
+	const mean = (xs: number[]) =>
+		xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : 0;
+	const recentMean = mean(recentTotals);
+
 	let yoy: YoyComparison | null = null;
 	const priorWindow = complete.slice(-YOY_MONTHS * 2, -YOY_MONTHS);
 	if (complete.length > YOY_MONTHS && priorWindow.length >= YOY_MIN_PRIOR) {
-		const recentWindow = complete.slice(-YOY_MONTHS);
-		const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
-		const recent = mean(recentWindow);
+		// YOY_MONTHS and RECENT_MONTHS are the same span, so the recent side *is* `recentMean`. Sharing it
+		// means the strip cannot show one number as the level and a different one as this year.
 		const prior = mean(priorWindow);
 		yoy = {
-			recent,
+			recent: recentMean,
 			prior,
-			recentMonths: recentWindow.length,
+			recentMonths: recentTotals.length,
 			priorMonths: priorWindow.length,
-			pct: prior > 0 ? (recent - prior) / prior : null,
+			pct: prior > 0 ? (recentMean - prior) / prior : null,
 		};
 	}
 
+	const gap: BudgetGap | null =
+		trends.totalBudget > 0
+			? {
+					gap: recentMean - trends.totalBudget,
+					gapPct: (recentMean - trends.totalBudget) / trends.totalBudget,
+					// Spending exactly the budget is not over it.
+					overByMonth: recentTotals.map((v) => v > trends.totalBudget),
+					monthsOver: recentTotals.filter((v) => v > trends.totalBudget).length,
+				}
+			: null;
+
+	const attribution: Attribution = {
+		unattributableSpend: trends.categories
+			.filter((c) => c.budget <= 0)
+			.reduce(
+				(s, c) => s + mean(c.byMonth.slice(recentFrom, completeCount)),
+				0,
+			),
+		unmatchedBudget: trends.budgetedNoActual.reduce((s, b) => s + b.budget, 0),
+	};
+
 	return {
 		average,
+		recentMean,
+		recentMonths: recentTotals.length,
+		gap,
+		attribution,
 		rolling,
 		latestIsPartial,
 		monthElapsed,

@@ -6,7 +6,7 @@ import {
 	spendingInsights,
 } from "@money/shared";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRight, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -168,9 +168,17 @@ function SummaryBar({
 }
 
 /**
- * The two facts the movers table can't tell you: what a month actually costs against what the plan says it
- * costs, and whether that is moving. The budget gap matters beyond this page — it is the denominator of the
- * north-star coverage ratio, so a plan that understates reality overstates how free you are.
+ * Three questions the movers table can't answer, measured at the level you spend at **now**.
+ *
+ * Each slot is one question — how far off plan am I, which way am I moving, how free am I — and each is the
+ * same fact seen from a different side, so all three divide by `recentMean` rather than the window average.
+ * The window average is held down by whatever cheap months the selected range happens to reach back to; on
+ * real data that was ₹55,000 against ₹60,000 actually spent. The chart keeps the window average as its
+ * "typical" reference line, where a range-wide centre is the right one.
+ *
+ * The size of the gap is only half the answer. A budget missed ten months in twelve is a budget that needs
+ * raising; missed three months in twelve is three months that got away. That's what the tally row is for —
+ * it's the difference between "fix the plan" and "fix the spending", and no rupee figure carries it.
  */
 function LevelStrip({
 	res,
@@ -183,78 +191,274 @@ function LevelStrip({
 	const ladder = useQuery(orpc.plan.ladder.queryOptions());
 	const passive = (ladder.data as CoverageLadder | undefined)?.total.income;
 	const planRatio = (ladder.data as CoverageLadder | undefined)?.total.ratio;
+	const { gap, yoy, recentMean } = insights;
 	const actualRatio =
-		passive != null && insights.average > 0 ? passive / insights.average : null;
-	const over = (insights.vsBudgetPct ?? 0) > 0;
-	const yoyUp = (insights.yoy?.pct ?? 0) > 0;
+		passive != null && recentMean > 0 ? passive / recentMean : null;
 
-	if (insights.average <= 0) return null;
+	if (recentMean <= 0) return null;
 
 	return (
-		<section className="grid gap-x-8 gap-y-6 rounded-2xl border border-border px-6 py-6 sm:grid-cols-2 lg:grid-cols-3">
-			<Figure
-				label="Typical month"
-				value={fmt(Math.round(insights.average))}
-				note={
-					insights.vsBudgetPct == null
-						? "average over this window"
-						: `${signedPct(insights.vsBudgetPct)} vs the ${fmt(res.totalBudget)} plan budget`
-				}
-				tone={insights.vsBudgetPct == null ? undefined : over ? OUT : IN}
-			/>
+		<section className="flex flex-col gap-6 rounded-2xl border border-border px-6 py-6">
+			<div className="grid gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
+				{gap ? (
+					<Figure
+						label={gap.gap > 0 ? "Over plan" : "Under plan"}
+						value={`${gap.gap > 0 ? "+" : "−"}${fmt(Math.abs(Math.round(gap.gap)))}`}
+						unit="/mo"
+						tone={gap.gap > 0 ? OUT : IN}
+						note={
+							<>
+								<Own>{fmt(Math.round(recentMean))} /mo</Own> actual vs{" "}
+								<Vs>{fmt(Math.round(res.totalBudget))}</Vs> planned{" "}
+								<span
+									className="whitespace-nowrap"
+									style={{ color: gap.gap > 0 ? OUT : IN }}
+								>
+									· {signedPct(gap.gapPct)}
+								</span>
+							</>
+						}
+						foot={
+							<>
+								over in{" "}
+								<span style={{ color: gap.monthsOver > 0 ? OUT : IN }}>
+									{gap.monthsOver} of {insights.recentMonths}
+								</span>{" "}
+								months
+							</>
+						}
+					>
+						<MonthTally over={gap.overByMonth} />
+					</Figure>
+				) : (
+					<Figure
+						label={`Last ${insights.recentMonths} months`}
+						value={`${fmt(Math.round(recentMean))}`}
+						unit="/mo"
+						note="nothing budgeted to compare against"
+					/>
+				)}
 
-			{insights.yoy && (
-				<Figure
-					label={`Last ${insights.yoy.recentMonths} months`}
-					value={`${fmt(Math.round(insights.yoy.recent))} /mo`}
-					note={
-						insights.yoy.pct == null
-							? "no prior period to compare"
-							: `${signedPct(insights.yoy.pct)} vs the ${insights.yoy.priorMonths} mo before, at ${fmt(Math.round(insights.yoy.prior))} /mo`
-					}
-					tone={insights.yoy.pct == null ? undefined : yoyUp ? OUT : IN}
-				/>
-			)}
+				{yoy && yoy.pct != null && (
+					<Figure
+						label="Direction"
+						value={signedPct(yoy.pct)}
+						tone={yoy.pct > 0 ? OUT : IN}
+						note={
+							<>
+								<Own>{fmt(Math.round(recentMean))} /mo</Own> now vs{" "}
+								<Vs>{fmt(Math.round(yoy.prior))} /mo</Vs> over the{" "}
+								{yoy.priorMonths} months before
+							</>
+						}
+						foot={
+							<span style={{ color: yoy.pct > 0 ? OUT : IN }}>
+								{yoy.pct > 0 ? "+" : "−"}
+								{fmt(Math.abs(Math.round(recentMean - yoy.prior)))} /mo{" "}
+								{yoy.pct > 0 ? "more" : "less"} than before
+							</span>
+						}
+					>
+						<TwoBars prior={yoy.prior} recent={recentMean} />
+					</Figure>
+				)}
 
-			{actualRatio != null && (
-				<Figure
-					label="Covered by passive income"
-					value={`${actualRatio.toFixed(2)}×`}
-					note={
-						planRatio != null
-							? `${planRatio.toFixed(2)}× when measured against the plan`
-							: "against what you actually spend"
-					}
-					tone={actualRatio >= 1 ? IN : OUT}
-				/>
-			)}
+				{actualRatio != null && passive != null && (
+					<Figure
+						label="Covered by passive income"
+						value={`${actualRatio.toFixed(2)}×`}
+						tone={actualRatio >= 1 ? IN : OUT}
+						note={
+							<>
+								<Own>{fmt(Math.round(passive))} /mo</Own> passive vs{" "}
+								<Vs>{fmt(Math.round(recentMean))} /mo</Vs> spent
+								{planRatio != null && (
+									<>
+										{" "}
+										<span className="whitespace-nowrap">
+											· <Vs>{planRatio.toFixed(2)}×</Vs>
+										</span>{" "}
+										against the plan
+									</>
+								)}
+							</>
+						}
+						foot={
+							actualRatio >= 1 ? (
+								<span style={{ color: IN }}>fully covered</span>
+							) : (
+								<>{fmt(Math.round(recentMean - passive))} /mo still uncovered</>
+							)
+						}
+					>
+						<Meter fill={actualRatio} tone={actualRatio >= 1 ? IN : OUT} />
+					</Figure>
+				)}
+			</div>
+
+			<Blindspot attribution={insights.attribution} />
 		</section>
 	);
 }
 
+/**
+ * One slot. `note` carries the comparison — the slot's own figure in {@link Own}, what it is measured
+ * against in {@link Vs} — and `children` is an optional micro-visual sitting above `foot`.
+ */
 function Figure({
 	label,
 	value,
+	unit,
 	note,
+	foot,
 	tone,
+	children,
 }: {
 	label: string;
 	value: string;
-	note: string;
+	unit?: string;
+	note: React.ReactNode;
+	foot?: React.ReactNode;
 	tone?: string;
+	children?: React.ReactNode;
 }) {
 	return (
-		<div className="flex flex-col gap-1">
+		<div className="flex flex-col">
 			<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 				{label}
 			</p>
-			<p className="tnum font-display font-medium text-2xl leading-none">
+			<p
+				className="tnum mt-2 font-display font-medium text-2xl leading-none"
+				style={tone ? { color: tone } : undefined}
+			>
 				{value}
+				{unit && (
+					<span className="ml-1 font-normal text-base text-muted-foreground">
+						{unit}
+					</span>
+				)}
 			</p>
-			<p className="text-xs" style={tone ? { color: tone } : undefined}>
+			<p className="mt-2.5 text-muted-foreground text-xs leading-relaxed">
 				{note}
 			</p>
+			{children}
+			{foot && <p className="mt-2 text-muted-foreground text-xs">{foot}</p>}
 		</div>
+	);
+}
+
+/**
+ * The two weights every note is built from. Both are bold and the same size — a comparison, not a
+ * hierarchy — separated only by colour: the slot's own figure reads at full strength, the thing it is
+ * measured against stays in the note's muted tone.
+ */
+function Own({ children }: { children: React.ReactNode }) {
+	return <span className="tnum font-bold text-foreground">{children}</span>;
+}
+
+function Vs({ children }: { children: React.ReactNode }) {
+	return <span className="tnum font-bold">{children}</span>;
+}
+
+/** One segment per month in the recent window, filled where spending ran over budget. */
+function MonthTally({ over }: { over: boolean[] }) {
+	if (over.length === 0) return null;
+	return (
+		<div className="mt-3 flex gap-[3px]" aria-hidden>
+			{over.map((isOver, i) => (
+				<span
+					key={`${i}-${isOver}`}
+					className="h-[5px] flex-1 rounded-[2px]"
+					style={{ backgroundColor: isOver ? OUT : "var(--muted)" }}
+				/>
+			))}
+		</div>
+	);
+}
+
+/** Prior period against the recent one, drawn to scale so the size of the move is visible. */
+function TwoBars({ prior, recent }: { prior: number; recent: number }) {
+	const max = Math.max(prior, recent, 1);
+	const up = recent >= prior;
+	return (
+		<div className="mt-3 flex flex-col gap-1" aria-hidden>
+			<span
+				className="h-[5px] rounded-[2px] bg-muted"
+				style={{ width: `${Math.max(2, (prior / max) * 100)}%` }}
+			/>
+			<span
+				className="h-[5px] rounded-[2px]"
+				style={{
+					width: `${Math.max(2, (recent / max) * 100)}%`,
+					backgroundColor: up ? OUT : IN,
+				}}
+			/>
+		</div>
+	);
+}
+
+/** A 0–1 fill. Over 1 saturates rather than overflowing — the copy carries "more than covered". */
+function Meter({ fill, tone }: { fill: number; tone: string }) {
+	return (
+		<div className="mt-3 h-[5px] rounded-[2px] bg-muted" aria-hidden>
+			<span
+				className="block h-full rounded-[2px]"
+				style={{
+					width: `${Math.max(2, Math.min(100, fill * 100))}%`,
+					backgroundColor: tone,
+				}}
+			/>
+		</div>
+	);
+}
+
+/**
+ * What the category breakdown below cannot account for.
+ *
+ * Spend can land in categories the plan never budgets, and the plan can budget categories the statement
+ * never produces — the same money described in two vocabularies that don't meet. Where that's true, the
+ * movers table can show *what* moved but not *what blew the budget*, and saying so is more honest than
+ * letting a consolidated card bill read as a category.
+ */
+function Blindspot({
+	attribution,
+}: {
+	attribution: SpendingInsights["attribution"];
+}) {
+	const { fmt } = useMoney();
+	const { unattributableSpend, unmatchedBudget } = attribution;
+	if (unattributableSpend <= 0 && unmatchedBudget <= 0) return null;
+	return (
+		<p className="border-border/70 border-t pt-4 text-muted-foreground text-xs leading-relaxed">
+			The categories below can't fully attribute this
+			{unattributableSpend > 0 && (
+				<>
+					{" — "}
+					<span className="tnum font-bold text-foreground">
+						{fmt(Math.round(unattributableSpend))} /mo
+					</span>{" "}
+					lands in categories with no plan budget
+				</>
+			)}
+			{unattributableSpend > 0 && unmatchedBudget > 0 && ", and"}
+			{unmatchedBudget > 0 && (
+				<>
+					{unattributableSpend > 0 ? " " : " — "}
+					<span className="tnum font-bold text-foreground">
+						{fmt(Math.round(unmatchedBudget))}
+					</span>{" "}
+					of budget names categories the statement never produces
+				</>
+			)}
+			.{" "}
+			<Link
+				to="/import"
+				className="underline underline-offset-2 hover:text-foreground"
+				style={{ color: OUT }}
+			>
+				Import more statements →
+			</Link>
+		</p>
 	);
 }
 
