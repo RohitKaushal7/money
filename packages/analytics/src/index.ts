@@ -34,6 +34,8 @@ export type {
 	PreviewResult,
 } from "./preview";
 export { previewStatement } from "./preview";
+export type { PreviewAxioResult } from "./preview-axio";
+export { previewAxio } from "./preview-axio";
 
 /** Read-only handle onto the analytical DB. Exposes queries only — no write surface (ADR-0003). */
 export interface AnalyticsReader {

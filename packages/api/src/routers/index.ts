@@ -4,6 +4,7 @@ import { protectedProcedure, publicProcedure } from "../index";
 import { accountsRouter } from "./accounts";
 import { adminRouter } from "./admin";
 import { analyticsRouter } from "./analytics";
+import { axioRouter } from "./axio";
 import { cardsRouter } from "./cards";
 import { categoriesRouter } from "./categories";
 import { currencyRouter } from "./currency";
@@ -42,6 +43,7 @@ export const appRouter = {
 	reconcile: reconcileRouter,
 	overrides: overridesRouter,
 	spending: spendingRouter,
+	axio: axioRouter,
 	splits: splitsRouter,
 	tax: taxRouter,
 	import: importRouter,
