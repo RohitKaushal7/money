@@ -18,6 +18,7 @@ import { overridesRouter } from "./overrides";
 import { planRouter } from "./plan";
 import { reconcileRouter } from "./reconcile";
 import { rulesRouter } from "./rules";
+import { setupRouter } from "./setup";
 import { spendingRouter } from "./spending";
 import { splitsRouter } from "./splits";
 import { taxRouter } from "./tax";
@@ -52,6 +53,7 @@ export const appRouter = {
 	formats: formatsRouter,
 	accounts: accountsRouter,
 	export: exportRouter,
+	setup: setupRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;
