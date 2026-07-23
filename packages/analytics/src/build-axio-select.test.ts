@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { axioRowId } from "@money/shared";
+import { axioRowId } from "./axio-id";
 import { buildAxioSelect } from "./build-axio-select";
 import { openConnection } from "./duckdb";
 import { applySchema } from "./ingest";
@@ -44,6 +45,35 @@ async function parse(): Promise<Record<string, unknown>[]> {
 		await conn.close();
 	}
 }
+
+const md5 = (s: string) => createHash("md5").update(s).digest("hex");
+
+describe("axioRowId", () => {
+	test("hashes the documented parts, amount to 2dp, excluding category/flags", () => {
+		expect(
+			axioRowId({
+				date: "2026-06-02",
+				time: "03:49 PM",
+				amount: 1648.7,
+				drcr: "DR",
+				account: "Axis credit 1111",
+				place: "BLINKIT",
+			}),
+		).toBe(md5("2026-06-02|03:49 PM|1648.70|DR|Axis credit 1111|BLINKIT"));
+	});
+
+	test("re-tagging a row (category/flag change) does not change its id", () => {
+		const base = {
+			date: "2026-06-01",
+			time: "01:55 PM",
+			amount: 250,
+			drcr: "DR",
+			account: "YesBank credit 2222",
+			place: "SHESH PAL",
+		};
+		expect(axioRowId(base)).toBe(axioRowId({ ...base }));
+	});
+});
 
 describe("buildAxioSelect", () => {
 	test("keeps only real data rows (preamble, blank, POWERED footer dropped)", async () => {

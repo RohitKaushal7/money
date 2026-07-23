@@ -4,7 +4,7 @@
  * then rows, then a `POWERED BY axio` footer and scattered blanks — so we skip to the header, read every
  * column as text, and keep only rows whose DATE parses. Amounts strip thousands separators.
  *
- * The `axio_id` expression MUST stay byte-identical to `@money/shared` `axioRowId` — a parity test pins them.
+ * The `axio_id` expression MUST stay byte-identical to `axioRowId` (`./axio-id`) — a parity test pins them.
  */
 
 /** SQL string literal (single-quote escaped). */

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
 	COLOR_SLOTS,
 	type ColorSlot,
@@ -19,31 +18,9 @@ import {
 export type AxioGranularity = "month" | "quarter" | "year";
 export type AxioAccountScope = "all" | "cards" | "direct";
 
-/** The fields that identify an Axio row. Excludes category and the flags, so re-curating keeps the id. */
-export interface AxioIdParts {
-	date: string;
-	time: string;
-	amount: number;
-	drcr: string;
-	account: string;
-	place: string;
-}
-
-/**
- * Deterministic row id: `md5(date|time|amount|drcr|account|place)`, amount to 2 decimals. MUST stay
- * byte-identical to the SQL expression in `buildAxioSelect` — a parity test pins the two together.
- */
-export function axioRowId(p: AxioIdParts): string {
-	const key = [
-		p.date,
-		p.time,
-		p.amount.toFixed(2),
-		p.drcr,
-		p.account,
-		p.place,
-	].join("|");
-	return createHash("md5").update(key).digest("hex");
-}
+// Row identity (`axioRowId`) lives in `@money/analytics` (`axio-id.ts`), not here: it needs `node:crypto`
+// for md5, and this package is imported by the browser bundle, which must stay free of node built-ins. The
+// identity is a parse-time concern anyway — the web never hashes a row.
 
 /** Known credit lines whose Axio account name lacks the `credit` token. */
 const CREDIT_ALIASES = ["slice"];

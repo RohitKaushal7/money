@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import {
 	AXIO_OTHER,
 	type AxioSpendRow,
 	accountKind,
 	axioColors,
-	axioRowId,
 	axioSeries,
 	cardBillCrossCheck,
 	categoryTotals,
@@ -16,36 +14,6 @@ import {
 	topAxioCategories,
 } from "./axio";
 import { OTHER_COLOR, slotVar } from "./category-colors";
-
-const md5 = (s: string) => createHash("md5").update(s).digest("hex");
-
-describe("axioRowId", () => {
-	test("hashes the documented parts, amount to 2dp, excluding category/flags", () => {
-		const parts = {
-			date: "2026-06-02",
-			time: "03:49 PM",
-			amount: 1648.7,
-			drcr: "DR",
-			account: "Axis credit 1111",
-			place: "BLINKIT",
-		};
-		expect(axioRowId(parts)).toBe(
-			md5("2026-06-02|03:49 PM|1648.70|DR|Axis credit 1111|BLINKIT"),
-		);
-	});
-
-	test("re-tagging a row (category/flag change) does not change its id", () => {
-		const base = {
-			date: "2026-06-01",
-			time: "01:55 PM",
-			amount: 250,
-			drcr: "DR",
-			account: "YesBank credit 2222",
-			place: "SHESH PAL",
-		};
-		expect(axioRowId(base)).toBe(axioRowId({ ...base }));
-	});
-});
 
 describe("accountKind / isCreditAccount", () => {
 	test("the 'credit' token means a card", () => {

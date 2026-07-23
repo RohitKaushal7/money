@@ -24,6 +24,8 @@ export {
 	splitCsvHeader,
 	statementHeaderSignature,
 } from "@money/shared";
+export type { AxioIdParts } from "./axio-id";
+export { axioRowId } from "./axio-id";
 export { buildAxioSelect } from "./build-axio-select";
 export type { BuildSelectParams } from "./build-select";
 export { buildTransactionsSelect } from "./build-select";
