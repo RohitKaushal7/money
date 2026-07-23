@@ -46,3 +46,115 @@ export function csvAmount(value: unknown): string {
 	const n = typeof value === "number" ? value : Number(value);
 	return Number.isFinite(n) ? n.toFixed(2) : "";
 }
+
+// ── Transactions ─────────────────────────────────────────────────────────────
+export interface TransactionCsvRow {
+	date: string;
+	narration: string;
+	amount: number;
+	balance: number;
+	categoryLabel: string;
+	kind: string;
+}
+
+export const TRANSACTION_CSV_COLUMNS: CsvColumn<TransactionCsvRow>[] = [
+	{ key: "date", header: "date" },
+	{ key: "narration", header: "narration" },
+	{ key: "amount", header: "amount", format: csvAmount },
+	{ key: "balance", header: "balance", format: csvAmount },
+	{ key: "categoryLabel", header: "category" },
+	{ key: "kind", header: "kind" },
+];
+
+// ── Investments ──────────────────────────────────────────────────────────────
+export interface InvestmentCsvRow {
+	name: string;
+	type: string;
+	incomeClass: string;
+	platform: string | null;
+	group: string | null;
+	principal: number | null;
+	currentValue: number | null;
+	currency: string;
+	annualRate: number | null;
+	interestCadence: string | null;
+	payout: string;
+	startDate: string | null;
+	maturityDate: string | null;
+	status: string;
+	isPassiveIncomeSource: boolean;
+}
+
+export const INVESTMENT_CSV_COLUMNS: CsvColumn<InvestmentCsvRow>[] = [
+	{ key: "name", header: "name" },
+	{ key: "type", header: "type" },
+	{ key: "incomeClass", header: "income_class" },
+	{ key: "platform", header: "platform" },
+	{ key: "group", header: "group" },
+	{ key: "principal", header: "principal", format: csvAmount },
+	{ key: "currentValue", header: "current_value", format: csvAmount },
+	{ key: "currency", header: "currency" },
+	{ key: "annualRate", header: "annual_rate" },
+	{ key: "interestCadence", header: "interest_cadence" },
+	{ key: "payout", header: "payout" },
+	{ key: "startDate", header: "start_date" },
+	{ key: "maturityDate", header: "maturity_date" },
+	{ key: "status", header: "status" },
+	{ key: "isPassiveIncomeSource", header: "is_passive_income_source" },
+];
+
+// ── Recurring expenses ───────────────────────────────────────────────────────
+export interface RecurringExpenseCsvRow {
+	name: string;
+	category: string | null;
+	amount: number;
+	currency: string;
+	cadence: string;
+	active: boolean;
+	startDate: string | null;
+	endDate: string | null;
+}
+
+export const RECURRING_EXPENSE_CSV_COLUMNS: CsvColumn<RecurringExpenseCsvRow>[] =
+	[
+		{ key: "name", header: "name" },
+		{ key: "category", header: "category" },
+		{ key: "amount", header: "amount", format: csvAmount },
+		{ key: "currency", header: "currency" },
+		{ key: "cadence", header: "cadence" },
+		{ key: "active", header: "active" },
+		{ key: "startDate", header: "start_date" },
+		{ key: "endDate", header: "end_date" },
+	];
+
+// ── Spending by category ─────────────────────────────────────────────────────
+export interface SpendingCsvRow {
+	month: string;
+	category: string;
+	kind: string;
+	amount: number;
+	count: number;
+}
+
+export const SPENDING_CSV_COLUMNS: CsvColumn<SpendingCsvRow>[] = [
+	{ key: "month", header: "month" },
+	{ key: "category", header: "category" },
+	{ key: "kind", header: "kind" },
+	{ key: "amount", header: "amount", format: csvAmount },
+	{ key: "count", header: "count" },
+];
+
+// ── Coverage history ─────────────────────────────────────────────────────────
+export interface CoverageCsvRow {
+	month: string;
+	passiveIncome: number;
+	expenses: number;
+	ratio: number;
+}
+
+export const COVERAGE_CSV_COLUMNS: CsvColumn<CoverageCsvRow>[] = [
+	{ key: "month", header: "month" },
+	{ key: "passiveIncome", header: "passive_income", format: csvAmount },
+	{ key: "expenses", header: "expenses", format: csvAmount },
+	{ key: "ratio", header: "ratio" },
+];

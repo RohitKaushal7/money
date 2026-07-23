@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { type CsvColumn, csvAmount, toCsv } from "./csv";
+import {
+	type CsvColumn,
+	csvAmount,
+	INVESTMENT_CSV_COLUMNS,
+	type InvestmentCsvRow,
+	TRANSACTION_CSV_COLUMNS,
+	type TransactionCsvRow,
+	toCsv,
+} from "./csv";
 
 interface Row {
 	a: string;
@@ -51,5 +59,52 @@ describe("csvAmount", () => {
 		expect(csvAmount(null)).toBe("");
 		expect(csvAmount(undefined)).toBe("");
 		expect(csvAmount("")).toBe("");
+	});
+});
+
+describe("column specs", () => {
+	test("transaction columns: amount/balance 2dp, category label, kind", () => {
+		const rows: TransactionCsvRow[] = [
+			{
+				date: "2026-06-02",
+				narration: "BLINKIT",
+				amount: -1648.7,
+				balance: 5000,
+				categoryLabel: "Groceries",
+				kind: "expense",
+			},
+		];
+		expect(toCsv(rows, TRANSACTION_CSV_COLUMNS)).toBe(
+			"date,narration,amount,balance,category,kind\r\n2026-06-02,BLINKIT,-1648.70,5000.00,Groceries,expense",
+		);
+	});
+
+	test("investment columns: booleans render true/false, blank optionals", () => {
+		const rows: InvestmentCsvRow[] = [
+			{
+				name: "Wint NCD",
+				type: "ncd",
+				incomeClass: "income",
+				platform: "Wint",
+				group: null,
+				principal: 100000,
+				currentValue: 105000,
+				currency: "INR",
+				annualRate: 0.11,
+				interestCadence: "monthly",
+				payout: "cash",
+				startDate: "2025-01-01",
+				maturityDate: "2027-01-01",
+				status: "active",
+				isPassiveIncomeSource: true,
+			},
+		];
+		const lines = toCsv(rows, INVESTMENT_CSV_COLUMNS).split("\r\n");
+		expect(lines[0]).toBe(
+			"name,type,income_class,platform,group,principal,current_value,currency,annual_rate,interest_cadence,payout,start_date,maturity_date,status,is_passive_income_source",
+		);
+		expect(lines[1]).toBe(
+			"Wint NCD,ncd,income,Wint,,100000.00,105000.00,INR,0.11,monthly,cash,2025-01-01,2027-01-01,active,true",
+		);
 	});
 });
