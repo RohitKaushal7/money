@@ -50,7 +50,7 @@ services:
       DATA_DIR: /app/data
     env_file:
       - path: ./.env
-        required: true
+        required: false        # .env is optional — see step 3
     volumes:
       - ./data:/app/data     # ALL durable state (databases + raw imports) — back this up
     healthcheck:
@@ -68,26 +68,32 @@ services:
     restart: unless-stopped
 ```
 
-### 3. `.env`
+### 3. `.env` (optional)
 
-Two variables, in the same directory as the compose file:
+Both variables below are **optional**. With none set, a fresh install generates its own auth secret and
+assumes `http://localhost:3000` — so you can skip this step entirely for a local install. Create a `.env`
+next to the compose file only to override them:
 
 ```dotenv
-# A 32+ character random secret for Better-Auth. Generate once with `openssl rand -base64 32` and keep it
-# stable — changing it later logs everyone out (passwords are unaffected).
-BETTER_AUTH_SECRET=replace-me
+# OPTIONAL. A 32+ character secret for Better-Auth sessions. If unset, one is generated on first boot and
+# persisted at data/auth-secret (inside your ./data volume), so sessions survive restarts. Set it only to
+# pin the value; changing it later logs everyone out (passwords are unaffected).
+BETTER_AUTH_SECRET=
 
-# The public HTTPS origin your reverse proxy serves, with NO trailing slash.
+# OPTIONAL. The origin the browser uses to reach the app, no trailing slash. Defaults to
+# http://localhost:3000. Set this whenever you reach the app from any OTHER origin — a different published
+# port, a LAN IP, or a domain behind a reverse proxy.
 BETTER_AUTH_URL=https://money.example.com
 ```
 
-`NODE_ENV` and `DATA_DIR` are baked into the compose file; these two are the only values you set.
+`NODE_ENV` and `DATA_DIR` are baked into the compose file.
 
-> **HTTPS is required.** Session cookies are issued with `Secure` + `SameSite=None`, so login works only
-> over HTTPS (or `http://localhost` for local testing). Front the container with a reverse proxy that
-> terminates TLS — Caddy, Nginx Proxy Manager, nginx, Traefik — forwarding **all** traffic to the
-> container's port `3000`, and set `BETTER_AUTH_URL` to that public HTTPS URL. Plain `http://<lan-ip>:3000`
-> loads the page but silently fails login.
+> **Same machine works out of the box; anything else needs HTTPS.** Session cookies are issued with
+> `Secure` + `SameSite=None`. Opening `http://localhost:3000` on the machine that runs the container works
+> as-is (localhost is a secure context) — provided you publish it on port `3000`, matching the default
+> `BETTER_AUTH_URL`. To reach it from another machine — a LAN IP or a domain — front the container with a
+> reverse proxy that terminates TLS (Caddy, Nginx Proxy Manager, nginx, Traefik), forward **all** traffic
+> to port `3000`, and set `BETTER_AUTH_URL` to that HTTPS origin. TLS is yours to run.
 
 ### 4. Start it
 
@@ -96,18 +102,19 @@ docker compose up -d
 docker compose logs -f     # watch it migrate, then serve
 ```
 
-### 5. Create your first admin
+### 5. Create your owner account
 
-Public signup is disabled (the app is invite-only), so seed the first **admin** from inside the running
-container:
+Open `http://localhost:3000` (or your `BETTER_AUTH_URL`). On a fresh install the first screen is a one-time
+setup page: fill in your name, email, and a password (8+ characters) to create the **owner** account. It
+appears only while no account exists and closes for good once yours is made — public signup stays disabled.
+From the in-app **Admin** dashboard you can then invite and manage everyone else.
+
+Prefer the command line? Seed the first admin from inside the container instead:
 
 ```bash
 docker compose exec money bun scripts/create-user.ts \
   --email you@example.com --name "Your Name" --admin --password 'choose-a-strong-password'
 ```
-
-The password must be at least 8 characters. Now open your `BETTER_AUTH_URL` and log in. From the in-app
-**Admin** dashboard you can invite and manage everyone else — you won't need this command again.
 
 ### Updating & backups
 
@@ -119,9 +126,18 @@ Every release is also published under its commit SHA, so you can pin to a known-
 build instead of tracking `latest` — set `image: rohitkaushal7/money:a1b2c3d` in your
 compose file. Migrations run automatically on start, so upgrading is just a pull.
 
-Everything durable lives in `./data`: a shared `control.db` (auth + reference data) and one folder per user
-(`users/<id>/` with their SQLite + DuckDB files and raw imports). Back up that directory — ideally stop the
-container first (`docker compose down`) for a consistent snapshot.
+Everything durable lives in `./data`: the auto-generated `auth-secret`, a shared `control.db` (auth +
+reference data), and one folder per user (`users/<id>/` with their SQLite + DuckDB files and raw imports).
+Back up that directory — ideally stop the container first (`docker compose down`) for a consistent snapshot.
+There is no automatic off-site backup, so a dead disk means lost data; back up `./data` on your own schedule,
+and use **Settings → Data** to export your ledger, plan, and spending as CSV for a portable copy.
+
+### What leaves your machine
+
+Self-hosted, your financial data stays in `./data` and never leaves the box. The app makes exactly **one**
+kind of outbound request: fetching foreign-exchange rates from `api.frankfurter.dev`, and only when you
+refresh currency rates (Settings → Currencies). Nothing else is sent anywhere — and if you never touch
+multi-currency, the app makes no outbound calls at all.
 
 ## Architecture
 
