@@ -24,6 +24,7 @@ export {
 	splitCsvHeader,
 	statementHeaderSignature,
 } from "@money/shared";
+export { buildAxioSelect } from "./build-axio-select";
 export type { BuildSelectParams } from "./build-select";
 export { buildTransactionsSelect } from "./build-select";
 export type { SqlParam } from "./duckdb";

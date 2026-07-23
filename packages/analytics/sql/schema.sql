@@ -77,3 +77,23 @@ CREATE OR REPLACE TABLE investment_valuations (
     value         DECIMAL(18, 2) NOT NULL,
     source        VARCHAR NOT NULL   -- manual | compute | nav_api
 );
+
+-- Axio's categorised spend ledger — a SEPARATE, advisory lens (spec 2026-07-23). NEVER joined to
+-- `transactions`, never read into the KPI. Owner-curated: `is_expense` is trusted as authoritative.
+-- Whole-history replace: exactly one raw/axio-*.csv exists, re-imported on every rebuild.
+CREATE OR REPLACE TABLE axio_expenses (
+    axio_id     VARCHAR PRIMARY KEY,  -- md5(date|time|amount|drcr|account|place); excludes category/flags
+    txn_date    DATE    NOT NULL,
+    txn_time    VARCHAR,
+    place       VARCHAR NOT NULL,
+    amount      DECIMAL(18, 2) NOT NULL,  -- positive magnitude
+    drcr        VARCHAR NOT NULL,         -- DR | CR
+    account     VARCHAR NOT NULL,         -- "Axis credit 4444", "SBI  3333", "CASH Spends"
+    is_expense  BOOLEAN NOT NULL,         -- Axio EXPENSE=Yes (a real terminal spend)
+    is_income   BOOLEAN NOT NULL,         -- Axio INCOME=Yes
+    category    VARCHAR NOT NULL,         -- Axio's NATIVE label, verbatim
+    tags        VARCHAR,
+    note        VARCHAR,
+    month       VARCHAR NOT NULL,         -- YYYY-MM
+    source_file VARCHAR NOT NULL
+);
