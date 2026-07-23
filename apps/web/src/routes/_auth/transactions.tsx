@@ -26,6 +26,7 @@ import {
 	kindColor,
 	useCategories,
 } from "@/lib/categories";
+import { csvFilename, downloadCsv } from "@/lib/download";
 import { useFormat } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 import { CategoriesTab } from "./-categories-tab";
@@ -144,6 +145,31 @@ function TransactionsPage() {
 		onError: (e) => toast.error(e.message),
 	});
 
+	// Export the current filtered view (all matching rows, not just this page) as CSV.
+	const [exporting, setExporting] = useState(false);
+	const exportCsv = async () => {
+		setExporting(true);
+		try {
+			const { csv, rows: n } = await client.export.transactions({
+				search: search || undefined,
+				month: month || undefined,
+				kind: kind || undefined,
+				uncategorizedOnly: uncatOnly || undefined,
+				dateFrom: dateFrom || undefined,
+				dateTo: dateTo || undefined,
+			});
+			if (n === 0) {
+				toast.info("No transactions match these filters.");
+				return;
+			}
+			downloadCsv(csvFilename("transactions"), csv);
+		} catch (e) {
+			toast.error((e as Error).message);
+		} finally {
+			setExporting(false);
+		}
+	};
+
 	const onFilter =
 		<T,>(setter: (v: T) => void) =>
 		(v: T) => {
@@ -164,22 +190,33 @@ function TransactionsPage() {
 							a mixed payout — then re-tag to apply it to your reports.
 						</p>
 					</div>
-					{/* Always-available re-tag — inline edits bump `pending` (shown in the banner below), but rule
-					    changes don't, so this button is the way to re-run every transaction through the rules. */}
-					{pending === 0 && (
+					<div className="flex flex-wrap items-center gap-2">
 						<Button
 							size="sm"
 							variant="outline"
-							onClick={() => retag.mutate()}
-							disabled={retag.isPending}
-							title="Re-run every transaction through the current rules"
+							onClick={() => void exportCsv()}
+							disabled={exporting}
+							title="Download the current filtered view as CSV"
 						>
-							<RefreshCw
-								className={`size-4 ${retag.isPending ? "animate-spin" : ""}`}
-							/>
-							{retag.isPending ? "Re-tagging…" : "Re-tag"}
+							{exporting ? "Preparing…" : "Export CSV"}
 						</Button>
-					)}
+						{/* Always-available re-tag — inline edits bump `pending` (shown in the banner below), but rule
+						    changes don't, so this button is the way to re-run every transaction through the rules. */}
+						{pending === 0 && (
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => retag.mutate()}
+								disabled={retag.isPending}
+								title="Re-run every transaction through the current rules"
+							>
+								<RefreshCw
+									className={`size-4 ${retag.isPending ? "animate-spin" : ""}`}
+								/>
+								{retag.isPending ? "Re-tagging…" : "Re-tag"}
+							</Button>
+						)}
+					</div>
 				</header>
 
 				{pending > 0 && (
