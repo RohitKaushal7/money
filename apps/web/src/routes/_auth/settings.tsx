@@ -5,6 +5,7 @@ import { Check, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AccountTab } from "@/components/settings/account-tab";
+import { DataTab } from "@/components/settings/data-tab";
 import { SecurityTab } from "@/components/settings/security-tab";
 import { TabBar } from "@/components/tab-bar";
 import { useCurrencyConfig } from "@/lib/currency";
@@ -14,6 +15,7 @@ const TABS = [
 	{ key: "money", label: "Money" },
 	{ key: "security", label: "Security" },
 	{ key: "account", label: "Account" },
+	{ key: "data", label: "Data" },
 ] as const;
 
 type Tab = (typeof TABS)[number]["key"];
@@ -22,6 +24,7 @@ const BLURB: Record<Tab, string> = {
 	money: "How every figure is converted, taxed, and shown.",
 	security: "Your password, and who can see the screen.",
 	account: "Who you are, and where you're signed in.",
+	data: "Export your transactions, plan, and spending as CSV.",
 };
 
 export const Route = createFileRoute("/_auth/settings")({
@@ -62,6 +65,7 @@ function SettingsPage() {
 					)}
 					{tab === "security" && <SecurityTab />}
 					{tab === "account" && <AccountTab />}
+					{tab === "data" && <DataTab />}
 				</div>
 			</div>
 		</main>
