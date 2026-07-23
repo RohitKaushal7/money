@@ -14,6 +14,7 @@ import {
 	DateRangePicker,
 	resolveRange,
 } from "@/components/date-range-picker";
+import { SpendingExplorer } from "@/components/spending/explorer";
 import { SpendingHistory } from "@/components/spending/spending-history";
 import { useMoney } from "@/lib/currency";
 import { formatDay, formatMonth } from "@/lib/format";
@@ -28,6 +29,7 @@ const IN = "var(--covered)"; // spending falling / under budget = the colour of 
 
 function SpendingPage() {
 	const [range, setRange] = useState<DateRange>(() => resolveRange("last-24m"));
+	const [tab, setTab] = useState<"overview" | "explorer">("overview");
 	const q = useQuery(
 		orpc.spending.overview.queryOptions({
 			input: { from: range.from, to: range.to },
@@ -55,34 +57,70 @@ function SpendingPage() {
 					<DateRangePicker defaultPreset="last-24m" onChange={setRange} />
 				</header>
 
-				{q.isLoading && <Muted>Loading…</Muted>}
-				{!q.isLoading && !hasData && <EmptyState />}
+				<TabBar tab={tab} onChange={setTab} />
 
-				{hasData && res && insights && (
+				{tab === "overview" && (
 					<>
-						<SummaryBar res={res} insights={insights} />
-						<LevelStrip res={res} insights={insights} />
-						<SpendingHistory res={res} insights={insights} />
-						<section className="flex flex-col">
-							<SectionHead>
-								Categories{" "}
-								<span className="text-muted-foreground">
-									· biggest movers first
-								</span>
-							</SectionHead>
-							<ul className="flex flex-col">
-								{res.categories.map((c) => (
-									<MoverRow key={c.key} cat={c} months={res.months} />
-								))}
-							</ul>
-						</section>
-						{res.budgetedNoActual.length > 0 && (
-							<BudgetedNoActual items={res.budgetedNoActual} />
+						{q.isLoading && <Muted>Loading…</Muted>}
+						{!q.isLoading && !hasData && <EmptyState />}
+
+						{hasData && res && insights && (
+							<>
+								<SummaryBar res={res} insights={insights} />
+								<LevelStrip res={res} insights={insights} />
+								<SpendingHistory res={res} insights={insights} />
+								<section className="flex flex-col">
+									<SectionHead>
+										Categories{" "}
+										<span className="text-muted-foreground">
+											· biggest movers first
+										</span>
+									</SectionHead>
+									<ul className="flex flex-col">
+										{res.categories.map((c) => (
+											<MoverRow key={c.key} cat={c} months={res.months} />
+										))}
+									</ul>
+								</section>
+								{res.budgetedNoActual.length > 0 && (
+									<BudgetedNoActual items={res.budgetedNoActual} />
+								)}
+							</>
 						)}
 					</>
 				)}
+
+				{tab === "explorer" && <SpendingExplorer range={range} />}
 			</div>
 		</main>
+	);
+}
+
+function TabBar({
+	tab,
+	onChange,
+}: {
+	tab: "overview" | "explorer";
+	onChange: (t: "overview" | "explorer") => void;
+}) {
+	const item = (id: "overview" | "explorer", label: string) => (
+		<button
+			type="button"
+			onClick={() => onChange(id)}
+			className={`cursor-pointer border-b-2 px-1 pb-2 font-medium text-sm transition-colors ${
+				tab === id
+					? "border-foreground text-foreground"
+					: "border-transparent text-muted-foreground hover:text-foreground"
+			}`}
+		>
+			{label}
+		</button>
+	);
+	return (
+		<div className="flex gap-6 border-border border-b">
+			{item("overview", "Overview")}
+			{item("explorer", "Explorer")}
+		</div>
 	);
 }
 
