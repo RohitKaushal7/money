@@ -1,15 +1,10 @@
 import type { SqlParam } from "@money/analytics";
-import {
-	categories,
-	transactionManualSplits,
-	transactionOverrides,
-} from "@money/db";
 import type { CoverageRatioPoint } from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
-
-const UNCATEGORIZED = "uncategorized";
+import { loadTxnOverlays } from "../load-txn-overlays";
+import { enrichTransactions, type RawTxnRow } from "../transactions";
 
 /** Union of the category keys, ignoring order/duplicates — a stable signature for "same categorisation". */
 function categorySignature(keys: string[]): string {
@@ -150,23 +145,9 @@ export const analyticsRouter = {
 			const limit = input.limit ?? 100;
 			const offset = input.offset ?? 0;
 
-			// Overlay sources from SQLite (small tables — read whole, index in JS).
-			const [overrides, manualSplits, cats] = await Promise.all([
-				context.appDb.select().from(transactionOverrides),
-				context.appDb.select().from(transactionManualSplits),
-				context.appDb
-					.select({ key: categories.key, kind: categories.kind })
-					.from(categories),
-			]);
-			const overrideByTxn = new Map(overrides.map((o) => [o.txnId, o]));
-			// live category→kind map (app.db is the source of truth, reflects edits before a retag)
-			const kindByCategory = new Map(cats.map((c) => [c.key, c.kind]));
-			const manualByTxn = new Map<string, typeof manualSplits>();
-			for (const m of manualSplits) {
-				const arr = manualByTxn.get(m.txnId) ?? [];
-				arr.push(m);
-				manualByTxn.set(m.txnId, arr);
-			}
+			// Overlay sources from SQLite (small tables — read whole, index in JS). Shared with the CSV export
+			// so the two never disagree about a row's effective category/kind.
+			const overlays = await loadTxnOverlays(context.appDb);
 
 			return withReader(context.uid, async (reader) => {
 				const where: string[] = [];
@@ -207,15 +188,7 @@ export const analyticsRouter = {
 				);
 				const total = countRow?.n ?? 0;
 
-				const rows = await reader.query<{
-					txnId: string;
-					date: string;
-					narration: string;
-					amount: number;
-					balance: number;
-					categoryKey: string | null;
-					kind: string | null;
-				}>(
+				const rows = await reader.query<RawTxnRow>(
 					`SELECT t.txn_id AS "txnId", CAST(t.txn_date AS VARCHAR) AS date, t.narration,
 						t.amount, t.balance, s.category_key AS "categoryKey", s.kind
 					FROM transactions t
@@ -226,36 +199,12 @@ export const analyticsRouter = {
 					params,
 				);
 
-				const transactions = rows.map((r) => {
-					const ov = overrideByTxn.get(r.txnId);
-					const manual = manualByTxn.get(r.txnId);
-					const bakedCategoryKey = r.categoryKey ?? UNCATEGORIZED;
-					const effectiveCategoryKey =
-						ov?.overrideCategoryKey ?? bakedCategoryKey;
-					const effectiveKind =
-						ov?.overrideKind ??
-						kindByCategory.get(effectiveCategoryKey) ??
-						r.kind ??
-						"transfer";
-					return {
-						txnId: r.txnId,
-						date: r.date,
-						narration: r.narration,
-						amount: r.amount,
-						balance: r.balance,
-						bakedCategoryKey,
-						categoryKey: effectiveCategoryKey,
-						kind: effectiveKind,
-						hasOverride: ov != null,
-						overrideNote: ov?.note ?? null,
-						manualSplitCount: manual?.length ?? 0,
-					};
-				});
+				const transactions = enrichTransactions(rows, overlays);
 
 				// pendingRetag: any candidate whose expected category signature differs from what's baked.
 				const candidateIds = new Set<string>([
-					...overrideByTxn.keys(),
-					...manualByTxn.keys(),
+					...overlays.overrideByTxn.keys(),
+					...overlays.manualByTxn.keys(),
 				]);
 				let pendingRetag = 0;
 				if (candidateIds.size > 0) {
@@ -276,8 +225,8 @@ export const analyticsRouter = {
 						bakedByTxn.set(b.txnId, arr);
 					}
 					for (const id of candidateIds) {
-						const manual = manualByTxn.get(id);
-						const ov = overrideByTxn.get(id);
+						const manual = overlays.manualByTxn.get(id);
+						const ov = overlays.overrideByTxn.get(id);
 						let expected: string;
 						if (manual && manual.length > 0) {
 							expected = categorySignature(manual.map((m) => m.categoryKey));
