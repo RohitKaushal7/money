@@ -1,4 +1,5 @@
 import {
+	type AxioCrossCheckRow,
 	type AxioSpendRow,
 	cardBillCrossCheck,
 	headerSplit,
@@ -39,7 +40,14 @@ export function SpendingExplorer({ range }: { range: DateRange }) {
 	}
 
 	const split = headerSplit(spend);
-	const cross = cardBillCrossCheck(spend, cardBills).at(-1); // most recent settled month
+	// A month's card spend settles the NEXT month, so the current/future months have no bill yet — showing
+	// them reads as a huge false "unbilled" gap. Keep only months whose settlement month has posted, newest
+	// first, last six — enough to tell a persistent gap from a one-off.
+	const thisMonth = new Date().toISOString().slice(0, 7);
+	const settlements = cardBillCrossCheck(spend, cardBills)
+		.filter((r) => r.settleMonth <= thisMonth)
+		.slice(-6)
+		.reverse();
 
 	return (
 		<div className="flex flex-col gap-8">
@@ -62,52 +70,72 @@ export function SpendingExplorer({ range }: { range: DateRange }) {
 			<AxioChart spend={spend} />
 			<AxioCategoryTable spend={spend} />
 
-			{cross && cross.cardSpend > 0 && (
-				<CrossCheck
-					label={`${formatMonth(cross.spendMonth)} card spend`}
-					settle={formatMonth(cross.settleMonth)}
-					cardSpend={fmt(cross.cardSpend)}
-					cardBill={fmt(cross.cardBill)}
-					gap={fmt(Math.abs(cross.gap))}
-					over={cross.gap > 0}
-				/>
-			)}
+			<CardSettlements rows={settlements} />
 
 			<ImportPanel onDone={refresh} />
 		</div>
 	);
 }
 
-function CrossCheck({
-	label,
-	settle,
-	cardSpend,
-	cardBill,
-	gap,
-	over,
-}: {
-	label: string;
-	settle: string;
-	cardSpend: string;
-	cardBill: string;
-	gap: string;
-	over: boolean;
-}) {
+/**
+ * Recent card settlements: month M's Axio card spend against the statement's card_bill in month M+1. A
+ * single month is noise (partial payments, rollover); a run of them shows whether the two ledgers track.
+ */
+function CardSettlements({ rows }: { rows: AxioCrossCheckRow[] }) {
+	const { fmt } = useMoney();
+	if (rows.length === 0) return null;
 	return (
-		<div className="rounded-2xl border border-border border-dashed bg-card/30 px-6 py-5 text-sm">
-			<p className="text-muted-foreground">
-				{label} <span className="text-foreground">{cardSpend}</span> → settled{" "}
-				{settle} as card&nbsp;bill{" "}
-				<span className="text-foreground">{cardBill}</span> ·{" "}
-				<span style={{ color: over ? "var(--uncovered)" : "var(--covered)" }}>
-					{gap} {over ? "unbilled" : "over-billed"}
-				</span>
-			</p>
-			<p className="mt-1 text-muted-foreground text-xs">
+		<section className="flex flex-col gap-2">
+			<h3 className="font-medium text-muted-foreground text-sm">
+				Card settlements · Axio spend vs statement bill
+			</h3>
+			<div className="flex flex-col divide-y divide-border rounded-2xl border border-border border-dashed bg-card/30 px-6">
+				<div className="flex items-center gap-3 py-2 text-muted-foreground text-xs">
+					<span className="flex-1">Spend month → bill month</span>
+					<span className="w-24 text-right">Axio</span>
+					<span className="w-24 text-right">Bill</span>
+					<span className="w-28 text-right">Gap</span>
+				</div>
+				{rows.map((r) => {
+					// Neither direction is inherently good or bad, so the gap stays neutral — magnitude and
+					// direction, no red/green. "Matched" is within ~10% (partial payments and rollover make an
+					// exact match unusual even when nothing is wrong).
+					const matched =
+						Math.abs(r.gap) <= 0.1 * Math.max(r.cardSpend, r.cardBill);
+					return (
+						<div
+							key={r.spendMonth}
+							className="tnum flex items-center gap-3 py-2.5 text-sm"
+						>
+							<span className="flex-1 text-muted-foreground">
+								{formatMonth(r.spendMonth)} → {formatMonth(r.settleMonth)}
+							</span>
+							<span className="w-24 text-right">{fmt(r.cardSpend)}</span>
+							<span className="w-24 text-right text-muted-foreground">
+								{fmt(r.cardBill)}
+							</span>
+							<span className="w-28 text-right">
+								{matched ? (
+									<span className="text-muted-foreground">matched</span>
+								) : (
+									<>
+										{fmt(Math.abs(r.gap))}{" "}
+										<span className="text-muted-foreground text-xs">
+											{r.gap > 0 ? "unbilled" : "over"}
+										</span>
+									</>
+								)}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+			<p className="text-muted-foreground text-xs">
 				Advisory — Axio and the statement are separate ledgers; a persistent gap
-				means a spend Axio missed or a transfer you haven’t re-marked.
+				means a spend Axio missed or a transfer you haven’t re-marked. The
+				current month is omitted until its bill posts.
 			</p>
-		</div>
+		</section>
 	);
 }
 
