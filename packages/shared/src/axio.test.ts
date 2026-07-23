@@ -152,10 +152,11 @@ describe("axioSeries", () => {
 			categories: ["BILLS"],
 		});
 		expect(s).toHaveLength(1);
-		expect(s[0].period).toBe("2026-Q1");
-		expect(s[0].total).toBe(350);
-		expect(s[0].byCategory.BILLS).toBe(300);
-		expect(s[0].byCategory[AXIO_OTHER]).toBe(50);
+		const p = s[0];
+		expect(p?.period).toBe("2026-Q1");
+		expect(p?.total).toBe(350);
+		expect(p?.byCategory.BILLS).toBe(300);
+		expect(p?.byCategory[AXIO_OTHER]).toBe(50);
 	});
 });
 
@@ -163,12 +164,14 @@ describe("cardBillCrossCheck", () => {
 	test("compares month M card spend against month M+1 card_bill", () => {
 		const rows = [R("2026-06", "GROCERIES", "Axis credit 4444", 40000)];
 		const bills = [{ month: "2026-07", amount: 38000 }];
-		const [row] = cardBillCrossCheck(rows, bills);
-		expect(row.spendMonth).toBe("2026-06");
-		expect(row.settleMonth).toBe("2026-07");
-		expect(row.cardSpend).toBe(40000);
-		expect(row.cardBill).toBe(38000);
-		expect(row.gap).toBe(2000);
+		const result = cardBillCrossCheck(rows, bills);
+		expect(result).toHaveLength(1);
+		const row = result[0];
+		expect(row?.spendMonth).toBe("2026-06");
+		expect(row?.settleMonth).toBe("2026-07");
+		expect(row?.cardSpend).toBe(40000);
+		expect(row?.cardBill).toBe(38000);
+		expect(row?.gap).toBe(2000);
 	});
 });
 

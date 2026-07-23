@@ -288,6 +288,8 @@ export const importRouter = {
 		if (!existsSync(rawDir)) return [];
 		const names = readdirSync(rawDir)
 			.filter((f) => f.toLowerCase().endsWith(".csv"))
+			// The Axio export is a separate ledger with its own importer — never a statement.
+			.filter((f) => !f.toLowerCase().startsWith("axio-"))
 			.sort();
 		const [bindings, formats, accts] = await Promise.all([
 			context.appDb.select().from(importFiles),

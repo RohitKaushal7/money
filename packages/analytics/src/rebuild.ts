@@ -1,4 +1,5 @@
 import type { ImportReport, StatementMapping } from "@money/shared";
+import { buildAxioSelect } from "./build-axio-select";
 import { buildTransactionsSelect } from "./build-select";
 import { type AnalyticsWriter, applySchema } from "./ingest";
 
@@ -214,11 +215,32 @@ async function createViews(writer: AnalyticsWriter): Promise<void> {
 		GROUP BY t.month, s.category_key, s.kind`);
 }
 
+/**
+ * Load the single active Axio export into `axio_expenses` (spec 2026-07-23). Whole-history replace — the
+ * table was just `CREATE OR REPLACE`d by {@link applySchema}, so this fully repopulates it; `ON CONFLICT DO
+ * NOTHING` absorbs any duplicate ids inside the file. A SEPARATE ledger: never joined to `transactions`.
+ */
+async function loadAxio(
+	writer: AnalyticsWriter,
+	file: { path: string; name: string },
+): Promise<number> {
+	const select = buildAxioSelect(file.path, file.name);
+	await writer.run(
+		`INSERT INTO axio_expenses BY NAME (${select}) ON CONFLICT DO NOTHING`,
+	);
+	const rows = await writer.query<{ n: number }>(
+		"SELECT count(*) AS n FROM axio_expenses",
+	);
+	return rows[0]?.n ?? 0;
+}
+
 export interface RebuildOptions {
 	/** Each file carries its own resolved mapping + account (from its import_files binding). */
 	files: RebuildFile[];
 	/** Absolute path to the SQLite app DB to ATTACH for rules/overrides/manual-splits (ADR-0004). */
 	sqlitePath: string;
+	/** The single active Axio export, if any — parsed into the separate `axio_expenses` ledger. */
+	axioFile?: { path: string; name: string };
 }
 
 export async function rebuild(
@@ -234,6 +256,7 @@ export async function rebuild(
 		reports.push(await loadFile(writer, file, batchId));
 		batchId += 1;
 	}
+	if (options.axioFile) await loadAxio(writer, options.axioFile);
 	await buildSplits(writer);
 	await createViews(writer);
 	return reports;

@@ -148,14 +148,31 @@ async function dryRunMode(csvPath: string): Promise<void> {
 /** Report the current totals + uncategorised backlog after a write. */
 async function totals(
 	writer: Awaited<ReturnType<typeof openReadWrite>>,
-): Promise<{ transactions: number; uncategorized: number }> {
+): Promise<{
+	transactions: number;
+	uncategorized: number;
+	axioExpenses: number;
+}> {
 	const [row] = await writer.query<{ n: number }>(
 		"SELECT count(*) AS n FROM transactions",
 	);
 	const [uncat] = await writer.query<{ n: number }>(
 		"SELECT count(*) AS n FROM transaction_splits WHERE category_key = 'uncategorized'",
 	);
-	return { transactions: row?.n ?? 0, uncategorized: uncat?.n ?? 0 };
+	let axioExpenses = 0;
+	try {
+		const [ax] = await writer.query<{ n: number }>(
+			"SELECT count(*) AS n FROM axio_expenses",
+		);
+		axioExpenses = ax?.n ?? 0;
+	} catch {
+		axioExpenses = 0; // table absent on a retag-only DB built before this feature
+	}
+	return {
+		transactions: row?.n ?? 0,
+		uncategorized: uncat?.n ?? 0,
+		axioExpenses,
+	};
 }
 
 async function main(): Promise<void> {
@@ -184,10 +201,20 @@ async function main(): Promise<void> {
 			emit({ mode: "rebuild", transactions: 0, uncategorized: 0, reports: [] });
 			return;
 		}
-		const names = readdirSync(RAW_DIR)
+		const allCsv = readdirSync(RAW_DIR)
 			.filter((name) => name.toLowerCase().endsWith(".csv"))
 			.sort();
-		if (names.length === 0) {
+		// The Axio export is a SEPARATE ledger, not a bank statement — keep it out of the statement path.
+		const axioName = allCsv.find((name) =>
+			name.toLowerCase().startsWith("axio-"),
+		);
+		const names = allCsv.filter(
+			(name) => !name.toLowerCase().startsWith("axio-"),
+		);
+		const axioFile = axioName
+			? { path: `${RAW_DIR}/${axioName}`, name: axioName }
+			: undefined;
+		if (names.length === 0 && !axioFile) {
 			console.log(
 				`[ingest] no .csv files in ${RAW_DIR}/ — drop statement export(s) there first.`,
 			);
@@ -217,7 +244,13 @@ async function main(): Promise<void> {
 		console.log(
 			`[ingest] rebuilding ${DB_PATH} from ${files.length} raw file(s)…`,
 		);
-		const reports = await rebuild(writer, { files, sqlitePath: SQLITE_PATH });
+		const reports = await rebuild(writer, {
+			files,
+			sqlitePath: SQLITE_PATH,
+			axioFile,
+		});
+		if (axioFile)
+			console.log(`[ingest] loaded Axio ledger from ${axioFile.name}`);
 		for (const r of reports) {
 			console.log(
 				`[ingest] ${r.sourceFile}: ${r.rowsNew} new, ${r.rowsDuplicate} duplicate (${r.rowsTotal} rows)`,

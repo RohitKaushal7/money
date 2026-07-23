@@ -106,10 +106,10 @@ describe("buildAxioSelect", () => {
 			await conn.run(
 				`INSERT INTO axio_expenses BY NAME (${sel}) ON CONFLICT DO NOTHING`,
 			); // replace re-runs
-			const [{ n }] = await conn.query<{ n: number }>(
+			const counted = await conn.query<{ n: number }>(
 				"SELECT count(*) AS n FROM axio_expenses",
 			);
-			expect(Number(n)).toBe(4); // still 4 — ON CONFLICT dropped the second pass
+			expect(Number(counted[0]?.n)).toBe(4); // still 4 — ON CONFLICT dropped the second pass
 		} finally {
 			await conn.close();
 		}

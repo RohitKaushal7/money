@@ -67,7 +67,9 @@ export function isCreditAccount(name: string): boolean {
 
 /** The month that settles a month's card spend. All cards bill monthly on the 1st–3rd, so `M → M+1`. */
 export function settlementMonth(ym: string): string {
-	const [y, m] = ym.split("-").map(Number);
+	const [ys, ms] = ym.split("-");
+	const y = Number(ys);
+	const m = Number(ms);
 	const next = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
 	return `${next.y}-${String(next.m).padStart(2, "0")}`;
 }
@@ -76,7 +78,9 @@ export function settlementMonth(ym: string): string {
 export function periodOf(ym: string, g: AxioGranularity): string {
 	if (g === "year") return ym.slice(0, 4);
 	if (g === "month") return ym;
-	const [y, m] = ym.split("-").map(Number);
+	const [ys, ms] = ym.split("-");
+	const y = Number(ys);
+	const m = Number(ms);
 	return `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
 }
 
