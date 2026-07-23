@@ -256,9 +256,12 @@ export async function rebuild(
 		reports.push(await loadFile(writer, file, batchId));
 		batchId += 1;
 	}
-	if (options.axioFile) await loadAxio(writer, options.axioFile);
 	await buildSplits(writer);
 	await createViews(writer);
+	// Axio is loaded LAST, after the core (transactions, splits, KPI views) is built and committed. The
+	// advisory ledger must never be able to take the core down: if a malformed Axio export throws here, the
+	// statement analytics are already persisted, so the failure is reported but nothing is lost.
+	if (options.axioFile) await loadAxio(writer, options.axioFile);
 	return reports;
 }
 

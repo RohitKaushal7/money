@@ -123,6 +123,46 @@ describe("buildAxioSelect", () => {
 		);
 	});
 
+	// Regression: the real 8-year export has blank-CATEGORY rows, byte-identical duplicate rows, and the
+	// odd blank AMOUNT. These once crashed the rebuild mid-way (NOT NULL / duplicate-PK), wiping splits.
+	test("survives blank category, duplicate rows, and unparseable amounts", async () => {
+		const messy = [
+			'"","axio","EXPENSE","REPORT","","","","","","",""',
+			'"Name","x","","","","","","","","",""',
+			'"Phone","y","","","","","","","","",""',
+			'"Email","z","","","","","","","","",""',
+			'"FROM","2026-06-01","TO","2026-06-30"',
+			"",
+			'"DATE","TIME","PLACE","AMOUNT","DR/CR","ACCOUNT","EXPENSE","INCOME","CATEGORY","TAGS","NOTE"',
+			// blank CATEGORY → must become UNKNOWN, not a NOT NULL crash
+			'"2026-06-05","10:00 AM","SOME SHOP","500","DR","Axis credit 4444","Yes","\'-","","",""',
+			// two byte-identical rows → same id → must collapse to one (PK forbids both)
+			'"2026-06-06","11:00 AM","TWICE","50","DR","Axis credit 4444","Yes","\'-","FOOD & DRINKS","",""',
+			'"2026-06-06","11:00 AM","TWICE","50","DR","Axis credit 4444","Yes","\'-","FOOD & DRINKS","",""',
+			// blank AMOUNT → dropped, not a NOT NULL crash
+			'"2026-06-07","12:00 PM","NO AMOUNT","","DR","Axis credit 4444","Yes","\'-","BILLS","",""',
+		].join("\n");
+		const path = join(dir, "messy.csv");
+		writeFileSync(path, messy);
+		const conn = await openConnection(":memory:", "read_write");
+		try {
+			await applySchema(conn);
+			await conn.run(
+				`INSERT INTO axio_expenses BY NAME (${buildAxioSelect(path, "messy.csv")}) ON CONFLICT DO NOTHING`,
+			);
+			const rows = await conn.query<{ category: string; place: string }>(
+				"SELECT category, place FROM axio_expenses ORDER BY place",
+			);
+			expect(rows).toHaveLength(2); // SOME SHOP + one TWICE; NO AMOUNT dropped, dup collapsed
+			expect(rows.find((r) => r.place === "SOME SHOP")?.category).toBe(
+				"UNKNOWN",
+			);
+			expect(rows.some((r) => r.place === "NO AMOUNT")).toBe(false);
+		} finally {
+			await conn.close();
+		}
+	});
+
 	test("INSERT via buildAxioSelect populates axio_expenses and de-dupes by id", async () => {
 		const path = join(dir, "axio-load.csv");
 		writeFileSync(path, CSV);
