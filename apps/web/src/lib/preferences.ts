@@ -21,6 +21,12 @@ const DEFAULTS = {
 	"runway.inflationRate": 0.06,
 	/** are amounts masked on screen right now? */
 	"privacy.hidden": false,
+	/** Axio explorer: how finely to bucket time. */
+	"explorer.granularity": "month" as "month" | "quarter" | "year",
+	/** Axio explorer: which chart shape. */
+	"explorer.mode": "composition" as "composition" | "trend" | "total",
+	/** Axio explorer: which accounts to include. */
+	"explorer.scope": "all" as "all" | "cards" | "direct",
 };
 
 export type Preferences = typeof DEFAULTS;
