@@ -15,6 +15,7 @@ import {
 	resolveRange,
 } from "@/components/date-range-picker";
 import { SpendingExplorer } from "@/components/spending/explorer";
+import { MoneyFlow } from "@/components/spending/money-flow";
 import { SpendingHistory } from "@/components/spending/spending-history";
 import { useMoney } from "@/lib/currency";
 import { formatDay, formatMonth } from "@/lib/format";
@@ -29,7 +30,7 @@ const IN = "var(--covered)"; // spending falling / under budget = the colour of 
 
 function SpendingPage() {
 	const [range, setRange] = useState<DateRange>(() => resolveRange("last-24m"));
-	const [tab, setTab] = useState<"overview" | "explorer">("overview");
+	const [tab, setTab] = useState<"overview" | "flow" | "explorer">("overview");
 	const q = useQuery(
 		orpc.spending.overview.queryOptions({
 			input: { from: range.from, to: range.to },
@@ -90,6 +91,8 @@ function SpendingPage() {
 					</>
 				)}
 
+				{tab === "flow" && <MoneyFlow range={range} />}
+
 				{tab === "explorer" && <SpendingExplorer range={range} />}
 			</div>
 		</main>
@@ -100,10 +103,10 @@ function TabBar({
 	tab,
 	onChange,
 }: {
-	tab: "overview" | "explorer";
-	onChange: (t: "overview" | "explorer") => void;
+	tab: "overview" | "flow" | "explorer";
+	onChange: (t: "overview" | "flow" | "explorer") => void;
 }) {
-	const item = (id: "overview" | "explorer", label: string) => (
+	const item = (id: "overview" | "flow" | "explorer", label: string) => (
 		<button
 			type="button"
 			onClick={() => onChange(id)}
@@ -119,6 +122,7 @@ function TabBar({
 	return (
 		<div className="flex gap-6 border-border border-b">
 			{item("overview", "Overview")}
+			{item("flow", "Flow")}
 			{item("explorer", "Explorer")}
 		</div>
 	);

@@ -1,4 +1,9 @@
-import { type SpendingRow, spendingTrends } from "@money/shared";
+import {
+	type MoneyFlowRow,
+	moneyFlow,
+	type SpendingRow,
+	spendingTrends,
+} from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
@@ -21,6 +26,24 @@ async function expenseRows(uid: string): Promise<SpendingRow[]> {
 			`SELECT month, category_key AS "categoryKey", kind, amount, n
 			FROM v_category_monthly
 			WHERE kind = 'expense'
+			ORDER BY month`,
+		),
+	);
+}
+
+/**
+ * Every-kind category × month rows for the money-flow Sankey (read-only). Unlike {@link expenseRows} this
+ * keeps income and investment rows too, plus the one transfer we care about — `investment_redemption` — so
+ * the pure {@link moneyFlow} can net matured principal out of gross investments. Other transfers (sweeps,
+ * self-transfers, uncategorised) are dropped here so they never reach the compute.
+ */
+async function flowRows(uid: string): Promise<MoneyFlowRow[]> {
+	return withReader(uid, (reader) =>
+		reader.query<MoneyFlowRow>(
+			`SELECT month, category_key AS "categoryKey", kind, amount, n
+			FROM v_category_monthly
+			WHERE kind IN ('active_income', 'passive_income', 'expense', 'investment')
+				OR (kind = 'transfer' AND category_key = 'investment_redemption')
 			ORDER BY month`,
 		),
 	);
@@ -70,6 +93,36 @@ export const spendingRouter = {
 				)
 				.slice(-24);
 			return spendingTrends({ rows, recurring, months });
+		}),
+
+	/**
+	 * Income-allocation flow (the Sankey "Flow" tab): monthly-average income → spent / invested / saved.
+	 * Same windowing as {@link overview} — scope to the requested range, cap to the last 24 months.
+	 */
+	flow: protectedProcedure
+		.input(
+			z
+				.object({
+					from: z.string().optional(),
+					to: z.string().optional(),
+				})
+				.optional(),
+		)
+		.handler(async ({ context, input }) => {
+			const rows = analyticsReady(context.uid)
+				? await flowRows(context.uid)
+				: [];
+			const fromMonth = input?.from?.slice(0, 7);
+			const toMonth = input?.to?.slice(0, 7);
+			const months = [...new Set(rows.map((r) => r.month))]
+				.sort()
+				.filter(
+					(m) =>
+						(fromMonth == null || m >= fromMonth) &&
+						(toMonth == null || m <= toMonth),
+				)
+				.slice(-24);
+			return moneyFlow({ rows, months });
 		}),
 
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */

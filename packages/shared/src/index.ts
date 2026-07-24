@@ -27,6 +27,7 @@ export * from "./currency";
 export * from "./freedom";
 export * from "./fy";
 export * from "./kinds";
+export * from "./money-flow";
 export * from "./networth";
 export * from "./plan";
 export * from "./reconcile";
