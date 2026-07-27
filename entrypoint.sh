@@ -30,11 +30,21 @@ if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
 	export BETTER_AUTH_SECRET
 fi
 
-# Default the auth URL to localhost so zero-config self-host works. Override in .env if you reach the app
-# from any other origin (a LAN IP, a domain behind a reverse proxy).
+# Default the auth URL so zero-config self-host works. Override in .env (or [env] in fly.toml) if you reach
+# the app from any other origin (a LAN IP, a custom domain behind a reverse proxy).
+#
+# Fly.io injects FLY_APP_NAME into every Machine, and Fly Proxy always terminates TLS at
+# https://<app>.fly.dev — so on Fly we can derive the correct HTTPS origin ourselves. Without this a Fly
+# deploy would default to localhost and every session cookie would be rejected as cross-origin. Elsewhere
+# (docker compose) FLY_APP_NAME is unset and we fall back to localhost exactly as before.
 if [ -z "${BETTER_AUTH_URL:-}" ]; then
-	export BETTER_AUTH_URL="http://localhost:3000"
-	echo "[entrypoint] BETTER_AUTH_URL unset; defaulting to http://localhost:3000"
+	if [ -n "${FLY_APP_NAME:-}" ]; then
+		export BETTER_AUTH_URL="https://${FLY_APP_NAME}.fly.dev"
+		echo "[entrypoint] BETTER_AUTH_URL unset; derived $BETTER_AUTH_URL from FLY_APP_NAME"
+	else
+		export BETTER_AUTH_URL="http://localhost:3000"
+		echo "[entrypoint] BETTER_AUTH_URL unset; defaulting to http://localhost:3000"
+	fi
 fi
 
 echo "[entrypoint] applying SQLite migrations..."
