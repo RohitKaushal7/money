@@ -24,9 +24,14 @@ isolated in its own set of database files.
 
 ## Self-hosting
 
-The app ships as a single public Docker image — **`rohitkaushal7/money`** (amd64 / x86-64). One container
+The app ships as a single public Docker image — **`rohitkaushal7/money`**, multi-arch for **amd64** and
+**arm64**, so the same tag runs on an x86 server, an Apple Silicon Mac, or a Raspberry Pi. One container
 serves both the API and the web UI on one origin, applies database migrations on startup, and keeps all
 state in a bind-mounted `data/` directory.
+
+> **Raspberry Pi: 64-bit OS required.** DuckDB publishes no 32-bit ARM build, so 32-bit Raspberry Pi OS
+> cannot run this image — use the 64-bit edition (`uname -m` should say `aarch64`). Give it 1GB+ of RAM;
+> rebuilding the analytics database is the memory peak.
 
 ### 1. Create a project directory
 
@@ -40,7 +45,7 @@ mkdir -p ~/apps/money && cd ~/apps/money
 name: money
 services:
   money:
-    image: rohitkaushal7/money:latest   # amd64 / x86-64
+    image: rohitkaushal7/money:latest   # multi-arch: amd64 + arm64
     container_name: money
     init: true
     ports:
@@ -186,8 +191,10 @@ bun run db:migrate     # apply SQLite migrations (control.db + every users/<id>/
 ```
 
 Common scripts: `bun run check-types`, `bun run check` (Biome), `bun run db:studio`, `bun run ingest`.
-Build and ship the container with `bun run docker:build` and `bun run deploy` (see `deploy.sh`). Full list
-in the root `package.json` and `CLAUDE.md`.
+Build and ship the container with `bun run docker:build` and `bun run deploy` (see `deploy.sh`) — both are
+host-arch only, which is all a deploy to your own x86 server needs. `bun run docker:publish` is the
+multi-arch one: it cross-builds amd64 + arm64 and pushes a single manifest list (see `publish.sh`). Full
+list of scripts in the root `package.json` and `CLAUDE.md`.
 
 ## Documentation
 
