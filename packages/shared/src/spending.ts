@@ -78,18 +78,28 @@ export interface SpendingInput {
 	recurring: RecurringExpense[];
 	/** Explicit window (ascending). Defaults to every month present in `rows`. */
 	months?: string[];
+	/** YYYY-MM-DD. Supplied, budgets drop any recurring expense whose end date has already passed. */
+	today?: string;
 }
 
 /** ±10% dead-band so ordinary wobble reads as "flat", not a move. */
 const MOVE_BAND = 0.1;
 
-/** Monthly plan budget per expense category = Σ monthlyAmount over recurring expenses in that category. */
-function budgetByCategory(recurring: RecurringExpense[]): Map<string, number> {
+/**
+ * Monthly plan budget per expense category = Σ monthlyAmount over recurring expenses in that category.
+ *
+ * Ended expenses contribute nothing, so a subscription you cancelled stops showing up as budget you are
+ * under — `monthlyAmount` already returns 0 for them once it knows the date.
+ */
+function budgetByCategory(
+	recurring: RecurringExpense[],
+	today?: string,
+): Map<string, number> {
 	const out = new Map<string, number>();
 	for (const exp of recurring) {
 		if (!exp.category) continue;
 		if (CATEGORY_BY_KEY.get(exp.category)?.kind !== "expense") continue;
-		const m = monthlyAmount(exp);
+		const m = monthlyAmount(exp, today);
 		if (m <= 0) continue;
 		out.set(exp.category, (out.get(exp.category) ?? 0) + m);
 	}
@@ -124,7 +134,7 @@ export function spendingTrends(input: SpendingInput): SpendingTrends {
 	const months =
 		input.months ?? [...new Set(expenses.map((r) => r.month))].sort();
 	const monthIndex = new Map(months.map((m, i) => [m, i]));
-	const budgets = budgetByCategory(input.recurring);
+	const budgets = budgetByCategory(input.recurring, input.today);
 
 	// Pivot: category → per-month spend magnitude (+ txn count).
 	const pivots = new Map<string, { byMonth: number[]; n: number }>();

@@ -3,6 +3,8 @@ import {
 	coverageLadder,
 	expectedMonthlyInterest,
 	isActiveInvestment,
+	isExpired,
+	isLiveExpense,
 	isMatured,
 	monthlyAmount,
 	monthlyReturn,
@@ -113,6 +115,68 @@ describe("monthlyAmount", () => {
 	});
 	test("non-periodic cadence → 0", () => {
 		expect(monthlyAmount(exp({ amount: 32_000, cadence: "maturity" }))).toBe(0);
+	});
+	test("ended before today → 0", () => {
+		expect(
+			monthlyAmount(
+				exp({ amount: 32_000, endDate: "2026-06-30" }),
+				"2026-08-18",
+			),
+		).toBe(0);
+	});
+	test("still counts on its final day", () => {
+		expect(
+			monthlyAmount(
+				exp({ amount: 32_000, endDate: "2026-08-18" }),
+				"2026-08-18",
+			),
+		).toBe(32_000);
+	});
+	test("an end date in the future changes nothing", () => {
+		expect(
+			monthlyAmount(
+				exp({ amount: 32_000, endDate: "2027-01-01" }),
+				"2026-08-18",
+			),
+		).toBe(32_000);
+	});
+	test("without today, an end date is inert — expiry is opt-in, as with isMatured", () => {
+		expect(monthlyAmount(exp({ amount: 32_000, endDate: "2020-01-01" }))).toBe(
+			32_000,
+		);
+	});
+});
+
+describe("isExpired / isLiveExpense", () => {
+	test("no end date runs forever", () => {
+		expect(isExpired(exp({}), "2026-08-18")).toBe(false);
+		expect(isLiveExpense(exp({}), "2026-08-18")).toBe(true);
+	});
+	test("past its end date", () => {
+		expect(isExpired(exp({ endDate: "2026-06-30" }), "2026-08-18")).toBe(true);
+		expect(isLiveExpense(exp({ endDate: "2026-06-30" }), "2026-08-18")).toBe(
+			false,
+		);
+	});
+	test("inactive is not live even with no end date", () => {
+		expect(isLiveExpense(exp({ active: false }), "2026-08-18")).toBe(false);
+	});
+});
+
+describe("coverageLadder expiry", () => {
+	test("an ended expense leaves the denominator", () => {
+		const investmentsIn = [
+			inv({ expectedMonthlyInterest: 5_000, payout: "cash" }),
+		];
+		const live = exp({ amount: 10_000 });
+		const dead = exp({ id: "e2", amount: 10_000, endDate: "2026-06-30" });
+		const withDead = coverageLadder({
+			investments: investmentsIn,
+			recurring: [live, dead],
+			today: "2026-08-18",
+		});
+		expect(withDead.expenses).toBe(10_000);
+		expect(withDead.total.ratio).toBe(0.5);
 	});
 });
 

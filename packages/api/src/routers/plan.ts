@@ -151,7 +151,8 @@ const recurringInput = z.object({
 const idInput = z.object({ id: z.coerce.number().int().positive() });
 
 /** Today as YYYY-MM-DD (server clock) — drives auto-expiry of matured holdings. */
-function todayISO(): string {
+/** Today on the server clock, `YYYY-MM-DD` — the reference date every plan/expiry compute is drawn against. */
+export function todayISO(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 

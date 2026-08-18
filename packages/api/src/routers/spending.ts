@@ -8,7 +8,7 @@ import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
 import { loadRates } from "./currency";
-import { listRecurring, recurringToInr } from "./plan";
+import { listRecurring, recurringToInr, todayISO } from "./plan";
 
 /**
  * The **spending** router (issue 009) — the "where's it going, is it creeping" lens. Reads the categorised
@@ -92,7 +92,7 @@ export const spendingRouter = {
 						(toMonth == null || m <= toMonth),
 				)
 				.slice(-24);
-			return spendingTrends({ rows, recurring, months });
+			return spendingTrends({ rows, recurring, months, today: todayISO() });
 		}),
 
 	/**

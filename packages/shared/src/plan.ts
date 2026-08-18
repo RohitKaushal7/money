@@ -42,9 +42,17 @@ export function expectedMonthlyInterest(inv: Investment): number {
 	return 0;
 }
 
-/** Monthly-normalised amount of a recurring expense (INR): `amount × periods_per_year(cadence) ÷ 12`. */
-export function monthlyAmount(exp: RecurringExpense): number {
+/**
+ * Monthly-normalised amount of a recurring expense (INR): `amount × periods_per_year(cadence) ÷ 12`.
+ *
+ * Zero once the expense has ended — a subscription you cancelled in March must stop inflating the coverage
+ * denominator in April. Expiry only applies when `today` is supplied, exactly as `isMatured` works on the
+ * investment side; every aggregate that knows the date passes it through, and this is the one chokepoint
+ * they all go through, so the KPI, the budget comparison and the on-screen totals cannot disagree.
+ */
+export function monthlyAmount(exp: RecurringExpense, today?: string): number {
 	if (exp.active === false) return 0;
+	if (isExpired(exp, today)) return 0;
 	const ppy = PERIODS_PER_YEAR[exp.cadence];
 	if (!ppy) return 0; // maturity/none/unknown → not a recurring monthly cost
 	return (exp.amount * ppy) / 12;
@@ -93,6 +101,23 @@ export function isMatured(inv: Investment, today?: string): boolean {
 /** Live for plan math: flagged active and not matured (auto-expires past `maturityDate` when `today` is given). */
 export function isLive(inv: Investment, today?: string): boolean {
 	return inv.active !== false && !isMatured(inv, today);
+}
+
+/**
+ * Has this expense ended? True only when an end date is set and has already passed.
+ *
+ * An expense with no end date runs forever, which is the normal case — a rent, or a subscription you have
+ * not cancelled. The expense-side twin of {@link isMatured}, and it lives here beside it rather than with
+ * the schedule arithmetic because this is what the ladder asks.
+ */
+export function isExpired(exp: RecurringExpense, today?: string): boolean {
+	const end = toISODate(exp.endDate);
+	return end != null && today != null && end < today;
+}
+
+/** Live for plan math: flagged active and not past its end date. Twin of {@link isLive}. */
+export function isLiveExpense(exp: RecurringExpense, today?: string): boolean {
+	return exp.active !== false && !isExpired(exp, today);
 }
 
 /** The holding's total expected monthly return (INR), whether or not it's paid as cash. */
@@ -146,7 +171,10 @@ export function coverageLadder(input: {
 	recurring: RecurringExpense[];
 	today?: string;
 }): CoverageLadder {
-	const expenses = input.recurring.reduce((s, e) => s + monthlyAmount(e), 0);
+	const expenses = input.recurring.reduce(
+		(s, e) => s + monthlyAmount(e, input.today),
+		0,
+	);
 	let cash = 0;
 	let fixed = 0;
 	let total = 0;
@@ -211,7 +239,7 @@ export function wealthSummary(input: {
 	const totalValue = live.reduce((s, i) => s + (i.currentValue ?? 0), 0);
 	const annualReturn = live.reduce((s, i) => s + monthlyReturn(i) * 12, 0);
 	const monthlyExpenses = input.recurring.reduce(
-		(s, e) => s + monthlyAmount(e),
+		(s, e) => s + monthlyAmount(e, input.today),
 		0,
 	);
 	const annualExpenses = monthlyExpenses * 12;
