@@ -25,6 +25,8 @@ const DEFAULTS = {
 	"plan.period": "monthly" as "weekly" | "monthly" | "yearly",
 	/** Plan (narrow screens only): which of the two columns is on screen. */
 	"plan.tab": "outgoing" as "incoming" | "outgoing",
+	/** Plan: show each expense's next payment and order the list by it, rather than by size. */
+	"plan.bySchedule": false,
 	/** Axio explorer: how finely to bucket time. */
 	"explorer.granularity": "month" as "month" | "quarter" | "year",
 	/** Axio explorer: which chart shape. */

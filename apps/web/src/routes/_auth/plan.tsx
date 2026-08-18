@@ -2,21 +2,27 @@ import {
 	CATEGORIES,
 	CATEGORY_BY_KEY,
 	convert,
+	daysUntil,
+	estimatedPaid,
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
+	isExpired,
 	isMatured,
 	monthlyAmount,
+	nextPayment,
 	type RecurringExpense,
 	toISODate,
 } from "@money/shared";
 import { Button } from "@money/ui/components/button";
+import { Dialog, DialogContent } from "@money/ui/components/dialog";
 import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	AlertTriangle,
+	CalendarClock,
 	Check,
 	ChevronRight,
 	ChevronsUpDown,
@@ -67,6 +73,10 @@ interface RecurringDraft {
 	cadence: ExpenseCadence;
 	category?: string;
 	currency?: string;
+	/** First payment. Optional — an undated expense still counts, it just has no schedule. */
+	startDate?: string;
+	/** Last payment. Optional; once past, the expense stops counting toward coverage. */
+	endDate?: string;
 }
 
 // mirrors @money/shared HoldingRollup (kept local to avoid importing server-only shapes)
@@ -125,8 +135,42 @@ const pct1 = (r: number | null) =>
 	r == null ? "—" : `${(r * 100).toFixed(1)}%`;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-/** Today as YYYY-MM-DD (client clock) — drives the maturity countdown. */
+/** Today as YYYY-MM-DD (client clock) — drives the maturity countdown and the payment schedule. */
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/** `2026-11-15` → `15 Nov 2026`. Day-first, because that is how the dates in this app are read. */
+function fmtDate(iso: string): string {
+	const [y, m, d] = iso.split("-");
+	const mi = Number(m) - 1;
+	return mi >= 0 && mi < 12 ? `${d} ${MONTH_ABBR[mi]} ${y}` : iso;
+}
+const MONTH_ABBR = [
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec",
+];
+
+/**
+ * How far off a payment is, in the roughest unit that still tells you what you need: days while it is
+ * imminent, then months, then years. "in 3 months" is the answer to "do I need to think about this".
+ */
+function relativeDue(days: number): string {
+	if (days <= 0) return "due today";
+	if (days === 1) return "tomorrow";
+	if (days <= 45) return `in ${days}d`;
+	if (days <= 365) return `in ${Math.round(days / 30)} months`;
+	const years = days / 365;
+	return `in ${years < 2 ? years.toFixed(1) : Math.round(years)} years`;
+}
 /** A date (ISO or day-first DD/MM/YYYY) as a whole day-number (UTC), or null if absent/unparseable. */
 function dayNum(iso?: string): number | null {
 	const s = toISODate(iso);
@@ -146,9 +190,11 @@ function PlanPage() {
 	const wealth = useQuery(orpc.plan.wealth.queryOptions());
 	const recurring = useQuery(orpc.plan.recurring.queryOptions());
 
-	// recurring amounts can be foreign; compare/rank in INR so a €/$ sub isn't mis-sized
+	// recurring amounts can be foreign; compare/rank in INR so a €/$ sub isn't mis-sized. `today` is what
+	// zeroes an ended expense, so the header totals match the coverage denominator the server computed.
+	const today = todayISO();
 	const monthlyInr = (e: RecurringExpense) =>
-		convert(monthlyAmount(e), e.currency ?? "INR", "INR", money.rates);
+		convert(monthlyAmount(e, today), e.currency ?? "INR", "INR", money.rates);
 	const rollups = (wealth.data?.rollups ?? []) as Rollup[];
 	const recs = [...(recurring.data ?? [])].sort(
 		(a, b) => monthlyInr(b) - monthlyInr(a),
@@ -550,6 +596,8 @@ function MaturityAlerts({
 
 	if (matured.length === 0 && soon.length === 0) return null;
 
+	const editingInv = all.find((i) => i.id === editing);
+
 	// The heading already *is* the summary — "2 investments matured — take action" says everything the
 	// collapsed state needs to, so collapsing here costs no information, only the rows you'd act on.
 	const heading =
@@ -595,49 +643,30 @@ function MaturityAlerts({
 				<ul
 					className={`${collapsed ? "hidden" : "flex"} flex-col divide-y divide-border/50`}
 				>
-					{matured.map((inv) =>
-						editing === inv.id ? (
-							<li key={inv.id} className="py-2">
-								<InvestmentForm
-									initial={inv}
-									pending={update.isPending}
-									submitLabel="Save"
-									onCancel={() => setEditing(null)}
-									onDelete={() => {
-										del.mutate({ id: Number(inv.id) });
-										setEditing(null);
-									}}
-									onSubmit={(d) => {
-										update.mutate({ id: Number(inv.id), ...d });
-										setEditing(null);
-									}}
-								/>
-							</li>
-						) : (
-							<li key={inv.id} className="flex items-center gap-3 py-2">
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-medium text-sm">{inv.name}</p>
-									<p className="text-muted-foreground text-xs">
-										{inv.maturityDate
-											? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
-											: ""}
-										{valueInr(inv)}
-									</p>
-								</div>
-								<button
-									type="button"
-									onClick={() => setEditing(inv.id)}
-									className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
-								>
-									Update
-								</button>
-								<ArmedDelete
-									onConfirm={() => del.mutate({ id: Number(inv.id) })}
-									title={`Delete ${inv.name}`}
-								/>
-							</li>
-						),
-					)}
+					{matured.map((inv) => (
+						<li key={inv.id} className="flex items-center gap-3 py-2">
+							<div className="min-w-0 flex-1">
+								<p className="truncate font-medium text-sm">{inv.name}</p>
+								<p className="text-muted-foreground text-xs">
+									{inv.maturityDate
+										? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
+										: ""}
+									{valueInr(inv)}
+								</p>
+							</div>
+							<button
+								type="button"
+								onClick={() => setEditing(inv.id)}
+								className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
+							>
+								Update
+							</button>
+							<ArmedDelete
+								onConfirm={() => del.mutate({ id: Number(inv.id) })}
+								title={`Delete ${inv.name}`}
+							/>
+						</li>
+					))}
 				</ul>
 			)}
 
@@ -671,6 +700,31 @@ function MaturityAlerts({
 					</ul>
 				</>
 			)}
+
+			<EditorDialog
+				open={editingInv != null}
+				onOpenChange={(o) => !o && setEditing(null)}
+				tone={IN}
+				title={editingInv?.name ?? "Update holding"}
+			>
+				{editingInv && (
+					<InvestmentForm
+						key={editingInv.id}
+						initial={editingInv}
+						pending={update.isPending}
+						submitLabel="Save"
+						onCancel={() => setEditing(null)}
+						onDelete={() => {
+							del.mutate({ id: Number(editingInv.id) });
+							setEditing(null);
+						}}
+						onSubmit={(d) => {
+							update.mutate({ id: Number(editingInv.id), ...d });
+							setEditing(null);
+						}}
+					/>
+				)}
+			</EditorDialog>
 		</section>
 	);
 }
@@ -705,42 +759,24 @@ function IncomingColumn({
 		onSuccess: onDone,
 	});
 
-	const editRow = (inv: Investment) => (
-		<InvestmentForm
-			initial={inv}
-			pending={update.isPending}
-			submitLabel="Save"
-			onCancel={() => setEditing(null)}
-			onDelete={() => {
-				del.mutate({ id: Number(inv.id) });
-				setEditing(null);
-			}}
-			onSubmit={(d) => {
-				update.mutate({ id: Number(inv.id), ...d });
-				setEditing(null);
-			}}
-		/>
-	);
+	// Every holding across every rollup, so the dialog can resolve an id without caring where the row lives.
+	const editingInv = rollups
+		.flatMap((r) => r.members)
+		.find((m) => m.id === editing);
 
 	return (
 		<section className="flex flex-col">
 			{desktop && <ColHeader tone={IN} label="Incoming" total={total} />}
 			<ul className="flex flex-col">
-				{rollups.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
+				{rollups.length === 0 && <Empty>No holdings yet.</Empty>}
 				{rollups.map((r) =>
 					r.group ? (
 						<GroupRow
 							key={`g:${r.group}`}
 							rollup={r}
 							pct={(r.monthly / max) * 100}
-							editing={editing}
 							setEditing={setEditing}
-							editRow={editRow}
 						/>
-					) : editing === r.members[0]?.id ? (
-						<li key={r.members[0]?.id} className="py-2">
-							{r.members[0] && editRow(r.members[0])}
-						</li>
 					) : (
 						<StandaloneRow
 							key={r.members[0]?.id ?? r.name}
@@ -751,21 +787,49 @@ function IncomingColumn({
 					),
 				)}
 			</ul>
-			{adding ? (
-				<div className="py-2">
+			<AddButton onClick={() => setAdding(true)}>Add holding</AddButton>
+
+			<EditorDialog
+				open={adding}
+				onOpenChange={setAdding}
+				tone={IN}
+				title="New holding"
+			>
+				<InvestmentForm
+					pending={add.isPending}
+					submitLabel="Add"
+					onCancel={() => setAdding(false)}
+					onSubmit={(d) => {
+						add.mutate(d);
+						setAdding(false);
+					}}
+				/>
+			</EditorDialog>
+
+			<EditorDialog
+				open={editingInv != null}
+				onOpenChange={(o) => !o && setEditing(null)}
+				tone={IN}
+				title={editingInv?.name ?? "Edit holding"}
+			>
+				{editingInv && (
 					<InvestmentForm
-						pending={add.isPending}
-						submitLabel="Add"
-						onCancel={() => setAdding(false)}
+						key={editingInv.id}
+						initial={editingInv}
+						pending={update.isPending}
+						submitLabel="Save"
+						onCancel={() => setEditing(null)}
+						onDelete={() => {
+							del.mutate({ id: Number(editingInv.id) });
+							setEditing(null);
+						}}
 						onSubmit={(d) => {
-							add.mutate(d);
-							setAdding(false);
+							update.mutate({ id: Number(editingInv.id), ...d });
+							setEditing(null);
 						}}
 					/>
-				</div>
-			) : (
-				<AddButton onClick={() => setAdding(true)}>Add holding</AddButton>
-			)}
+				)}
+			</EditorDialog>
 		</section>
 	);
 }
@@ -810,15 +874,11 @@ function StandaloneRow({
 function GroupRow({
 	rollup,
 	pct,
-	editing,
 	setEditing,
-	editRow,
 }: {
 	rollup: Rollup;
 	pct: number;
-	editing: string | null;
 	setEditing: (id: string | null) => void;
-	editRow: (inv: Investment) => ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
 	return (
@@ -845,15 +905,9 @@ function GroupRow({
 			</div>
 			{open && (
 				<ul className="mb-2 flex flex-col gap-px border-border border-l pl-3">
-					{rollup.members.map((m) =>
-						editing === m.id ? (
-							<li key={m.id} className="py-2">
-								{editRow(m)}
-							</li>
-						) : (
-							<MemberRow key={m.id} inv={m} onEdit={() => setEditing(m.id)} />
-						),
-					)}
+					{rollup.members.map((m) => (
+						<MemberRow key={m.id} inv={m} onEdit={() => setEditing(m.id)} />
+					))}
 				</ul>
 			)}
 		</li>
@@ -929,6 +983,8 @@ function OutgoingColumn({
 	const { rates } = useMoney();
 	const [editing, setEditing] = useState<string | null>(null);
 	const [adding, setAdding] = useState(false);
+	const [bySchedule, setBySchedule] = usePreference("plan.bySchedule");
+	const today = todayISO();
 	const add = useMutation({
 		...orpc.plan.addRecurring.mutationOptions(),
 		onSuccess: onDone,
@@ -942,71 +998,127 @@ function OutgoingColumn({
 		onSuccess: onDone,
 	});
 
+	// One toggle does both jobs: it reveals the dates and it reorders by them. Undated expenses have no
+	// place on a timeline, so they fall to the bottom rather than being dropped or pretending to be due.
+	const ordered = bySchedule
+		? [...rows].sort((a, b) => {
+				const da = nextPayment(a, today);
+				const db = nextPayment(b, today);
+				if (da && db) return da < db ? -1 : da > db ? 1 : 0;
+				return da ? -1 : db ? 1 : 0;
+			})
+		: rows;
+
+	const editingExp = rows.find((e) => e.id === editing);
+
 	return (
 		<section className="flex flex-col">
 			{desktop && (
 				<ColHeader tone={OUT} label="Outgoing" total={total} side="right" />
 			)}
+			<ScheduleToggle on={bySchedule} onChange={setBySchedule} />
 			<ul className="flex flex-col">
-				{rows.length === 0 && !adding && (
-					<Empty>No recurring expenses yet.</Empty>
-				)}
-				{rows.map((exp) =>
-					editing === exp.id ? (
-						<li key={exp.id} className="py-2">
-							<ExpenseForm
-								initial={exp}
-								pending={update.isPending}
-								submitLabel="Save"
-								onCancel={() => setEditing(null)}
-								onDelete={() => {
-									del.mutate({ id: Number(exp.id) });
-									setEditing(null);
-								}}
-								onSubmit={(d) => {
-									update.mutate({ id: Number(exp.id), ...d });
-									setEditing(null);
-								}}
-							/>
-						</li>
-					) : (
-						<OutgoingRow
-							key={exp.id}
-							exp={exp}
-							pct={
-								(convert(
-									monthlyAmount(exp),
-									exp.currency ?? "INR",
-									"INR",
-									rates,
-								) /
-									max) *
-								100
-							}
-							mirrored={desktop}
-							onEdit={() => setEditing(exp.id)}
-						/>
-					),
-				)}
+				{rows.length === 0 && <Empty>No recurring expenses yet.</Empty>}
+				{ordered.map((exp) => (
+					<OutgoingRow
+						key={exp.id}
+						exp={exp}
+						pct={
+							(convert(
+								monthlyAmount(exp, today),
+								exp.currency ?? "INR",
+								"INR",
+								rates,
+							) /
+								max) *
+							100
+						}
+						mirrored={desktop}
+						showSchedule={bySchedule}
+						today={today}
+						onEdit={() => setEditing(exp.id)}
+					/>
+				))}
 			</ul>
-			{adding ? (
-				<div className="py-2">
+			<AddButton onClick={() => setAdding(true)}>
+				Add recurring expense
+			</AddButton>
+
+			<EditorDialog
+				open={adding}
+				onOpenChange={setAdding}
+				tone={OUT}
+				title="New recurring expense"
+			>
+				<ExpenseForm
+					pending={add.isPending}
+					submitLabel="Add"
+					onCancel={() => setAdding(false)}
+					onSubmit={(d) => {
+						add.mutate(d);
+						setAdding(false);
+					}}
+				/>
+			</EditorDialog>
+
+			<EditorDialog
+				open={editingExp != null}
+				onOpenChange={(o) => !o && setEditing(null)}
+				tone={OUT}
+				title={editingExp?.name ?? "Edit expense"}
+			>
+				{editingExp && (
 					<ExpenseForm
-						pending={add.isPending}
-						submitLabel="Add"
-						onCancel={() => setAdding(false)}
+						// Remount per expense so the fields reset — a dialog reused across rows would otherwise
+						// keep the previous row's state.
+						key={editingExp.id}
+						initial={editingExp}
+						pending={update.isPending}
+						submitLabel="Save"
+						onCancel={() => setEditing(null)}
+						onDelete={() => {
+							del.mutate({ id: Number(editingExp.id) });
+							setEditing(null);
+						}}
 						onSubmit={(d) => {
-							add.mutate(d);
-							setAdding(false);
+							update.mutate({ id: Number(editingExp.id), ...d });
+							setEditing(null);
 						}}
 					/>
-				</div>
-			) : (
-				<AddButton onClick={() => setAdding(true)}>
-					Add recurring expense
-				</AddButton>
-			)}
+				)}
+			</EditorDialog>
 		</section>
+	);
+}
+
+/**
+ * Reveals each expense's next payment and reorders the list by it. Off, the list is back to biggest-first,
+ * which is the right default for "what is this costing me" — the schedule matters only when the question
+ * is "what is about to leave".
+ *
+ * It sits above the list rather than in the column header because on a phone that header isn't rendered
+ * (the tab bar stands in for it), and a control mounted there would be unreachable.
+ */
+function ScheduleToggle({
+	on,
+	onChange,
+}: {
+	on: boolean;
+	onChange: (v: boolean) => void;
+}) {
+	return (
+		<div className="flex justify-end py-1.5">
+			<button
+				type="button"
+				onClick={() => onChange(!on)}
+				aria-pressed={on}
+				className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-secondary"
+				style={on ? { color: OUT, background: tint(OUT, 10) } : undefined}
+			>
+				<CalendarClock className="size-3.5" />
+				Next payment
+			</button>
+		</div>
 	);
 }
 
@@ -1014,6 +1126,8 @@ function OutgoingRow({
 	exp,
 	pct,
 	mirrored,
+	showSchedule,
+	today,
 	onEdit,
 }: {
 	exp: RecurringExpense;
@@ -1022,12 +1136,27 @@ function OutgoingRow({
 	 *  incoming column is beside it. One column at a time on a phone has nothing to mirror against, so
 	 *  there it falls back to the same name-left/amount-right shape as Incoming. */
 	mirrored: boolean;
+	/** Reveal the next payment under the name, and treat the list as a timeline. */
+	showSchedule: boolean;
+	today: string;
 	onEdit: () => void;
 }) {
 	const { scale, suffix } = usePlanPeriod();
+	const expired = isExpired(exp, today);
+	const due = showSchedule ? nextPayment(exp, today) : null;
+	const days = due ? daysUntil(due, today) : null;
+	// Imminent enough that you'd want to know the balance is there. Not an alarm, just a nudge.
+	const soon = days != null && days <= 7;
+
 	return (
-		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
-			<Depth pct={pct} side={mirrored ? "left" : "right"} tone={OUT} />
+		<li
+			className={`relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20 ${expired ? "opacity-40" : ""}`}
+		>
+			{/* An ended expense keeps its row — deleting it would lose the record — but drops out of every
+			    total, so it gets no depth bar either: there is nothing left for it to be a share of. */}
+			{!expired && (
+				<Depth pct={pct} side={mirrored ? "left" : "right"} tone={OUT} />
+			)}
 			{/* The whole tile opens the editor — see StandaloneRow for why the hover icons are gone. */}
 			<button
 				type="button"
@@ -1036,7 +1165,10 @@ function OutgoingRow({
 				className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 ${mirrored ? "" : "flex-row-reverse"}`}
 			>
 				<span className={`block ${mirrored ? "text-left" : "text-right"}`}>
-					<span className="tnum block font-medium" style={{ color: OUT }}>
+					<span
+						className={`tnum block font-medium ${expired ? "line-through" : ""}`}
+						style={{ color: OUT }}
+					>
 						<MoneyNative
 							amount={scale(monthlyAmount(exp))}
 							code={exp.currency ?? "INR"}
@@ -1060,11 +1192,26 @@ function OutgoingRow({
 					className={`block min-w-0 flex-1 ${mirrored ? "text-right" : "text-left"}`}
 				>
 					<span className="block truncate font-medium">{exp.name}</span>
-					{exp.category && (
-						<span className="block text-muted-foreground text-xs">
-							{CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category}
-						</span>
-					)}
+					{/* Category and schedule share one line — a second line per row would cost more vertical
+					    space than the dates are worth, and on a phone the list is the whole screen. */}
+					<span className="block truncate text-muted-foreground text-xs">
+						{exp.category &&
+							(CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category)}
+						{due && (
+							<>
+								{exp.category && " · "}
+								<span style={soon ? { color: OUT } : undefined}>
+									{relativeDue(days ?? 0)}
+								</span>
+							</>
+						)}
+						{showSchedule && !due && (
+							<>
+								{exp.category && " · "}
+								{expired ? "ended" : "no date set"}
+							</>
+						)}
+					</span>
 				</span>
 			</button>
 		</li>
@@ -1128,11 +1275,7 @@ function InvestmentForm({
 	}
 
 	return (
-		<form
-			onSubmit={submit}
-			className="flex flex-col gap-2.5 rounded-lg border p-3"
-			style={{ borderColor: tint(IN, 40), background: tint(IN, 6) }}
-		>
+		<form onSubmit={submit} className="flex flex-col gap-2.5">
 			<FormActions
 				pending={pending}
 				submitLabel={submitLabel}
@@ -1270,6 +1413,9 @@ function ExpenseForm({
 	const [cadence, setCadence] = useState<ExpenseCadence>(
 		(initial?.cadence as ExpenseCadence) ?? "monthly",
 	);
+	// `type="date"` only accepts YYYY-MM-DD, so legacy day-first values are normalised on the way in.
+	const [start, setStart] = useState(toISODate(initial?.startDate) ?? "");
+	const [end, setEnd] = useState(toISODate(initial?.endDate) ?? "");
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
@@ -1279,17 +1425,16 @@ function ExpenseForm({
 			amount: Number(amount),
 			cadence,
 			currency,
+			// Always sent, empty included — clearing a date has to be able to erase the stored one.
+			startDate: start,
+			endDate: end,
 		};
 		if (category.trim()) d.category = category.trim();
 		onSubmit(d);
 	}
 
 	return (
-		<form
-			onSubmit={submit}
-			className="flex flex-col gap-2.5 rounded-lg border p-3"
-			style={{ borderColor: tint(OUT, 40), background: tint(OUT, 6) }}
-		>
+		<form onSubmit={submit} className="flex flex-col gap-2.5">
 			<FormActions
 				pending={pending}
 				submitLabel={submitLabel}
@@ -1342,12 +1487,111 @@ function ExpenseForm({
 						}))}
 					/>
 				</Field>
+				{/* Both dates are optional. Without a start date the expense still counts in full — it simply
+				    has no schedule to show. An end date in the past stops it counting at all. */}
+				<Field label="First payment — optional">
+					<Input
+						type="date"
+						value={start}
+						onChange={(e) => setStart(e.target.value)}
+						className="tnum"
+					/>
+				</Field>
+				<Field label="Last payment — optional">
+					<Input
+						type="date"
+						value={end}
+						onChange={(e) => setEnd(e.target.value)}
+						className="tnum"
+					/>
+				</Field>
 			</div>
+			<ExpenseFootnote
+				exp={{
+					...(initial ?? { id: "", name: "", cadence, active: true }),
+					amount: Number(amount) || 0,
+					cadence,
+					currency,
+					startDate: start || undefined,
+					endDate: end || undefined,
+				}}
+			/>
 		</form>
 	);
 }
 
+/**
+ * What this expense has taken so far, and — when it has ended — that it no longer counts.
+ *
+ * The figure is `amount × payments since the first`, which assumes the price never moved and nothing was
+ * ever missed. That assumption is why it says *committed* and not *paid*, and why the caveat is on screen
+ * rather than buried: the app has no evidence any of these payments actually cleared. Shown only in the
+ * editor, where there is room to qualify it — never on a row, where it would read as a fact.
+ */
+function ExpenseFootnote({ exp }: { exp: RecurringExpense }) {
+	const { fmtNative } = useMoney();
+	const today = todayISO();
+	const paid = estimatedPaid(exp, today);
+	const expired = isExpired(exp, today);
+	const since = toISODate(exp.startDate);
+	if (!expired && (paid <= 0 || !since)) return null;
+
+	return (
+		<div className="flex flex-col gap-1 border-border/60 border-t pt-2.5 text-xs">
+			{expired && (
+				<p style={{ color: OUT }}>
+					Ended {fmtDate(toISODate(exp.endDate) ?? "")} — no longer counted
+					toward coverage.
+				</p>
+			)}
+			{paid > 0 && since && (
+				<p className="text-muted-foreground">
+					<span className="tnum text-foreground/80">
+						≈ {fmtNative(paid, exp.currency ?? "INR")}
+					</span>{" "}
+					committed since {fmtDate(since)} — estimated from the cadence, so it
+					assumes the price never changed and nothing was missed.
+				</p>
+			)}
+		</div>
+	);
+}
+
 // ── shared bits ───────────────────────────────────────────────────────────────────────────────────────
+/**
+ * The editors' container: a bottom sheet on a phone, a centred modal on a desktop.
+ *
+ * These forms used to expand inline inside the row. That worked at six fields and stopped working at
+ * eight — inside a column that is half the page on a desktop and the entire width of a phone, a two-column
+ * grid of inputs had nowhere to go. The dialog gives both the same room and takes the layout constraint off
+ * the list, which is the part that has to stay scannable.
+ */
+function EditorDialog({
+	open,
+	onOpenChange,
+	tone,
+	title,
+	children,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	tone: string;
+	title: string;
+	children: ReactNode;
+}) {
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				title={title}
+				className="border-t-2"
+				style={{ borderTopColor: tone }}
+			>
+				{children}
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 function ColHeader({
 	tone,
 	label,
