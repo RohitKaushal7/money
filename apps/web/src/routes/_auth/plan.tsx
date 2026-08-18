@@ -200,7 +200,7 @@ function PlanPage() {
 							rollups={rollups}
 							max={maxIn}
 							total={totalIn}
-							showHeader={desktop}
+							desktop={desktop}
 							onDone={invalidate}
 						/>
 					)}
@@ -209,7 +209,7 @@ function PlanPage() {
 							rows={recs}
 							max={maxOut}
 							total={totalOut}
-							showHeader={desktop}
+							desktop={desktop}
 							onDone={invalidate}
 						/>
 					)}
@@ -680,13 +680,14 @@ function IncomingColumn({
 	rollups,
 	max,
 	total,
-	showHeader,
+	desktop,
 	onDone,
 }: {
 	rollups: Rollup[];
 	max: number;
 	total: number;
-	showHeader: boolean;
+	/** md and up: both columns are on screen together. */
+	desktop: boolean;
 	onDone: () => void;
 }) {
 	const [editing, setEditing] = useState<string | null>(null);
@@ -723,7 +724,7 @@ function IncomingColumn({
 
 	return (
 		<section className="flex flex-col">
-			{showHeader && <ColHeader tone={IN} label="Incoming" total={total} />}
+			{desktop && <ColHeader tone={IN} label="Incoming" total={total} />}
 			<ul className="flex flex-col">
 				{rollups.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
 				{rollups.map((r) =>
@@ -915,13 +916,14 @@ function OutgoingColumn({
 	rows,
 	max,
 	total,
-	showHeader,
+	desktop,
 	onDone,
 }: {
 	rows: RecurringExpense[];
 	max: number;
 	total: number;
-	showHeader: boolean;
+	/** md and up: both columns are on screen together. */
+	desktop: boolean;
 	onDone: () => void;
 }) {
 	const { rates } = useMoney();
@@ -942,7 +944,7 @@ function OutgoingColumn({
 
 	return (
 		<section className="flex flex-col">
-			{showHeader && (
+			{desktop && (
 				<ColHeader tone={OUT} label="Outgoing" total={total} side="right" />
 			)}
 			<ul className="flex flex-col">
@@ -981,6 +983,7 @@ function OutgoingColumn({
 									max) *
 								100
 							}
+							mirrored={desktop}
 							onEdit={() => setEditing(exp.id)}
 						/>
 					),
@@ -1010,24 +1013,29 @@ function OutgoingColumn({
 function OutgoingRow({
 	exp,
 	pct,
+	mirrored,
 	onEdit,
 }: {
 	exp: RecurringExpense;
 	pct: number;
+	/** Amounts on the *left*, growing inward — the order-book look, which only reads as one when the
+	 *  incoming column is beside it. One column at a time on a phone has nothing to mirror against, so
+	 *  there it falls back to the same name-left/amount-right shape as Incoming. */
+	mirrored: boolean;
 	onEdit: () => void;
 }) {
 	const { scale, suffix } = usePlanPeriod();
 	return (
 		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
-			<Depth pct={pct} side="left" tone={OUT} />
+			<Depth pct={pct} side={mirrored ? "left" : "right"} tone={OUT} />
 			{/* The whole tile opens the editor — see StandaloneRow for why the hover icons are gone. */}
 			<button
 				type="button"
 				onClick={onEdit}
 				aria-label={`Edit ${exp.name}`}
-				className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+				className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 ${mirrored ? "" : "flex-row-reverse"}`}
 			>
-				<span className="block text-left">
+				<span className={`block ${mirrored ? "text-left" : "text-right"}`}>
 					<span className="tnum block font-medium" style={{ color: OUT }}>
 						<MoneyNative
 							amount={scale(monthlyAmount(exp))}
@@ -1048,7 +1056,9 @@ function OutgoingRow({
 						)}
 					</span>
 				</span>
-				<span className="block min-w-0 flex-1 text-right">
+				<span
+					className={`block min-w-0 flex-1 ${mirrored ? "text-right" : "text-left"}`}
+				>
 					<span className="block truncate font-medium">{exp.name}</span>
 					{exp.category && (
 						<span className="block text-muted-foreground text-xs">
