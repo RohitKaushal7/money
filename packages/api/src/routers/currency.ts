@@ -101,7 +101,7 @@ export const currencyRouter = {
 				.select()
 				.from(currencies)
 				.where(eq(currencies.code, input.code));
-			if (!cur || !cur.enabled) throw new Error("currency not enabled");
+			if (!cur?.enabled) throw new Error("currency not enabled");
 			await context.appDb
 				.insert(settings)
 				.values({ key: DISPLAY_KEY, value: input.code })

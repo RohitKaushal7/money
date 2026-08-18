@@ -9,6 +9,7 @@ import type * as React from "react";
 
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: a visual wrapper around one control, not a form section — <fieldset> would add legend/layout semantics it must not have
 		<div
 			data-slot="input-group"
 			role="group"
@@ -53,6 +54,8 @@ function InputGroupAddon({
 	...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: visual affix, not a form section — see InputGroup
+		// biome-ignore lint/a11y/useKeyWithClickEvents: click only forwards focus to the adjacent input as a mouse convenience; keyboard users tab straight to it
 		<div
 			role="group"
 			data-slot="input-group-addon"

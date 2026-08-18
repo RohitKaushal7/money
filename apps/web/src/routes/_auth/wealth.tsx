@@ -334,6 +334,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 				>
 					<title>Wealth by value (angle) and return (reach)</title>
 					{segs.map((s) => (
+						// biome-ignore lint/a11y/noStaticElementInteractions: hover-only chart highlight, no click target — the figures are in the chart's aria-label/<title> and the table below
 						<path
 							key={s.d.name}
 							d={s.path}

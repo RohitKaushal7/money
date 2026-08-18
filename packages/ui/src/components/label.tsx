@@ -5,6 +5,7 @@ import type * as React from "react";
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
 	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: generic primitive — the caller supplies the control via htmlFor or nesting, which the rule cannot see here
 		<label
 			data-slot="label"
 			className={cn(

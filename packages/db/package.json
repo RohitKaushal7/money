@@ -1,33 +1,33 @@
 {
-  "name": "@money/db",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {
-    "db:local": "turso dev --db-file local.db",
-    "db:generate:control": "drizzle-kit generate --config=drizzle.control.config.ts",
-    "db:generate:app": "drizzle-kit generate --config=drizzle.app.config.ts",
-    "db:generate": "bun run db:generate:control && bun run db:generate:app",
-    "db:studio": "drizzle-kit studio --config=drizzle.control.config.ts"
-  },
-  "dependencies": {
-    "@libsql/client": "0.17.4",
-    "@money/env": "workspace:*",
-    "@money/shared": "workspace:*",
-    "dotenv": "catalog:",
-    "drizzle-orm": "^0.45.2",
-    "libsql": "0.5.29",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@money/config": "workspace:*",
-    "drizzle-kit": "^0.31.10",
-    "typescript": "catalog:"
-  }
+	"name": "@money/db",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"db:local": "turso dev --db-file local.db",
+		"db:generate:control": "drizzle-kit generate --config=drizzle.control.config.ts",
+		"db:generate:app": "drizzle-kit generate --config=drizzle.app.config.ts",
+		"db:generate": "bun run db:generate:control && bun run db:generate:app",
+		"db:studio": "drizzle-kit studio --config=drizzle.control.config.ts"
+	},
+	"dependencies": {
+		"@libsql/client": "0.17.4",
+		"@money/env": "workspace:*",
+		"@money/shared": "workspace:*",
+		"dotenv": "catalog:",
+		"drizzle-orm": "^0.45.2",
+		"libsql": "0.5.29",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@money/config": "workspace:*",
+		"drizzle-kit": "^0.31.10",
+		"typescript": "catalog:"
+	}
 }
