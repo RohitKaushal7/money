@@ -1,7 +1,7 @@
 /**
  * Per-FY India income-tax reference data (Q11 / issue 005). Point-in-time facts, curated in-repo like the
  * category taxonomy — NOT derived. Verified 2026-07-19 (Budget 2026 announced no slab change, so FY2025-26
- * and FY2026-27 share one new-regime table). See docs/superpowers/specs/2026-07-19-tax-module-design.md.
+ * and FY2026-27 share one new-regime table).
  */
 
 /** A slab boundary: everything up to `upTo` (inclusive) taxed at `rate`; `upTo: null` is the top open band. */

@@ -7,12 +7,12 @@
 ## Context
 
 ADR-0011 made coverage plan-driven with one numerator: cash interest + a switchable growth drawdown. Working
-with the owner's real portfolio (a spreadsheet: 12 SustVest tranches, 3 Wint bonds, 9 SBI FDs, PPF, equity,
+with a real portfolio (a spreadsheet: a dozen P2P tranches, a few corporate bonds, bank FDs, PPF, equity,
 MF, US, crypto) surfaced three needs the single number couldn't meet:
 
 1. The owner thinks in **total expected return** (every holding's `value × XIRR`), and wants to see how "free"
    they are at several levels of realizability — not one number.
-2. Holdings come in **groups** (SustVest, Wint, FDs) of many tranches, each with its own value/XIRR; they want
+2. Holdings come in **groups** (P2P, bonds, FDs) of many tranches, each with its own value/XIRR; they want
    a group rollup with a value-weighted rate, expandable to tranches.
 3. Bonds/FDs **mature**; a matured holding should stop counting automatically.
 

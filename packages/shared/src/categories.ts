@@ -45,13 +45,13 @@ export const CATEGORIES: Category[] = [
 	},
 	{
 		key: "bond_coupon",
-		label: "Bond coupon (Wint Wealth)",
+		label: "Bond coupon",
 		kind: "passive_income",
 		taxable: true,
 	},
 	{
 		key: "p2p_payout",
-		label: "P2P/green payout (SustVest)",
+		label: "P2P / green-energy payout",
 		kind: "passive_income",
 		taxable: true,
 	},
@@ -94,10 +94,10 @@ export const CATEGORIES: Category[] = [
 	{ key: "misc_expense", label: "Miscellaneous expense", kind: "expense" },
 
 	// investments (asset moves; excluded from KPI; each links to an investment for XIRR)
-	{ key: "sip", label: "Mutual-fund SIP (Groww)", kind: "investment" },
+	{ key: "sip", label: "Mutual-fund SIP", kind: "investment" },
 	{
 		key: "bond_investment",
-		label: "Bond purchase (Wint Wealth)",
+		label: "Bond purchase",
 		kind: "investment",
 	},
 	{ key: "fd_deposit", label: "FD / sweep deposit", kind: "investment" },

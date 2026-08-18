@@ -19,7 +19,7 @@ independent readings.
 
 **It modelled a mattress.** The balance neither earned nor faced rising prices. Both omissions are large
 and they point in opposite directions, so the error was invisible — the number looked plausible because
-the two mistakes happened to cancel. Against the live portfolio (₹50L, 7.9% blended, ₹60k/mo):
+the two mistakes happened to cancel. Against a representative portfolio (₹50L, 7.9% blended, ₹60k/mo):
 
 | model | runway |
 | --- | --- |
@@ -30,7 +30,7 @@ the two mistakes happened to cancel. Against the live portfolio (₹50L, 7.9% bl
 | earns 7.9%, spending inflates 8% | 9.7 yr |
 
 Adding returns alone would have nearly doubled the headline. That is the tempting half-fix and it is a
-lie by omission: ₹63k/mo of 2026 spending is not ₹63k/mo of 2042 spending. Shipping both terms lands at
+lie by omission: ₹60k/mo of 2026 spending is not ₹60k/mo of 2042 spending. Shipping both terms lands at
 10.5 yr — close to the old number, but for reasons that survive a change in either input.
 
 ## Decision

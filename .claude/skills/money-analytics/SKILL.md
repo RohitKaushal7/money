@@ -54,7 +54,7 @@ duckdb -readonly data/analytics.duckdb "SELECT ...;"
   exists to push this toward ≥ 1 and to show whether it's trending up. Every analytics answer should be
   framable against it.
 - **Passive income:** recurring income not from active work — bond/FD interest, investment payouts,
-  dividends, savings interest (e.g. SustVest, Wint Wealth, SBI FDs, PPF). Distinct from salary.
+  dividends, savings interest (P2P payouts, bond coupons, FDs, PPF). Distinct from salary.
 - **Expenses:** outflows that are consumption, excluding transfers (e.g. credit-card *bill payment* is a
   transfer, not an expense — the underlying card spends are), investments, and sweeps.
 - **XIRR:** money-weighted annualised return over irregular cashflows. Computed (TS, Newton's method) over

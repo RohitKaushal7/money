@@ -4,9 +4,11 @@ Self-hosted personal money-management app (single user, INR, Indian FY Apr 1 –
 what fraction of monthly expenses is covered by passive income, and is that ratio trending up. Everything
 is instrumentation for that one number.
 
-Read `docs/decisions/` (ADRs) for the *why* behind the rules below. Read
-`docs/superpowers/specs/2026-07-18-money-bootstrap-design.md` for the bootstrap scope. Read `docs/roadmap.md`
-for phasing.
+Read `docs/decisions/` (ADRs) for the *why* behind the rules below, and `docs/roadmap.md` for phasing.
+
+Per-feature plans and specs live under `docs/superpowers/` and `.claude/plans/` on disk but are
+**gitignored** — they are process artefacts, and they quote real balances and statement narrations. Never
+commit them, and never copy figures out of them into anything that is committed.
 
 ## Architecture at a glance
 

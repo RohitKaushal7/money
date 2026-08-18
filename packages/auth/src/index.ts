@@ -23,10 +23,30 @@ export function createAuth() {
 		},
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,
+		// Sign-in is the one endpoint worth throttling on a self-hosted box: it is the only unauthenticated
+		// route that tests a secret, and a single-user install has no lockout to fall back on. Better-Auth
+		// enables rate limiting in production by default; this makes the credential path explicitly strict
+		// rather than leaving it on the generic window.
+		rateLimit: {
+			enabled: true,
+			window: 60,
+			max: 100,
+			customRules: {
+				"/sign-in/email": { window: 300, max: 10 },
+			},
+		},
 		advanced: {
 			defaultCookieAttributes: {
-				sameSite: "none",
-				secure: true,
+				// `lax` (not `none`): prod serves the SPA and the API from ONE origin, so the session cookie
+				// never needs to ride a cross-site request — and `lax` is what keeps a third-party page from
+				// firing a state-changing request with the user's session attached.
+				//
+				// It also unblocks plain-HTTP self-hosting. `sameSite: "none"` *requires* `Secure`, which a
+				// browser refuses to set over http:// on anything but localhost — so a LAN deploy
+				// (http://192.168.x.x:3000) could never log in. `secure` is now conditional on the origin
+				// actually being HTTPS, so LAN-over-HTTP works and real deployments still get the flag.
+				sameSite: "lax",
+				secure: env.BETTER_AUTH_URL.startsWith("https://"),
 				httpOnly: true,
 			},
 		},

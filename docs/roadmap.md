@@ -16,7 +16,7 @@ Architecture, boundaries, and docs only (this session):
 
 **1a. Feature brainstorming → domain/schema design** ✅ (2026-07-18)
 - Agreed the broader-v1 feature set + a scalable schema across ledger, investments/XIRR, net worth,
-  reward mapping, and tax. Captured in `docs/superpowers/specs/2026-07-18-money-schema-design.md` with
+  reward mapping, and tax. Captured with
   ADRs 0011 (KPI), 0012 (kinds+splits), 0013 (idempotent ingest + UI import).
 - Real SBI statement obtained; format understood (quoted multi-line `Details`; `Date,Details,Ref,Debit,
   Credit,Balance`). `packages/info/` cards to be imported into app-owned SQLite tables.

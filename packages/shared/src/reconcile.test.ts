@@ -131,7 +131,7 @@ describe("expectedInterestEvents", () => {
 });
 
 describe("reconcile", () => {
-	// SustVest group: 12 tranches summing ₹6,454/mo, paid as many p2p_payout credits
+	// A P2P group: 12 tranches summing ₹6,454/mo, paid as many p2p_payout credits
 	const sustvest = Array.from({ length: 12 }, (_, i) =>
 		inv({
 			id: `sv${i}`,
@@ -198,7 +198,7 @@ describe("reconcile", () => {
 
 	/**
 	 * Above expectation is never provisional: more money than planned has already arrived, and no amount of
-	 * remaining month makes that go away. This is the real SustVest case — 12 of 12 credits landed on the
+	 * remaining month makes that go away. This is the real P2P case — 12 of 12 credits landed on the
 	 * 15th at 35% above plan, which means the plan entry is stale, not that a payout is late.
 	 */
 	test("above expectation mid-month stays 'differs' — waiting won't unmake it", () => {

@@ -3,16 +3,20 @@
 # Manual deploy: build the image locally, ship it to the server over SSH (no registry, no CI), and restart.
 # Self-cleaning — the image tar is deleted on both ends and dangling images are pruned, so nothing piles up.
 #
-#   ./deploy.sh
+#   REMOTE_HOST=myserver ./deploy.sh
 #
-# Prerequisites on the server (cbs), one-time:
-#   - Docker + docker compose, and a reverse proxy (Nginx Proxy Manager) forwarding your HTTPS host to :3000
-#   - ~/apps/money/.env created from .env.example (deploy.sh rsyncs the template and refuses to start without it)
+# Most people should not need this: `docker compose pull` off the published image (see README) is the
+# supported path. This exists for pushing a locally built image to your own box without a registry.
+#
+# Prerequisites on the server, one-time:
+#   - Docker + docker compose, and a reverse proxy forwarding your HTTPS host to :3000
+#   - <REMOTE_DIR>/.env created from .env.example (deploy.sh rsyncs the template and refuses to start without it)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-REMOTE_HOST="cbs"
-REMOTE_DIR="apps/money"            # relative to the remote home (root@cbs -> /root/apps/money)
+# Override both from the environment; an SSH host alias (see ~/.ssh/config) is the tidiest REMOTE_HOST.
+REMOTE_HOST="${REMOTE_HOST:?set REMOTE_HOST to your server, e.g. REMOTE_HOST=myserver ./deploy.sh}"
+REMOTE_DIR="${REMOTE_DIR:-apps/money}"   # relative to the remote home (root -> /root/apps/money)
 IMAGE="money:latest"
 TAR="money-image.tar.gz"
 TMP_TAR="/tmp/${TAR}"

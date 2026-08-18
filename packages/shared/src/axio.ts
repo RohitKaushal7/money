@@ -12,7 +12,7 @@ import {
  * flag is already a de-duplicated spend ledger (transfers and card-bill settlements are flagged out). This
  * module is the pure domain layer: row identity, the account classifier, the billing-cycle calendar, and
  * the chart reshaping. The CSV parse itself lives in `@money/analytics` (DuckDB), and nothing here is ever
- * read into the coverage KPI. See docs/superpowers/specs/2026-07-23-axio-spends-explorer-design.md.
+ * read into the coverage KPI.
  */
 
 export type AxioGranularity = "month" | "quarter" | "year";

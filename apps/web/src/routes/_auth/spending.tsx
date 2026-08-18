@@ -215,7 +215,7 @@ function SummaryBar({
  * Each slot is one question — how far off plan am I, which way am I moving, how free am I — and each is the
  * same fact seen from a different side, so all three divide by `recentMean` rather than the window average.
  * The window average is held down by whatever cheap months the selected range happens to reach back to; on
- * real data that was ₹55,000 against ₹60,000 actually spent. The chart keeps the window average as its
+ * real data that was a 24-month mean well below the trailing-year spend. The chart keeps that average as its
  * "typical" reference line, where a range-wide centre is the right one.
  *
  * The size of the gap is only half the answer. A budget missed ten months in twelve is a budget that needs

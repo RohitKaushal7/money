@@ -70,3 +70,15 @@ coverage
 tmp
 temp
 .superpowers/
+
+# Process artefacts, deliberately NOT published (they stay on disk, just untracked).
+# `docs/decisions/` (ADRs) is the durable design record and IS committed. These are the working notes
+# behind them — point-in-time plans and specs, full of real balances, holdings and statement narrations,
+# and stale the moment the code moves on. See docs/decisions/README.md.
+docs/superpowers/
+.claude/plans/
+
+# Vendored third-party agent skills (shadcn, Hono, Turborepo, Vercel, Better-Auth docs).
+# Upstream content under upstream licences — reproducible from skills-lock.json, so it is not
+# redistributed here. The lock file (source repo + path + content hash) IS committed.
+.agents/skills/

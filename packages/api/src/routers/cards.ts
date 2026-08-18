@@ -1,5 +1,5 @@
 import {
-	type ControlDb,
+	type AppDb,
 	cardAssignments,
 	cardExtras,
 	cardRewardRules,
@@ -14,16 +14,21 @@ import {
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { adminProcedure } from "../index";
+import { protectedProcedure } from "../index";
 
 /**
  * The **cards** router (issue 005). Read the portfolio + run the "best card for X" picker; light human
  * writes (spend profile, wallet/status toggles, purpose assignments). Reward TERMS are advisor-maintained
  * via direct DB writes — no CRUD here.
+ *
+ * Every read and write is scoped to `context.appDb`, i.e. the signed-in user's own store. Cards used to
+ * live in the shared control.db behind `adminProcedure`, which meant one card portfolio for the whole
+ * install: co-users saw each other's wallet and monthly spend profile, and non-admins got a 403 on the
+ * whole tab. Both are gone — a card portfolio is personal, like the plan and the ledger.
  */
 
-async function loadRules(controlDb: ControlDb): Promise<RewardRule[]> {
-	const rows = await controlDb.select().from(cardRewardRules);
+async function loadRules(appDb: AppDb): Promise<RewardRule[]> {
+	const rows = await appDb.select().from(cardRewardRules);
 	return rows.map((r) => ({
 		cardId: r.cardId,
 		category: r.category,
@@ -38,10 +43,8 @@ async function loadRules(controlDb: ControlDb): Promise<RewardRule[]> {
 	}));
 }
 
-async function gotchasByCard(
-	controlDb: ControlDb,
-): Promise<Record<number, string[]>> {
-	const rows = await controlDb.select().from(cardExtras);
+async function gotchasByCard(appDb: AppDb): Promise<Record<number, string[]>> {
+	const rows = await appDb.select().from(cardExtras);
 	const out: Record<number, string[]> = {};
 	for (const r of rows) {
 		const g = r.gotchas;
@@ -52,11 +55,11 @@ async function gotchasByCard(
 
 export const cardsRouter = {
 	/** The full portfolio: cards + their rules + extras (dashboard table). */
-	list: adminProcedure.handler(async ({ context }) => {
+	list: protectedProcedure.handler(async ({ context }) => {
 		const [cardRows, ruleRows, extraRows] = await Promise.all([
-			context.controlDb.select().from(cards),
-			context.controlDb.select().from(cardRewardRules),
-			context.controlDb.select().from(cardExtras),
+			context.appDb.select().from(cards),
+			context.appDb.select().from(cardRewardRules),
+			context.appDb.select().from(cardExtras),
 		]);
 		const rulesByCard = new Map<number, typeof ruleRows>();
 		for (const r of ruleRows) {
@@ -73,13 +76,13 @@ export const cardsRouter = {
 	}),
 
 	/** Best card for a category — ranked, with caveats. */
-	pick: adminProcedure
+	pick: protectedProcedure
 		.input(z.object({ category: z.string() }))
 		.handler(async ({ context, input }) => {
 			const [cardRows, rules, gotchas] = await Promise.all([
-				context.controlDb.select().from(cards),
-				loadRules(context.controlDb),
-				gotchasByCard(context.controlDb),
+				context.appDb.select().from(cards),
+				loadRules(context.appDb),
+				gotchasByCard(context.appDb),
 			]);
 			const infos: CardInfo[] = cardRows
 				.filter((c) => c.active)
@@ -94,7 +97,7 @@ export const cardsRouter = {
 		}),
 
 	/** CIBIL / portfolio score from settings. */
-	health: adminProcedure.handler(async ({ context }) => {
+	health: protectedProcedure.handler(async ({ context }) => {
 		const rows = await context.appDb.select().from(settings);
 		const get = (k: string) => rows.find((r) => r.key === k)?.value ?? null;
 		return {
@@ -103,10 +106,10 @@ export const cardsRouter = {
 		};
 	}),
 
-	spendProfile: adminProcedure.handler(({ context }) =>
-		context.controlDb.select().from(cardSpendProfile),
+	spendProfile: protectedProcedure.handler(({ context }) =>
+		context.appDb.select().from(cardSpendProfile),
 	),
-	setSpend: adminProcedure
+	setSpend: protectedProcedure
 		.input(
 			z.object({
 				category: z.string(),
@@ -114,20 +117,20 @@ export const cardsRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
-			await context.controlDb
+			await context.appDb
 				.insert(cardSpendProfile)
 				.values(input)
 				.onConflictDoUpdate({
 					target: cardSpendProfile.category,
 					set: { monthlyAmount: input.monthlyAmount },
 				});
-			return context.controlDb.select().from(cardSpendProfile);
+			return context.appDb.select().from(cardSpendProfile);
 		}),
 
-	assignments: adminProcedure.handler(({ context }) =>
-		context.controlDb.select().from(cardAssignments),
+	assignments: protectedProcedure.handler(({ context }) =>
+		context.appDb.select().from(cardAssignments),
 	),
-	setAssignment: adminProcedure
+	setAssignment: protectedProcedure
 		.input(
 			z.object({
 				purpose: z.string(),
@@ -136,7 +139,7 @@ export const cardsRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
-			await context.controlDb
+			await context.appDb
 				.insert(cardAssignments)
 				.values({
 					purpose: input.purpose,
@@ -147,11 +150,11 @@ export const cardsRouter = {
 					target: cardAssignments.purpose,
 					set: { cardId: input.cardId, note: input.note ?? null },
 				});
-			return context.controlDb.select().from(cardAssignments);
+			return context.appDb.select().from(cardAssignments);
 		}),
 
 	/** Light per-card human toggles. */
-	setCardFlags: adminProcedure
+	setCardFlags: protectedProcedure
 		.input(
 			z.object({
 				id: z.number().int(),
@@ -167,12 +170,12 @@ export const cardsRouter = {
 				set.active = input.status === "active";
 			}
 			if (Object.keys(set).length) {
-				await context.controlDb
+				await context.appDb
 					.update(cards)
 					.set(set)
 					.where(eq(cards.id, input.id));
 			}
-			const [row] = await context.controlDb
+			const [row] = await context.appDb
 				.select()
 				.from(cards)
 				.where(eq(cards.id, input.id));

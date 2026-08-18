@@ -1,19 +1,27 @@
 #!/usr/bin/env bun
 /**
- * One-time seed: the packages/info credit-card YAMLs → SQLite (issue 005 / cards). Run `bun run cards:import`.
- * Idempotent (upsert by card name; a card's reward rules are cleared before re-insert). Reads the gitignored
- * packages/info; does NOT delete the source. Rates are parsed best-effort to numbers with the raw string kept.
+ * One-time seed: credit-card YAMLs → one user's SQLite app.db (issue 005 / cards).
+ *
+ *   bun run cards:import --user <uid>
+ *
+ * Idempotent (upsert by card name; a card's reward rules are cleared before re-insert). Reads a gitignored
+ * source dir; does NOT delete it. Rates are parsed best-effort to numbers with the raw string kept.
+ *
+ * `--user <uid>` is REQUIRED and has no default: cards are per-user state (they live in the user's app.db,
+ * not the shared control.db), so a silent default would write someone else's wallet into the wrong store.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { userAppDbPath } from "@money/analytics";
 import {
+	anchoredDataDir,
 	cardExtras,
 	cardRewardRules,
 	cardSpendProfile,
 	cards,
-	createControlDb,
+	createAppDb,
 	settings,
 } from "@money/db";
 import { eq } from "drizzle-orm";
@@ -22,7 +30,20 @@ import { mapCategory, parseFee, parseRate } from "./cards-parse";
 
 // ── I/O below (the pure parse helpers live in ./cards-parse and are unit-tested there) ────────────────
 
-const db = createControlDb();
+function requireUid(): string {
+	const i = process.argv.indexOf("--user");
+	const uid = i >= 0 ? process.argv[i + 1] : undefined;
+	if (!uid) {
+		console.error("usage: bun run cards:import --user <uid>");
+		process.exit(1);
+	}
+	return uid;
+}
+
+const db = import.meta.main
+	? createAppDb(`file:${userAppDbPath(anchoredDataDir(), requireUid())}`)
+	: // biome-ignore lint/suspicious/noExplicitAny: never touched — the test imports pure helpers only
+		(null as any);
 
 const INFO_DIR = fileURLToPath(new URL("../packages/info", import.meta.url));
 

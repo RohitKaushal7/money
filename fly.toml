@@ -10,7 +10,7 @@
 # `--ha=false` is NOT optional — see the [mounts] note below.
 
 app = "my-money"             # globally unique across all of Fly — pick your own
-primary_region = "bom"       # pick one near you: fly platform regions
+primary_region = "sin"       # pick one near you: fly platform regions
 
 [build]
   # Pulled as-is; no build step runs. Pin to a commit SHA instead of `latest` to

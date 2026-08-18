@@ -22,6 +22,9 @@ note (see 0011, revised 2026-07-19 before the KPI shipped).
 | [0014](0014-plan-vs-actuals.md) | Plan vs Actuals: two-scene architecture (SQLite plan drives the KPI; statement is actuals) |
 | [0015](0015-coverage-ladder-and-wealth.md) | Coverage ladder (cash ⊆ fixed ⊆ total) + investment grouping, payout tiers, auto-expiry, wealth rollup — *revises 0011* |
 
-See also the session specs in `docs/superpowers/specs/` — `2026-07-18-money-bootstrap-design.md`
-(architecture) and `2026-07-18-money-schema-design.md` (feature & schema design) — and `docs/roadmap.md`
-for phasing.
+These ADRs are the durable design record — the *why* behind every hard rule in `CLAUDE.md`. See
+`docs/roadmap.md` for phasing.
+
+The working notes they came from (per-feature plans and design specs) are deliberately **not published**:
+they are point-in-time snapshots that go stale as soon as the code moves on, and they quote real balances,
+holdings and bank-statement narrations. When an ADR and a memory of some old plan disagree, the ADR wins.

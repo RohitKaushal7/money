@@ -93,12 +93,12 @@ BETTER_AUTH_URL=https://money.example.com
 
 `NODE_ENV` and `DATA_DIR` are baked into the compose file.
 
-> **Same machine works out of the box; anything else needs HTTPS.** Session cookies are issued with
-> `Secure` + `SameSite=None`. Opening `http://localhost:3000` on the machine that runs the container works
-> as-is (localhost is a secure context) — provided you publish it on port `3000`, matching the default
-> `BETTER_AUTH_URL`. To reach it from another machine — a LAN IP or a domain — front the container with a
+> **Reaching it from another machine.** Set `BETTER_AUTH_URL` to whatever origin the browser actually
+> uses, exactly — scheme, host and port, no trailing slash — because session cookies are issued against it.
+> A LAN box over plain HTTP (`http://192.168.1.50:3000`) works. On a domain, front the container with a
 > reverse proxy that terminates TLS (Caddy, Nginx Proxy Manager, nginx, Traefik), forward **all** traffic
-> to port `3000`, and set `BETTER_AUTH_URL` to that HTTPS origin. TLS is yours to run.
+> to port `3000`, and use the `https://` origin. Cookies are `SameSite=Lax`, `HttpOnly`, and `Secure`
+> whenever that origin is HTTPS. TLS is yours to run — and over the public internet, run it.
 
 ### 4. Start it
 
@@ -111,8 +111,14 @@ docker compose logs -f     # watch it migrate, then serve
 
 Open `http://localhost:3000` (or your `BETTER_AUTH_URL`). On a fresh install the first screen is a one-time
 setup page: fill in your name, email, and a password (8+ characters) to create the **owner** account. It
-appears only while no account exists and closes for good once yours is made — public signup stays disabled.
-From the in-app **Admin** dashboard you can then invite and manage everyone else.
+appears only while no account exists and closes for good once yours is made — public signup stays disabled,
+and it does not reopen if accounts are deleted later. From the in-app **Admin** dashboard you can then
+invite and manage everyone else.
+
+> **Claim your account before you expose the app.** Until an owner exists, the setup page is by definition
+> unauthenticated — that is the only way a first admin can be created at all. Anyone who can reach the app
+> in that window can claim it. So do this step first, over `localhost` or your LAN, and only then point a
+> public domain at the container. If you must bring the domain up first, complete setup immediately.
 
 Prefer the command line? Seed the first admin from inside the container instead:
 
@@ -202,7 +208,7 @@ list of scripts in the root `package.json` and `CLAUDE.md`.
 - **`docs/decisions/`** — architecture decision records (ADRs).
 - **`docs/roadmap.md`** — phasing.
 
----
+## Licence
 
-Scaffolded with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack)
-(TanStack Router · Hono · oRPC · Drizzle · Better-Auth · Bun · Turborepo · Biome · PWA).
+[AGPL-3.0](LICENSE). Run it, modify it, host it — but if you run a modified version as a network service,
+its users are entitled to your source too.

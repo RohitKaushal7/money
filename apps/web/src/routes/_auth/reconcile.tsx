@@ -594,7 +594,7 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 			</ul>
 			<p className="mt-2 text-muted-foreground text-xs">
 				<span className="text-foreground/70">File under</span> an existing
-				category to tag a credit the rules missed (e.g. a SustVest borrower) ·{" "}
+				category to tag a credit the rules missed (e.g. a P2P borrower) ·{" "}
 				<span className="text-foreground/70">New holding</span> creates a plan
 				item · <span className="text-foreground/70">Ignore</span> marks it
 				not-income. Applies instantly.

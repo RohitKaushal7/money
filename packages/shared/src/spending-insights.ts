@@ -17,7 +17,7 @@ export const ROLLING_MONTHS = 3;
  * Months in the **recent window** — the level the page judges you at.
  *
  * The window average spans whatever range is selected (24 months by default), which on real data is held
- * down by cheaper older months: ₹55,000 typical against ₹60,000 actually spent over the last year. The gap
+ * down by cheaper older months: a 24-month mean well under what the last year actually spent. The gap
  * against plan, and the coverage ratio measured against it, both read the recent level instead.
  */
 export const RECENT_MONTHS = 12;

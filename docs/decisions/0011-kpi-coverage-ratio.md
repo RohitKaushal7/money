@@ -10,7 +10,7 @@ The north star is "does passive income cover my recurring lifestyle costs, and i
 The **original** formulation (2026-07-18) computed the ratio from bank-statement splits:
 `passive_income_cash` (transactions tagged `kind=passive_income`) ÷ tagged expenses. The first real SBI
 statement disproved that basis. The statement's credits are dominated by **amortising P2P/NBFC payouts**
-(principal + interest mixed, arriving as *separate*, lumpy transactions), **salary** (the employer, EMPLOYER),
+(principal + interest mixed, arriving as *separate*, lumpy transactions), **salary** (matched on the employer's payroll narration),
 salary **rerouted** from another account, and **self-transfers**. Deriving the freedom KPI from that noise
 makes it swing month-to-month, forces brittle principal-vs-interest attribution, and conflates one-off spend
 with baseline lifestyle.

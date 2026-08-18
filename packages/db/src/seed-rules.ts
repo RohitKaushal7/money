@@ -2,11 +2,11 @@ import type { Kind } from "@money/shared";
 
 /**
  * The generic narration→assignment ruleset a newly provisioned user's `app.db` starts with
- * (spec `docs/superpowers/specs/2026-07-21-default-tagging-rules-design.md`). Seeded only when the
+ * Seeded only when the
  * `rules` table is empty, so existing accounts are never re-tagged behind the user's back.
  *
  * This is deliberately NOT the owner's SBI-mined `SEED_RULES` (`@money/analytics`), which anchors on
- * personal counterparties (Wint issuers, EMPLOYER payroll, SustVest borrowers). What lives here is
+ * personal counterparties (specific bond issuers, an employer's payroll, named borrowers). What lives here is
  * bank-mechanics + mass-market Indian merchants: patterns any Indian current/savings statement produces.
  *
  * Matching happens in `buildSplits()` (`@money/analytics/rebuild`): one rule per transaction, chosen by

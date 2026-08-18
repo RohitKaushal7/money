@@ -43,6 +43,13 @@
       "when": 1784650609898,
       "tag": "0005_repin_category_colors",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787031706216,
+      "tag": "0006_brief_masque",
+      "breakpoints": true
     }
   ]
 }

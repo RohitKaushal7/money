@@ -5,6 +5,7 @@ export * from "./categories";
 export * from "./coverage";
 export * from "./currency";
 export * from "./formats";
+export * from "./install";
 export * from "./investments";
 export * from "./ledger";
 export * from "./networth";

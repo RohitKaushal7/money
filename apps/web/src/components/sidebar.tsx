@@ -48,7 +48,7 @@ const NAV: NavItem[] = [
 	{ label: "Spending", icon: TrendingUp, to: "/spending" },
 	{ label: "Transactions", icon: ArrowLeftRight, to: "/transactions" },
 	{ label: "Import", icon: Upload, to: "/import" },
-	{ label: "Cards", icon: CreditCard, to: "/cards", adminOnly: true },
+	{ label: "Cards", icon: CreditCard, to: "/cards" },
 	{ label: "Tax", icon: Receipt, to: "/tax" },
 	{ label: "Settings", icon: Settings, to: "/settings" },
 	{ label: "Admin", icon: ShieldCheck, to: "/admin", adminOnly: true },

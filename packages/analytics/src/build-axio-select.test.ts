@@ -9,6 +9,8 @@ import { openConnection } from "./duckdb";
 import { applySchema } from "./ingest";
 
 // A faithful slice of an Axio export: 6-line preamble, header on line 7, rows, a blank line, a footer.
+// The SHAPE is what matters here (quoting, the preamble the parser must skip, the trailing footer) — the
+// identity fields and account tails are synthetic on purpose, so this fixture carries no real cardholder.
 const CSV = [
 	'"","axio","EXPENSE","REPORT","","","","","","",""',
 	'"Name","Jane Doe ","","","","","","","","",""',
@@ -18,8 +20,8 @@ const CSV = [
 	"",
 	'"DATE","TIME","PLACE","AMOUNT","DR/CR","ACCOUNT","EXPENSE","INCOME","CATEGORY","TAGS","NOTE"',
 	'"2026-06-02","03:49 PM","BLINKIT","1,648.7","DR","Axis credit 1111","Yes","\'-","GROCERIES","#Online",""',
-	'"2026-06-03","05:14 PM","M/S.HUNGRY POINT","380","DR","YesBank credit 2222","Yes","\'-","FOOD & DRINKS","",""',
-	'"2026-06-01","01:51 PM","M S SAINI TRADERS","30,500","DR","YesBank credit 2222","No","\'-","TRANSFER","",""',
+	'"2026-06-03","05:14 PM","M/S.CORNER CAFE","380","DR","YesBank credit 2222","Yes","\'-","FOOD & DRINKS","",""',
+	'"2026-06-01","01:51 PM","EXAMPLE TRADERS","30,500","DR","YesBank credit 2222","No","\'-","TRANSFER","",""',
 	'"2026-06-04","08:00 AM","SBI DIVIDEND FY26","277.6","CR","SBI  3333","\'-","No","CREDIT","",""',
 	"",
 	'"","","","","","","","POWERED","","",""',
@@ -69,7 +71,7 @@ describe("axioRowId", () => {
 			amount: 250,
 			drcr: "DR",
 			account: "YesBank credit 2222",
-			place: "SHESH PAL",
+			place: "SOME PAYEE",
 		};
 		expect(axioRowId(base)).toBe(axioRowId({ ...base }));
 	});

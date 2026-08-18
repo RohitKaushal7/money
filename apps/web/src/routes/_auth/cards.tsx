@@ -1,22 +1,16 @@
 import { CARD_CATEGORIES } from "@money/shared";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { ChevronDown, Wallet } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { authClient } from "@/lib/auth-client";
 import { useMoney } from "@/lib/currency";
 import { type client, orpc } from "@/utils/orpc";
 
+// No admin guard: a card portfolio is per-user state (it lives in the signed-in user's own app.db), so
+// every user gets their own Cards tab. It was admin-only back when all cards sat in the shared control.db.
 export const Route = createFileRoute("/_auth/cards")({
 	component: CardsPage,
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		const role = (session.data?.user as { role?: string } | undefined)?.role;
-		if (role !== "admin") {
-			throw redirect({ to: "/" });
-		}
-	},
 });
 
 function CardsPage() {
@@ -89,7 +83,8 @@ function Picker() {
 			<ol className="flex flex-col divide-y divide-border rounded-xl border border-border">
 				{ranked.length === 0 && (
 					<li className="px-4 py-4 text-muted-foreground text-sm">
-						No cards yet — run <code>bun run cards:import</code>.
+						No cards yet — seed them with{" "}
+						<code>bun run cards:import --user &lt;your-uid&gt;</code>.
 					</li>
 				)}
 				{ranked.map((r, i) => (

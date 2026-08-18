@@ -8,7 +8,6 @@
 `init.md` describes a single-user app ("possibly family later"). The repo was scaffolded from
 `better-t-stack`, whose package layout differs from the conceptual names in the brief. This ADR records
 the decisions taken in the 2026-07-18 bootstrapping session that aren't captured by ADRs 0001–0009.
-See `docs/superpowers/specs/2026-07-18-money-bootstrap-design.md` for the full session spec.
 
 ## Decision
 

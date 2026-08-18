@@ -65,13 +65,19 @@ app.use("/*", async (c, next) => {
 		return rpcResult.response;
 	}
 
-	const apiResult = await apiHandler.handle(c.req.raw, {
-		prefix: "/api-reference",
-		context: context,
-	});
+	// The OpenAPI reference is a DEV surface. Its procedures are auth-gated, but the generated spec is not:
+	// mounted in production it hands an unauthenticated visitor the full API shape — every route, every
+	// input schema — which is free reconnaissance against someone's self-hosted finances. Nothing in the
+	// app consumes it at runtime, so it simply does not exist in a production build.
+	if (env.NODE_ENV !== "production") {
+		const apiResult = await apiHandler.handle(c.req.raw, {
+			prefix: "/api-reference",
+			context: context,
+		});
 
-	if (apiResult.matched) {
-		return apiResult.response;
+		if (apiResult.matched) {
+			return apiResult.response;
+		}
 	}
 
 	await next();
