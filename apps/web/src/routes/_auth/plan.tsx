@@ -15,12 +15,22 @@ import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, Check, ChevronRight, Plus, X } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	ChevronRight,
+	ChevronsUpDown,
+	Plus,
+	X,
+} from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { ArmedDelete } from "@/components/armed-delete";
 import { CoverageHistory } from "@/components/plan/coverage-history";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
+import { useIsDesktop } from "@/lib/media";
+import { usePlanPeriod } from "@/lib/period";
+import { usePreference } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/plan")({ component: PlanPage });
@@ -130,6 +140,8 @@ function PlanPage() {
 	const invalidate = () => qc.invalidateQueries();
 
 	const money = useMoney();
+	const desktop = useIsDesktop();
+	const [tab, setTab] = usePreference("plan.tab");
 	const ladder = useQuery(orpc.plan.ladder.queryOptions());
 	const wealth = useQuery(orpc.plan.wealth.queryOptions());
 	const recurring = useQuery(orpc.plan.recurring.queryOptions());
@@ -143,6 +155,8 @@ function PlanPage() {
 	);
 	const maxIn = Math.max(1, ...rollups.map((r) => r.monthly));
 	const maxOut = Math.max(1, ...recs.map(monthlyInr));
+	const totalIn = rollups.reduce((s, r) => s + r.monthly, 0);
+	const totalOut = recs.reduce((s, e) => s + monthlyInr(e), 0);
 
 	return (
 		<main className="h-full overflow-y-auto">
@@ -157,24 +171,174 @@ function PlanPage() {
 					</p>
 				</header>
 
-				<LadderCard ladder={ladder.data as Ladder | undefined} />
+				{/* On a phone these two collapse to a single summary line each, so the lists — the thing you
+				    actually came to read — are on screen without scrolling past context you already know. */}
+				<LadderCard
+					ladder={ladder.data as Ladder | undefined}
+					collapsible={!desktop}
+				/>
 
-				<CoverageHistory />
+				{/* The trend chart is a desktop affordance: a 12-month dual-axis plot squeezed into 375px is
+				    unreadable, and it is the heaviest thing on the page. Branching here rather than hiding it
+				    with CSS means the phone never fetches the history or mounts recharts at all. */}
+				{desktop && <CoverageHistory />}
 
-				<MaturityAlerts onDone={invalidate} />
+				<MaturityAlerts collapsible={!desktop} onDone={invalidate} />
+
+				{!desktop && (
+					<ColumnTabs
+						tab={tab}
+						onChange={setTab}
+						totalIn={totalIn}
+						totalOut={totalOut}
+					/>
+				)}
 
 				<div className="grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2">
-					<IncomingColumn rollups={rollups} max={maxIn} onDone={invalidate} />
-					<OutgoingColumn rows={recs} max={maxOut} onDone={invalidate} />
+					{(desktop || tab === "incoming") && (
+						<IncomingColumn
+							rollups={rollups}
+							max={maxIn}
+							total={totalIn}
+							showHeader={desktop}
+							onDone={invalidate}
+						/>
+					)}
+					{(desktop || tab === "outgoing") && (
+						<OutgoingColumn
+							rows={recs}
+							max={maxOut}
+							total={totalOut}
+							showHeader={desktop}
+							onDone={invalidate}
+						/>
+					)}
 				</div>
 			</div>
 		</main>
 	);
 }
 
-// ── coverage ladder ───────────────────────────────────────────────────────────────────────────────────
-function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
+// ── period + mobile tabs ──────────────────────────────────────────────────────────────────────────────
+/**
+ * The running total for one side, which doubles as the period switch: tapping it cycles
+ * weekly → monthly → yearly and rescales every amount on the page with it.
+ */
+function TotalButton({
+	total,
+	tone,
+	side,
+}: {
+	total: number;
+	tone: string;
+	side: "in" | "out";
+}) {
 	const { fmt } = useMoney();
+	const { scale, suffix, label, cycle } = usePlanPeriod();
+	return (
+		<button
+			type="button"
+			onClick={cycle}
+			title={`${label} total — tap to change period`}
+			aria-label={`${label} ${side === "in" ? "incoming" : "outgoing"} total. Tap to change period.`}
+			className={`flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-0.5 transition-colors hover:bg-secondary ${
+				side === "out" ? "flex-row-reverse" : ""
+			}`}
+		>
+			<span
+				className="tnum font-display font-medium text-lg"
+				style={{ color: tone }}
+			>
+				{fmt(scale(total))}
+				<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
+			</span>
+			<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+		</button>
+	);
+}
+
+/**
+ * Narrow screens get one column at a time. Two columns of bars on a phone leaves each ~150px wide, which is
+ * too little for a name, an amount and a proportional bar — so the two become tabs, and the totals ride in
+ * the tab labels so both sides stay visible even though only one list is.
+ */
+function ColumnTabs({
+	tab,
+	onChange,
+	totalIn,
+	totalOut,
+}: {
+	tab: "incoming" | "outgoing";
+	onChange: (t: "incoming" | "outgoing") => void;
+	totalIn: number;
+	totalOut: number;
+}) {
+	const { fmt } = useMoney();
+	const { scale, suffix, label, cycle } = usePlanPeriod();
+
+	const item = (id: "incoming" | "outgoing", text: string, total: number) => {
+		const active = tab === id;
+		const tone = id === "incoming" ? IN : OUT;
+		return (
+			<button
+				type="button"
+				onClick={() => onChange(id)}
+				aria-pressed={active}
+				className="flex flex-1 cursor-pointer flex-col gap-0.5 rounded-md px-3 py-2 text-left transition-colors"
+				style={active ? { background: tint(tone, 12) } : undefined}
+			>
+				<span className="flex items-center gap-1.5">
+					<span
+						className="size-1.5 shrink-0 rounded-full"
+						style={{ backgroundColor: tone, opacity: active ? 1 : 0.4 }}
+					/>
+					<span
+						className={`text-xs ${active ? "text-foreground" : "text-muted-foreground"}`}
+					>
+						{text}
+					</span>
+				</span>
+				<span
+					className="tnum font-display font-medium"
+					style={{ color: tone, opacity: active ? 1 : 0.55 }}
+				>
+					{fmt(scale(total))}
+				</span>
+			</button>
+		);
+	};
+
+	return (
+		<div className="flex items-stretch gap-2">
+			<div className="flex flex-1 gap-1 rounded-lg border border-border p-1">
+				{item("incoming", "Incoming", totalIn)}
+				{item("outgoing", "Outgoing", totalOut)}
+			</div>
+			<button
+				type="button"
+				onClick={cycle}
+				title={`${label} — tap to change period`}
+				aria-label={`Showing ${label} amounts. Tap to change period.`}
+				className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border px-3 text-muted-foreground text-sm transition-colors hover:bg-secondary hover:text-foreground"
+			>
+				<span className="tnum">{suffix}</span>
+				<ChevronsUpDown className="size-3.5" />
+			</button>
+		</div>
+	);
+}
+
+// ── coverage ladder ───────────────────────────────────────────────────────────────────────────────────
+function LadderCard({
+	ladder,
+	collapsible,
+}: {
+	ladder: Ladder | undefined;
+	collapsible: boolean;
+}) {
+	const { fmt } = useMoney();
+	const { scale, suffix } = usePlanPeriod();
+	const [open, setOpen] = useState(false);
 	const total = ladder?.total.ratio ?? null;
 	const free = total != null && total >= 1;
 	const accent = free ? IN : OUT;
@@ -183,32 +347,67 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 		{ key: "fixed", label: "+ Fixed income", t: ladder?.fixed },
 		{ key: "total", label: "+ Total return", t: ladder?.total },
 	];
+	// The ratio is period-invariant — it is one flow over another — so only the ₹ figures rescale.
+	const expenses = (
+		<>
+			{fmt(scale(ladder?.expenses ?? 0))}
+			<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
+		</>
+	);
 	return (
 		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
-			<div className="flex items-end justify-between">
-				<div>
+			{/* The chip is a button, so it sits beside the collapse toggle rather than inside it. */}
+			<div className="flex items-end justify-between gap-3">
+				<div className="min-w-0">
 					<p className="flex items-center gap-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
 						Coverage
 						<TaxModeChip />
 					</p>
 					<p
-						className="tnum pointer-events-none font-display font-medium text-5xl leading-none"
+						className={`tnum font-display font-medium leading-none ${collapsible ? "text-4xl" : "pointer-events-none text-5xl"}`}
 						style={{ color: accent }}
 					>
 						{ratioStr(total)}
 					</p>
 				</div>
-				<div className="text-right">
-					<p
-						className="tnum font-display font-medium text-xl"
-						style={{ color: OUT }}
+				{collapsible ? (
+					<button
+						type="button"
+						onClick={() => setOpen((o) => !o)}
+						aria-expanded={open}
+						aria-label={`${open ? "Hide" : "Show"} the coverage ladder`}
+						className="flex cursor-pointer items-center gap-1 text-right"
 					>
-						{fmt(ladder?.expenses ?? 0)}
-					</p>
-					<p className="text-muted-foreground text-xs">recurring / mo</p>
-				</div>
+						<span>
+							<span
+								className="tnum block font-display font-medium text-xl"
+								style={{ color: OUT }}
+							>
+								{expenses}
+							</span>
+							<span className="block text-muted-foreground text-xs">
+								recurring
+							</span>
+						</span>
+						<ChevronRight
+							className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+						/>
+					</button>
+				) : (
+					<div className="text-right">
+						<p
+							className="tnum font-display font-medium text-xl"
+							style={{ color: OUT }}
+						>
+							{expenses}
+						</p>
+						<p className="text-muted-foreground text-xs">recurring</p>
+					</div>
+				)}
 			</div>
-			<div className="flex flex-col gap-2.5">
+			<div
+				className={`flex-col gap-2.5 ${collapsible && !open ? "hidden" : "flex"}`}
+			>
 				{tiers.map(({ key, label, t }) => {
 					const r = t?.ratio ?? 0;
 					return (
@@ -234,13 +433,15 @@ function LadderCard({ ladder }: { ladder: Ladder | undefined }) {
 								{ratioStr(t?.ratio ?? null)}
 							</span>
 							<span className="tnum w-20 shrink-0 text-right text-muted-foreground text-xs">
-								{fmt(t?.income ?? 0)}
+								{fmt(scale(t?.income ?? 0))}
 							</span>
 						</div>
 					);
 				})}
 			</div>
-			<p className="text-muted-foreground text-xs">
+			<p
+				className={`text-muted-foreground text-xs ${collapsible && !open ? "hidden" : ""}`}
+			>
 				The right edge is <span className="text-foreground/70">1.0×</span> —
 				passive income fully covers recurring expenses. Cash ⊆ fixed-income ⊆
 				total return.
@@ -306,10 +507,17 @@ function daysToMaturity(inv: Investment, today: string): number | null {
  * Update / Delete, plus a heads-up list of anything expiring within 30 days below a divider. Renders
  * nothing when both lists are empty.
  */
-function MaturityAlerts({ onDone }: { onDone: () => void }) {
+function MaturityAlerts({
+	collapsible,
+	onDone,
+}: {
+	collapsible: boolean;
+	onDone: () => void;
+}) {
 	const money = useMoney();
 	const invs = useQuery(orpc.plan.investments.queryOptions());
 	const [editing, setEditing] = useState<string | null>(null);
+	const [open, setOpen] = useState(false);
 	const update = useMutation({
 		...orpc.plan.updateInvestment.mutationOptions(),
 		onSuccess: onDone,
@@ -342,22 +550,51 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 
 	if (matured.length === 0 && soon.length === 0) return null;
 
+	// The heading already *is* the summary — "2 investments matured — take action" says everything the
+	// collapsed state needs to, so collapsing here costs no information, only the rows you'd act on.
+	const heading =
+		matured.length > 0
+			? `${matured.length} investment${matured.length === 1 ? "" : "s"} matured — take action`
+			: `${soon.length} investment${soon.length === 1 ? "" : "s"} expiring within 30 days`;
+	// One display utility per element, never `flex hidden` — which of the two wins is a stylesheet-order
+	// detail, not something the class list decides.
+	const collapsed = collapsible && !open;
+
 	return (
 		<section
 			className="flex flex-col gap-2 rounded-xl border px-5 py-4"
 			style={{ borderColor: tint(OUT, 35), background: tint(OUT, 7) }}
 		>
-			<div className="flex items-center gap-2">
-				<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
-				<h2 className="font-medium text-sm" style={{ color: OUT }}>
-					{matured.length > 0
-						? `${matured.length} investment${matured.length === 1 ? "" : "s"} matured — take action`
-						: `${soon.length} investment${soon.length === 1 ? "" : "s"} expiring within 30 days`}
-				</h2>
-			</div>
+			{collapsible ? (
+				<button
+					type="button"
+					onClick={() => setOpen((o) => !o)}
+					aria-expanded={open}
+					aria-label={`${open ? "Hide" : "Show"} the holdings needing attention`}
+					className="flex cursor-pointer items-center gap-2 text-left"
+				>
+					<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
+					<h2 className="flex-1 font-medium text-sm" style={{ color: OUT }}>
+						{heading}
+					</h2>
+					<ChevronRight
+						className={`size-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+						style={{ color: OUT }}
+					/>
+				</button>
+			) : (
+				<div className="flex items-center gap-2">
+					<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
+					<h2 className="font-medium text-sm" style={{ color: OUT }}>
+						{heading}
+					</h2>
+				</div>
+			)}
 
 			{matured.length > 0 && (
-				<ul className="flex flex-col divide-y divide-border/50">
+				<ul
+					className={`${collapsed ? "hidden" : "flex"} flex-col divide-y divide-border/50`}
+				>
 					{matured.map((inv) =>
 						editing === inv.id ? (
 							<li key={inv.id} className="py-2">
@@ -407,13 +644,17 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 			{soon.length > 0 && (
 				<>
 					{matured.length > 0 && (
-						<div className="mt-1 flex items-center gap-2 border-border/60 border-t pt-2">
+						<div
+							className={`${collapsed ? "hidden" : "flex"} mt-1 items-center gap-2 border-border/60 border-t pt-2`}
+						>
 							<span className="text-[0.7rem] text-muted-foreground uppercase tracking-wider">
 								Expiring within 30 days
 							</span>
 						</div>
 					)}
-					<ul className="flex flex-col divide-y divide-border/50">
+					<ul
+						className={`${collapsed ? "hidden" : "flex"} flex-col divide-y divide-border/50`}
+					>
 						{soon.map(({ inv, days }) => (
 							<li key={inv.id} className="flex items-center gap-3 py-1.5">
 								<div className="min-w-0 flex-1">
@@ -438,10 +679,14 @@ function MaturityAlerts({ onDone }: { onDone: () => void }) {
 function IncomingColumn({
 	rollups,
 	max,
+	total,
+	showHeader,
 	onDone,
 }: {
 	rollups: Rollup[];
 	max: number;
+	total: number;
+	showHeader: boolean;
 	onDone: () => void;
 }) {
 	const [editing, setEditing] = useState<string | null>(null);
@@ -478,7 +723,7 @@ function IncomingColumn({
 
 	return (
 		<section className="flex flex-col">
-			<ColHeader tone={IN} label="Incoming" />
+			{showHeader && <ColHeader tone={IN} label="Incoming" total={total} />}
 			<ul className="flex flex-col">
 				{rollups.length === 0 && !adding && <Empty>No holdings yet.</Empty>}
 				{rollups.map((r) =>
@@ -616,6 +861,7 @@ function GroupRow({
 
 function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 	const { fmt } = useMoney();
+	const { scale, suffix } = usePlanPeriod();
 	const monthly =
 		inv.expectedMonthlyInterest ??
 		((inv.currentValue ?? 0) * (inv.annualRate ?? 0)) / 12;
@@ -638,8 +884,8 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 					</span>
 				</span>
 				<span className="tnum text-sm" style={{ color: IN }}>
-					{fmt(monthly)}
-					<span className="text-[0.6rem] text-muted-foreground">/mo</span>
+					{fmt(scale(monthly))}
+					<span className="text-[0.6rem] text-muted-foreground">{suffix}</span>
 				</span>
 			</button>
 		</li>
@@ -649,12 +895,14 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 /** Spans rather than divs: this renders inside a row's button, which only accepts phrasing content. */
 function Amount({ value, monthly }: { value: number; monthly: number }) {
 	const { fmt } = useMoney();
+	const { scale, suffix } = usePlanPeriod();
 	return (
 		<span className="relative block text-right">
 			<span className="tnum block font-medium" style={{ color: IN }}>
-				{fmt(monthly)}
-				<span className="text-[0.6rem] text-muted-foreground"> /mo</span>
+				{fmt(scale(monthly))}
+				<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
 			</span>
+			{/* The corpus is a stock, not a flow — it is the same ₹18L whichever period you read the yield in. */}
 			<span className="tnum block text-muted-foreground text-xs">
 				{fmt(value)}
 			</span>
@@ -666,10 +914,14 @@ function Amount({ value, monthly }: { value: number; monthly: number }) {
 function OutgoingColumn({
 	rows,
 	max,
+	total,
+	showHeader,
 	onDone,
 }: {
 	rows: RecurringExpense[];
 	max: number;
+	total: number;
+	showHeader: boolean;
 	onDone: () => void;
 }) {
 	const { rates } = useMoney();
@@ -690,7 +942,9 @@ function OutgoingColumn({
 
 	return (
 		<section className="flex flex-col">
-			<ColHeader tone={OUT} label="Outgoing" side="right" />
+			{showHeader && (
+				<ColHeader tone={OUT} label="Outgoing" total={total} side="right" />
+			)}
 			<ul className="flex flex-col">
 				{rows.length === 0 && !adding && (
 					<Empty>No recurring expenses yet.</Empty>
@@ -762,6 +1016,7 @@ function OutgoingRow({
 	pct: number;
 	onEdit: () => void;
 }) {
+	const { scale, suffix } = usePlanPeriod();
 	return (
 		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
 			<Depth pct={pct} side="left" tone={OUT} />
@@ -775,15 +1030,18 @@ function OutgoingRow({
 				<span className="block text-left">
 					<span className="tnum block font-medium" style={{ color: OUT }}>
 						<MoneyNative
-							amount={monthlyAmount(exp)}
+							amount={scale(monthlyAmount(exp))}
 							code={exp.currency ?? "INR"}
 						/>
 					</span>
+					{/* The period suffix labels the figure above; a non-monthly bill also keeps its real contract
+					    alongside, because "₹19,239 /yr" is what actually leaves the account and no rescaling of
+					    it into a weekly average should hide that. */}
 					<span className="block text-[0.6rem] text-muted-foreground">
-						{exp.cadence === "monthly" ? (
-							"/mo"
-						) : (
+						{suffix}
+						{exp.cadence !== "monthly" && (
 							<>
+								{" · "}
 								<MoneyNative amount={exp.amount} code={exp.currency ?? "INR"} />
 								{CADENCE_LABEL[exp.cadence] ?? ""}
 							</>
@@ -1083,19 +1341,34 @@ function ExpenseForm({
 function ColHeader({
 	tone,
 	label,
+	total,
 	side,
 }: {
 	tone: string;
 	label: string;
+	total: number;
 	side?: "left" | "right";
 }) {
 	return (
 		<div
-			className={`flex items-center gap-2 border-b-2 pb-2 ${side === "right" ? "flex-row-reverse" : ""}`}
+			className={`flex items-center justify-between gap-2 border-b-2 pb-2 ${side === "right" ? "flex-row-reverse" : ""}`}
 			style={{ borderColor: tint(tone, 40) }}
 		>
-			<span className="size-2 rounded-full" style={{ backgroundColor: tone }} />
-			<h2 className="font-display font-medium text-lg">{label}</h2>
+			<span
+				className={`flex items-center gap-2 ${side === "right" ? "flex-row-reverse" : ""}`}
+			>
+				<span
+					className="size-2 rounded-full"
+					style={{ backgroundColor: tone }}
+				/>
+				<h2 className="font-display font-medium text-lg">{label}</h2>
+			</span>
+			{/* The totals sit on the inner edge of each column, so the two meet in the middle of the page. */}
+			<TotalButton
+				total={total}
+				tone={tone}
+				side={side === "right" ? "out" : "in"}
+			/>
 		</div>
 	);
 }

@@ -21,6 +21,10 @@ const DEFAULTS = {
 	"runway.inflationRate": 0.06,
 	/** are amounts masked on screen right now? */
 	"privacy.hidden": false,
+	/** Plan: which period the recurring flows are rescaled to. */
+	"plan.period": "monthly" as "weekly" | "monthly" | "yearly",
+	/** Plan (narrow screens only): which of the two columns is on screen. */
+	"plan.tab": "outgoing" as "incoming" | "outgoing",
 	/** Axio explorer: how finely to bucket time. */
 	"explorer.granularity": "month" as "month" | "quarter" | "year",
 	/** Axio explorer: which chart shape. */
