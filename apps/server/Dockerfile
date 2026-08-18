@@ -13,10 +13,13 @@
 # stage is discarded — none of its ~900MB of dev tooling (vite/biome/turbo/tsc) reaches the shipped image.
 # The SPA output is plain JS/CSS, i.e. architecture-independent, so this stage runs ONCE and every platform
 # leg grafts the same dist.
-# `canary` is the only published bun image on 1.4.0 (matches packageManager: bun@1.4.0); the stable `:1` /
-# `:latest` tags still ship 1.3.14, which can't read bun.lock's format and silently ignores the lockfile.
+# Pinned to the newest RELEASED bun (1.3.14). This used to track `canary`, because the lockfile had been
+# written by a canary build as lockfileVersion 2, which released bun rejects outright — it warns
+# "Ignoring lockfile" and then --frozen-lockfile fails. The lockfile is regenerated on 1.3.14 now
+# (lockfileVersion 1), so nothing needs an unreleased toolchain. Keep this in step with
+# `packageManager` in package.json and `bun-version` in .github/workflows/ci.yml.
 # ---------------------------------------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM oven/bun:canary AS builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS builder
 WORKDIR /app
 
 # No runtime secrets are present during the build; env is validated for real at container start (see below).
@@ -45,7 +48,7 @@ RUN cd apps/web && bun run build
 # `sharing=locked` on the bun cache: the platform legs of a multi-arch build run concurrently, and they all
 # land on this one build-host cache directory. Serialise them rather than race.
 # ---------------------------------------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM oven/bun:canary AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14 AS deps
 WORKDIR /app
 COPY . .
 
@@ -76,7 +79,7 @@ SH
 # native import to a path where it can't resolve). DATA_DIR and ./apps/web/dist are resolved relative to
 # this WORKDIR (/app).
 # ---------------------------------------------------------------------------------------------------------
-FROM oven/bun:canary-slim AS runtime
+FROM oven/bun:1.3.14-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
