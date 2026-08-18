@@ -113,6 +113,32 @@ async function firstAdminUid(url: string): Promise<string | null> {
 	}
 }
 
+/**
+ * Latch first-run setup shut on an install that already has users.
+ *
+ * The latch is normally written by the setup route itself, but an install created before that route
+ * existed (or seeded via `scripts/create-user.ts`) has users and no latch — and would therefore re-open
+ * the unauthenticated create-an-admin endpoint if its accounts were ever all deleted. Backfilling here
+ * closes that for every upgraded install. No users means a genuinely fresh install: leave setup open.
+ */
+async function latchSetupIfUsersExist(url: string): Promise<boolean> {
+	const client = createClient({ url });
+	try {
+		const users = await client.execute("SELECT count(*) AS n FROM user");
+		if (Number(users.rows[0]?.n ?? 0) === 0) return false;
+		const res = await client.execute({
+			sql: "INSERT OR IGNORE INTO install_meta (key, value) VALUES (?, ?)",
+			args: ["setup_completed_at", new Date().toISOString()],
+		});
+		return res.rowsAffected > 0;
+	} catch {
+		// pre-migration schema (no install_meta / no user table) — nothing to latch
+		return false;
+	} finally {
+		client.close();
+	}
+}
+
 /** Migrate control.db, then fan out over every users/<uid>/app.db under dataDir. Idempotent. */
 export async function migrateAll(opts: { dataDir: string }): Promise<void> {
 	const controlUrl = `file:${opts.dataDir}/control.db`;
@@ -142,6 +168,13 @@ export async function migrateAll(opts: { dataDir: string }): Promise<void> {
 				console.log(`[migrate] moved ${copied} card rows into users/${uid}`);
 			}
 		}
+	}
+
+	// After the control migration, so `install_meta` is guaranteed to exist.
+	if (await latchSetupIfUsersExist(controlUrl)) {
+		console.log(
+			"[migrate] existing users found — first-run setup latched shut",
+		);
 	}
 }
 
