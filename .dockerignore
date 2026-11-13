@@ -34,9 +34,10 @@ docker-compose.yml
 **/*.db
 **/*.db-*
 
-# Test-only code never ships: the tests, and the analytics sandbox's stub workers they spawn. Nothing the
-# server runs (apps/server/src, scripts/migrate-db.ts, scripts/ingest.ts) imports either, and no build step
-# (bun install, the web's vite build) reads them.
+# Test-only code never ships: the tests, the analytics sandbox's stub workers they spawn, and the API's test
+# helpers. Nothing the server runs (apps/server/src, scripts/migrate-db.ts, scripts/ingest.ts) imports any of
+# them, and no build step (bun install, the web's vite build) reads them.
 **/*.test.ts
 **/*.test.tsx
 packages/analytics/src/testing
+packages/api/src/testing

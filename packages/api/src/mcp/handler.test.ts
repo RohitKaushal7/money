@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { migrateLiveControlDb } from "../testing/control-db";
 
 process.env.SKIP_ENV_VALIDATION = "1";
 const dir = mkdtempSync(join(tmpdir(), "money-mcp-handler-"));
@@ -15,7 +16,6 @@ const { auth } = await import("@money/auth");
 const { apiTokens, changeLog, investments } = await import("@money/db");
 const { eq } = await import("drizzle-orm");
 const { os } = await import("@orpc/server");
-const { runControlMigrations } = await import("@money/db/migrate");
 const { appRouter } = await import("../routers/index");
 const { createContext } = await import("../context");
 const { appDbFor, controlDb } = await import("../db");
@@ -68,13 +68,9 @@ let pinned: Account;
 let revoked: string;
 
 beforeAll(async () => {
-	// `bun test packages` runs every file in one module registry, so the auth and controlDb() singletons may
-	// already be open on an earlier file's DATA_DIR. Follow them there, so the users, sessions, tokens and
-	// app DBs below all land in the databases those singletons actually read.
-	const live = (await controlDb().$client.execute("PRAGMA database_list"))
-		.rows[0]?.file;
-	if (typeof live === "string" && live) process.env.DATA_DIR = dirname(live);
-	await runControlMigrations(`file:${dataDir()}/control.db`);
+	// The auth and controlDb() singletons may be open on an earlier file's DATA_DIR: follow them, so the users,
+	// sessions, tokens and app DBs below land in the databases they actually read.
+	await migrateLiveControlDb({ followDataDir: true });
 	owner = await account("mcp-owner@x.test");
 	pinned = await account("mcp-pinned@x.test");
 	const r = await createToken(controlDb(), owner.uid, {

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { migrateLiveControlDb } from "./testing/control-db";
 
 process.env.SKIP_ENV_VALIDATION = "1";
 const dir = mkdtempSync(join(tmpdir(), "money-tokens-"));
@@ -174,9 +175,7 @@ describe("tokens router", () => {
 		});
 
 	beforeAll(async () => {
-		const live = (await controlDb().$client.execute("PRAGMA database_list"))
-			.rows[0]?.file;
-		await runControlMigrations(`file:${live}`);
+		await migrateLiveControlDb();
 		for (const id of ["router-a", "router-b"]) {
 			await controlDb()
 				.insert(user)

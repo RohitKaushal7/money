@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Context } from "./context";
+import { migrateLiveControlDb } from "./testing/control-db";
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "money-changes-"));
@@ -11,9 +12,7 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { call, createRouterClient } = await import("@orpc/server");
-const { provisionUserApp, runControlMigrations } = await import(
-	"@money/db/migrate"
-);
+const { provisionUserApp } = await import("@money/db/migrate");
 const {
 	categories,
 	changeLog,
@@ -723,9 +722,7 @@ describe("more multi-step writes are all-or-nothing", () => {
 
 	test("currency.refresh saves every fetched rate or none", async () => {
 		// The shared control DB: wherever controlDb() points, migrated, with two foreign currencies.
-		const live = (await controlDb().$client.execute("PRAGMA database_list"))
-			.rows[0]?.file;
-		await runControlMigrations(`file:${live}`);
+		await migrateLiveControlDb();
 		for (const code of ["USD", "EUR"]) {
 			await controlDb()
 				.insert(currencies)

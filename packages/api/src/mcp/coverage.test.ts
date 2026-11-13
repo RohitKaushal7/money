@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { Context } from "../context";
+import { migrateLiveControlDb } from "../testing/control-db";
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "money-mcp-coverage-"));
@@ -10,12 +11,9 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createRouterClient } = await import("@orpc/server");
-const { provisionUserApp, runControlMigrations } = await import(
-	"@money/db/migrate"
-);
+const { provisionUserApp } = await import("@money/db/migrate");
 const { appRouter } = await import("../routers/index");
 const { controlDb } = await import("../db");
-const { dataDir } = await import("../paths");
 const {
 	MCP_EXCLUDED_PROCEDURES,
 	MCP_EXCLUDED_ROUTERS,
@@ -73,12 +71,7 @@ describe("MCP descriptions", () => {
 
 describe("shared currency rates are admin-only", () => {
 	beforeAll(async () => {
-		// `bun test packages` shares one module registry, so controlDb() may already be open on another file's
-		// DATA_DIR; migrate the database it actually uses.
-		const live = (await controlDb().$client.execute("PRAGMA database_list"))
-			.rows[0]?.file;
-		if (typeof live === "string" && live) process.env.DATA_DIR = dirname(live);
-		await runControlMigrations(`file:${dataDir()}/control.db`);
+		await migrateLiveControlDb({ followDataDir: true });
 		await provisionUserApp("rate-u");
 	});
 
