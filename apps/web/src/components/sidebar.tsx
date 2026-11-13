@@ -15,7 +15,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { authClient } from "@/lib/auth-client";
+import { useIsAdmin } from "@/lib/admin";
 import { ModeToggle } from "./mode-toggle";
 import { PrivacyToggle } from "./privacy-toggle";
 import UserMenu from "./user-menu";
@@ -58,12 +58,6 @@ const BASE =
 	"flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors";
 const INACTIVE = `${BASE} text-muted-foreground hover:bg-secondary/50 hover:text-foreground`;
 const ACTIVE = `${BASE} bg-secondary font-medium text-secondary-foreground`;
-
-/** Whether the signed-in user is an admin of this install. */
-export function useIsAdmin() {
-	const { data: session } = authClient.useSession();
-	return (session?.user as { role?: string } | undefined)?.role === "admin";
-}
 
 /** The wordmark + tagline, shared by the desktop rail and the mobile drawer. */
 function Wordmark() {
@@ -122,7 +116,7 @@ function NavList({
 
 /** Left navigation rail (desktop). The wordmark lives here, not in a top header. */
 export function Sidebar() {
-	const isAdmin = useIsAdmin();
+	const isAdmin = useIsAdmin() === true;
 	return (
 		<aside className="hidden w-60 shrink-0 flex-col border-border border-r bg-card/40 md:flex">
 			<div className="px-6 py-6">
@@ -143,7 +137,7 @@ export function Sidebar() {
 /** Slim top bar for narrow screens, with a hamburger that opens the nav drawer. */
 export function MobileBar() {
 	const [open, setOpen] = useState(false);
-	const isAdmin = useIsAdmin();
+	const isAdmin = useIsAdmin() === true;
 
 	// Close on Escape while the drawer is open.
 	useEffect(() => {

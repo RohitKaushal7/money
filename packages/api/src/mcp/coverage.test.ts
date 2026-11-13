@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Context } from "../context";
 
 process.env.SKIP_ENV_VALIDATION = "1";
@@ -10,9 +10,12 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createRouterClient } = await import("@orpc/server");
-const { provisionUserApp } = await import("@money/db/migrate");
+const { provisionUserApp, runControlMigrations } = await import(
+	"@money/db/migrate"
+);
 const { appRouter } = await import("../routers/index");
 const { controlDb } = await import("../db");
+const { dataDir } = await import("../paths");
 const {
 	MCP_EXCLUDED_PROCEDURES,
 	MCP_EXCLUDED_ROUTERS,
@@ -70,6 +73,12 @@ describe("MCP descriptions", () => {
 
 describe("shared currency rates are admin-only", () => {
 	beforeAll(async () => {
+		// `bun test packages` shares one module registry, so controlDb() may already be open on another file's
+		// DATA_DIR; migrate the database it actually uses.
+		const live = (await controlDb().$client.execute("PRAGMA database_list"))
+			.rows[0]?.file;
+		if (typeof live === "string" && live) process.env.DATA_DIR = dirname(live);
+		await runControlMigrations(`file:${dataDir()}/control.db`);
 		await provisionUserApp("rate-u");
 	});
 
@@ -88,6 +97,19 @@ describe("shared currency rates are admin-only", () => {
 		await expect(
 			as("user").currency.setRate({ code: "USD", rateToInr: 90 }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	test("an admin can set a rate", async () => {
+		// XTS is ISO 4217's code for testing; disabled, so no display list in another test file sees it.
+		const admin = as("admin");
+		await admin.currency.upsert({ code: "XTS", symbol: "T", enabled: false });
+		const after = await admin.currency.setRate({
+			code: "XTS",
+			rateToInr: 91.25,
+		});
+		expect(after.currencies.find((c) => c.code === "XTS")?.rateToInr).toBe(
+			91.25,
+		);
 	});
 
 	test("a non-admin cannot upsert or refresh", async () => {

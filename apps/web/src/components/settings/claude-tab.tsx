@@ -1,11 +1,11 @@
 import { Button } from "@money/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArmedDelete } from "@/components/armed-delete";
 import { Field, Section, TextInput } from "@/components/settings/section";
-import { useIsAdmin } from "@/components/sidebar";
+import { useIsAdmin } from "@/lib/admin";
 import { useMoney } from "@/lib/currency";
 import { formatRate, formatRelativeTime } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -36,9 +36,18 @@ const day = (d: Date | string | number) =>
 		year: "numeric",
 	});
 
+/** Today in the owner's timezone as `YYYY-MM-DD`, the format of a date input's value. */
+const todayInput = () => {
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 /** A copy-to-clipboard button that says it worked. Clipboard access can be refused, so that is a toast too. */
 function CopyButton({ text, label }: { text: string; label: string }) {
 	const [done, setDone] = useState(false);
+	const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	// "Copied" reverts after a moment; a button removed before then (the token dismissed) cancels it.
+	useEffect(() => () => clearTimeout(timer.current), []);
 	return (
 		<Button
 			type="button"
@@ -49,7 +58,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 				try {
 					await navigator.clipboard.writeText(text);
 					setDone(true);
-					setTimeout(() => setDone(false), 1500);
+					clearTimeout(timer.current);
+					timer.current = setTimeout(() => setDone(false), 1500);
 				} catch {
 					toast.error("Couldn't copy — select the text and copy it by hand.");
 				}
@@ -78,7 +88,7 @@ function Tokens() {
 			setFresh(r.token);
 			setName("");
 			setExpires("");
-			qc.invalidateQueries();
+			qc.invalidateQueries({ queryKey: orpc.tokens.key() });
 		},
 		onError: (e: Error) => toast.error(e.message),
 	});
@@ -88,7 +98,7 @@ function Tokens() {
 		onSuccess: (r) => {
 			if (r.ok) toast.success("Token revoked.");
 			else toast.error("That token was not found or is already revoked.");
-			qc.invalidateQueries();
+			qc.invalidateQueries({ queryKey: orpc.tokens.key() });
 		},
 		onError: (e: Error) => toast.error(e.message),
 	});
@@ -140,6 +150,7 @@ function Tokens() {
 					<Field label="Expires (optional)">
 						<TextInput
 							type="date"
+							min={todayInput()}
 							value={expires}
 							onChange={(e) => setExpires(e.target.value)}
 						/>
@@ -403,7 +414,19 @@ function RecentChanges() {
 		onSuccess: () => toast.success("Change undone."),
 		// A refused undo (edited since, already undone) is an error carrying the reason.
 		onError: (e: Error) => toast.error(e.message),
-		onSettled: () => qc.invalidateQueries(),
+		// Undo only ever writes a holding or a recurring expense (see change-log.ts), so it refreshes the
+		// change list and what reads those: the plan, the wealth figures, net worth, reconcile and spending.
+		onSettled: () => {
+			for (const queryKey of [
+				orpc.changes.key(),
+				orpc.plan.key(),
+				orpc.networth.key(),
+				orpc.reconcile.key(),
+				orpc.spending.key(),
+			]) {
+				qc.invalidateQueries({ queryKey });
+			}
+		},
 	});
 
 	return (

@@ -1,4 +1,5 @@
 import { Button } from "@money/ui/components/button";
+import { Skeleton } from "@money/ui/components/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Check, RefreshCw } from "lucide-react";
@@ -9,7 +10,7 @@ import { ClaudeTab } from "@/components/settings/claude-tab";
 import { DataTab } from "@/components/settings/data-tab";
 import { SecurityTab } from "@/components/settings/security-tab";
 import { TabBar } from "@/components/tab-bar";
-import { authClient } from "@/lib/auth-client";
+import { useIsAdmin } from "@/lib/admin";
 import { useCurrencyConfig } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
@@ -154,9 +155,8 @@ function TaxKpi() {
 function Currencies() {
 	const cfg = useCurrencyConfig();
 	// Rates are shared by every user on the install, so only an admin may add, edit or refresh them.
-	const { data: session } = authClient.useSession();
-	const isAdmin =
-		(session?.user as { role?: string } | undefined)?.role === "admin";
+	// `undefined` until the session loads: the controls wait for it rather than flash their read-only form.
+	const isAdmin = useIsAdmin();
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 
@@ -184,6 +184,17 @@ function Currencies() {
 		},
 		onError: (e) => toast.error(e.message),
 	});
+
+	if (isAdmin === undefined) {
+		return (
+			<section className="flex flex-col gap-5" aria-busy="true">
+				<div className="border-border border-b-2 pb-2">
+					<h2 className="font-display font-medium text-xl">Currencies</h2>
+				</div>
+				<Skeleton className="h-48 w-full rounded-xl" />
+			</section>
+		);
+	}
 
 	return (
 		<section className="flex flex-col gap-5">
