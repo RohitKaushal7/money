@@ -129,3 +129,11 @@ describe("descriptions", () => {
 		}
 	});
 });
+
+describe("categories.update description", () => {
+	test("doesn't promise a kind change reaches overrides or splits", () => {
+		const d = mcpMetaOf(appRouter.categories.update)?.description ?? "";
+		expect(d).not.toContain("re-applied to spending data");
+		expect(d).toContain("keep the kind they were saved with");
+	});
+});

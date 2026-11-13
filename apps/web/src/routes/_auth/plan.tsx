@@ -1354,6 +1354,7 @@ function InvestmentForm({
 					<Input
 						type="number"
 						min={0}
+						step="any"
 						value={value}
 						onChange={(e) => setValue(e.target.value)}
 						className="tnum"
@@ -1375,6 +1376,7 @@ function InvestmentForm({
 						<Input
 							type="number"
 							min={0}
+							step="any"
 							value={monthly}
 							onChange={(e) => setMonthly(e.target.value)}
 							className="tnum"
