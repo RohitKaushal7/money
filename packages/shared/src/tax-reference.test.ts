@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TAX_YEARS, taxYear } from "./tax-reference";
+import { TAX_YEARS, taxFyChoices, taxYear } from "./tax-reference";
 
 describe("tax reference data", () => {
 	test("both live FYs exist and share the new-regime table", () => {
@@ -42,5 +42,23 @@ describe("tax reference data", () => {
 
 	test("taxYear throws on an unknown FY", () => {
 		expect(() => taxYear("FY1999-00")).toThrow();
+	});
+
+	describe("taxFyChoices — the years the Tax page offers", () => {
+		const ruled = Object.keys(TAX_YEARS).sort();
+		const latest = ruled.at(-1) as string;
+
+		test("a current FY with rules: every ruled year, opening on the current one", () => {
+			expect(taxFyChoices("FY2026-27")).toEqual({
+				fys: ruled,
+				initial: "FY2026-27",
+			});
+		});
+
+		test("a current FY without rules yet is still listed, but the page opens on the latest ruled year", () => {
+			const { fys, initial } = taxFyChoices("FY2099-00");
+			expect(fys).toEqual([...ruled, "FY2099-00"]);
+			expect(initial).toBe(latest);
+		});
 	});
 });

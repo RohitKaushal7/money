@@ -120,3 +120,19 @@ export function taxYear(fy: string): TaxYear {
 	if (!y) throw new Error(`no tax reference data for ${fy}`);
 	return y;
 }
+
+/**
+ * The FYs the Tax page offers, oldest first, and the one it opens on. Every year with rules is listed, plus
+ * `current` (the FY today falls in) when its rules haven't been curated yet, so the owner can still fill in
+ * its profile. It opens on `current` when that has rules, else on the latest year that does — so the page
+ * never opens on a year it can't compute (each 1 April, until the new year's rules land).
+ */
+export function taxFyChoices(current: string): {
+	fys: string[];
+	initial: string;
+} {
+	const ruled = Object.keys(TAX_YEARS).sort();
+	const fys = ruled.includes(current) ? ruled : [...ruled, current].sort();
+	const initial = current in TAX_YEARS ? current : (ruled.at(-1) ?? current);
+	return { fys, initial };
+}

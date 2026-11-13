@@ -1,3 +1,4 @@
+import { fyLabelFor, TAX_YEARS, taxFyChoices } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { Select } from "@money/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,9 +13,7 @@ export const Route = createFileRoute("/_auth/tax")({ component: TaxPage });
 /** The client's current Indian FY label, e.g. "FY2026-27". */
 function currentFyLabel(): string {
 	const now = new Date();
-	const start =
-		now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
-	return `FY${start}-${String((start + 1) % 100).padStart(2, "0")}`;
+	return fyLabelFor(now.getFullYear(), now.getMonth() + 1);
 }
 
 interface Draft {
@@ -56,7 +55,9 @@ const EMPTY: Draft = {
 };
 
 function TaxPage() {
-	const [fy, setFy] = useState(currentFyLabel());
+	// The year list comes from the shared rules, not from `tax.compute`, which fails for a year without rules.
+	const [choices] = useState(() => taxFyChoices(currentFyLabel()));
+	const [fy, setFy] = useState(choices.initial);
 	return (
 		<main className="h-full overflow-y-auto">
 			<div className="mx-auto flex max-w-5xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
@@ -69,7 +70,7 @@ function TaxPage() {
 							Old vs new regime, capital gains, and deduction planning — per FY.
 						</p>
 					</div>
-					<FyPicker fy={fy} onChange={setFy} />
+					<FyPicker fy={fy} fys={choices.fys} onChange={setFy} />
 				</header>
 				<TaxForm key={fy} fy={fy} />
 			</div>
@@ -79,13 +80,13 @@ function TaxPage() {
 
 function FyPicker({
 	fy,
+	fys,
 	onChange,
 }: {
 	fy: string;
+	fys: string[];
 	onChange: (v: string) => void;
 }) {
-	const compute = useQuery(orpc.tax.compute.queryOptions({ input: { fy } }));
-	const fys = compute.data?.availableFys ?? [fy];
 	return (
 		<Select
 			aria-label="Financial year"
@@ -104,7 +105,11 @@ function TaxForm({ fy }: { fy: string }) {
 	const suggest = useQuery(
 		orpc.tax.suggestIncome.queryOptions({ input: { fy } }),
 	);
-	const compute = useQuery(orpc.tax.compute.queryOptions({ input: { fy } }));
+	const hasRules = fy in TAX_YEARS;
+	const compute = useQuery({
+		...orpc.tax.compute.queryOptions({ input: { fy } }),
+		enabled: hasRules,
+	});
 	const upsert = useMutation(orpc.tax.upsert.mutationOptions());
 	const finalize = useMutation(orpc.tax.finalize.mutationOptions());
 
@@ -332,6 +337,13 @@ function TaxForm({ fy }: { fy: string }) {
 			</div>
 
 			{/* ── Result ─────────────────────────────────────── */}
+			{!hasRules && (
+				<p className="rounded-xl border border-border border-dashed p-5 text-muted-foreground text-sm">
+					The app doesn't have the tax rules for {fy} yet, so it can't compare
+					the regimes for it. What you enter here is saved, and the comparison
+					appears once the rules are added.
+				</p>
+			)}
 			{c && (
 				<section className="flex flex-col gap-4">
 					<div className="grid gap-4 sm:grid-cols-2">
