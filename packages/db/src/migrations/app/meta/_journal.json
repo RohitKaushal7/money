@@ -50,6 +50,13 @@
       "when": 1787031706216,
       "tag": "0006_brief_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794580926859,
+      "tag": "0007_cute_gauntlet",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,7 @@ export * from "./api-tokens";
 export * from "./auth";
 export * from "./cards";
 export * from "./categories";
+export * from "./change-log";
 export * from "./coverage";
 export * from "./currency";
 export * from "./formats";

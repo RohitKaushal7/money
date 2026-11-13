@@ -150,6 +150,39 @@ const recurringInput = z.object({
 
 const idInput = z.object({ id: z.coerce.number().int().positive() });
 
+// ── MCP tool descriptions ──────────────────────────────────────────────────────────────────────────
+const INVESTMENT_FIELDS = [
+	"Fields:",
+	"`name` (text, what the owner calls the holding);",
+	"`type` (bond | p2p | fd | ncd | savings | equity | mutual_fund | gold | other);",
+	"`incomeClass` (income = pays out interest or coupons, growth = only appreciates);",
+	"`platform` (where it is held, e.g. a broker or bank) and `group` (a heading holdings are rolled up under);",
+	"`payout` (cash = interest lands in the bank account, accrue = it compounds or is paid at maturity);",
+	"`principal` (amount originally invested);",
+	"`currentValue` (what the holding is worth today — not the amount invested);",
+	"`annualRate` (expected annual return as a pre-tax fraction: 0.1175 = 11.75%);",
+	"`expectedMonthlyInterest` (interest expected per month; when given it overrides the computed principal × annualRate ÷ 12);",
+	"`interestCadence` / `principalCadence` (how often interest / principal is paid: daily | weekly | monthly | quarterly | half_yearly | yearly | maturity | none);",
+	"`startDate` / `maturityDate` (YYYY-MM-DD);",
+	"`actionOnMaturity` (reinvest | withdraw | auto_renew);",
+	"`currency` (ISO 4217 code, default INR; principal, currentValue and expectedMonthlyInterest are amounts in this currency);",
+	"`status` (active | matured | closed);",
+	"`isPassiveIncomeSource` (true if its income counts toward covering monthly expenses);",
+	"`active` (false hides it from the plan without deleting it).",
+].join(" ");
+
+const RECURRING_FIELDS = [
+	"Fields:",
+	"`name` (text, what the expense is);",
+	"`category` (free-text spending category);",
+	"`amount` (amount paid each period, in the expense's `currency`);",
+	"`currency` (ISO 4217 code, default INR);",
+	"`cadence` (how often it is paid: monthly | quarterly | half_yearly | yearly; default monthly);",
+	"`startDate` / `endDate` (YYYY-MM-DD; the expense only counts between them);",
+	"`active` (false stops it counting without deleting it);",
+	"`source` (manual | seeded).",
+].join(" ");
+
 /** Today as YYYY-MM-DD (server clock) — drives auto-expiry of matured holdings. */
 /** Today on the server clock, `YYYY-MM-DD` — the reference date every plan/expiry compute is drawn against. */
 export function todayISO(): string {
@@ -233,6 +266,13 @@ export const planRouter = {
 	),
 
 	addInvestment: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "investments",
+				description: `Add a holding (investment) to the owner's plan. Returns the new holding with its id. ${INVESTMENT_FIELDS} Required: name, type, incomeClass.`,
+			},
+		})
 		.input(investmentInput)
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
@@ -243,6 +283,13 @@ export const planRouter = {
 			return toInvestment(row);
 		}),
 	updateInvestment: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "investments",
+				description: `Edit one holding (investment) in the owner's plan; only the fields given change. Input: \`id\` (the holding's id) plus any of the fields below. ${INVESTMENT_FIELDS} Returns the updated holding, or null if no holding has that id. Undoable via the change log.`,
+			},
+		})
 		.input(investmentInput.partial().merge(idInput))
 		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
@@ -254,6 +301,14 @@ export const planRouter = {
 			return row ? toInvestment(row) : null;
 		}),
 	deleteInvestment: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "investments",
+				description:
+					"Delete one holding (investment) from the owner's plan. Input: `id` — the holding's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
+			},
+		})
 		.input(idInput)
 		.handler(async ({ context, input }) => {
 			await context.appDb
@@ -263,6 +318,13 @@ export const planRouter = {
 		}),
 
 	addRecurring: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "recurring_expenses",
+				description: `Add a recurring expense — a committed outflow the passive income has to cover — to the owner's plan. Returns the new expense with its id. ${RECURRING_FIELDS} Required: name, amount.`,
+			},
+		})
 		.input(recurringInput)
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
@@ -273,6 +335,13 @@ export const planRouter = {
 			return toRecurring(row);
 		}),
 	updateRecurring: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "recurring_expenses",
+				description: `Edit one recurring expense in the owner's plan; only the fields given change. Input: \`id\` (the expense's id) plus any of the fields below. ${RECURRING_FIELDS} Returns the updated expense, or null if no expense has that id. Undoable via the change log.`,
+			},
+		})
 		.input(recurringInput.partial().merge(idInput))
 		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
@@ -284,6 +353,14 @@ export const planRouter = {
 			return row ? toRecurring(row) : null;
 		}),
 	deleteRecurring: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				entity: "recurring_expenses",
+				description:
+					"Delete one recurring expense from the owner's plan. Input: `id` — the expense's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
+			},
+		})
 		.input(idInput)
 		.handler(async ({ context, input }) => {
 			await context.appDb

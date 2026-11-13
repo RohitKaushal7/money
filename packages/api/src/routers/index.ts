@@ -7,6 +7,7 @@ import { analyticsRouter } from "./analytics";
 import { axioRouter } from "./axio";
 import { cardsRouter } from "./cards";
 import { categoriesRouter } from "./categories";
+import { changesRouter } from "./changes";
 import { currencyRouter } from "./currency";
 import { exportRouter } from "./export";
 import { formatsRouter } from "./formats";
@@ -56,6 +57,7 @@ export const appRouter = {
 	export: exportRouter,
 	setup: setupRouter,
 	tokens: tokensRouter,
+	changes: changesRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;
