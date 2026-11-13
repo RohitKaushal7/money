@@ -1,0 +1,1 @@
+ALTER TABLE `change_log` ADD `token_id` integer;

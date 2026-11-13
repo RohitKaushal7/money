@@ -73,20 +73,23 @@ export const splitsRouter = {
 					});
 				}
 			}
-			await context.appDb
-				.delete(transactionManualSplits)
-				.where(eq(transactionManualSplits.txnId, input.txnId));
-			await context.appDb.insert(transactionManualSplits).values(
-				input.lines.map((l, i) => ({
-					txnId: input.txnId,
-					seq: i,
-					amount: l.amount,
-					kind: CATEGORY_BY_KEY.get(l.categoryKey)?.kind ?? "transfer",
-					categoryKey: l.categoryKey,
-					cashflowType: l.cashflowType ?? null,
-					note: l.note ?? null,
-				})),
-			);
+			// One batch (one SQLite transaction): if the insert fails, the old lines are still there.
+			await context.appDb.batch([
+				context.appDb
+					.delete(transactionManualSplits)
+					.where(eq(transactionManualSplits.txnId, input.txnId)),
+				context.appDb.insert(transactionManualSplits).values(
+					input.lines.map((l, i) => ({
+						txnId: input.txnId,
+						seq: i,
+						amount: l.amount,
+						kind: CATEGORY_BY_KEY.get(l.categoryKey)?.kind ?? "transfer",
+						categoryKey: l.categoryKey,
+						cashflowType: l.cashflowType ?? null,
+						note: l.note ?? null,
+					})),
+				),
+			]);
 			return { ok: true, lines: input.lines.length };
 		}),
 

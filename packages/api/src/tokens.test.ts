@@ -38,6 +38,7 @@ const lastUsed = async (id: number) =>
 
 describe("personal access tokens", () => {
 	test("creates a well-formed token and stores only its hash", async () => {
+		const n = (await listTokens(db, "u1")).length;
 		const { token, row } = await createToken(db, "u1", {
 			name: "laptop",
 			scope: "read",
@@ -48,7 +49,7 @@ describe("personal access tokens", () => {
 			new Bun.CryptoHasher("sha256").update(token).digest("hex"),
 		);
 		expect(row.tokenHash).not.toContain(token);
-		expect(await listTokens(db, "u1")).toHaveLength(1);
+		expect(await listTokens(db, "u1")).toHaveLength(n + 1);
 	});
 
 	test("verifies, returns scope, stamps last_used_at", async () => {
@@ -196,6 +197,7 @@ describe("tokens router", () => {
 	});
 
 	test("list never returns the hash or the plaintext", async () => {
+		await clientFor("router-a").create({ name: "listed", scope: "read" });
 		const rows = await clientFor("router-a").list();
 		expect(rows.length).toBeGreaterThan(0);
 		for (const row of rows) {

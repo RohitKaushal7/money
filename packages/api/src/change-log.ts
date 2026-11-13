@@ -1,5 +1,6 @@
 import { type AppDb, changeLog } from "@money/db";
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { keyedLock } from "./keyed-lock";
 import type { McpEntity } from "./mcp/meta";
 
 /**
@@ -20,6 +21,14 @@ const ENTITY_TABLES: Record<McpEntity, string> = {
 	investments: "investments",
 	recurring_expenses: "recurring_expenses",
 };
+
+/**
+ * One lock per user around every write to a holding or recurring expense that the change log reads rows
+ * for — logged entity writes (see `logWrites`) and undo — so a change's before/after rows are its own.
+ * Separate from the ingest lock (`withUserLock`): it is held only for a few SQLite statements, and nothing
+ * holding it ever waits on an ingest.
+ */
+export const withEntityLock = keyedLock();
 
 export async function recordChange(
 	appDb: AppDb,

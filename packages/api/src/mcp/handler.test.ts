@@ -33,6 +33,7 @@ interface Account {
 	uid: string;
 	cookie: string;
 	rw: string;
+	rwId: number;
 	read: string;
 }
 
@@ -50,13 +51,14 @@ async function account(email: string): Promise<Account> {
 		.getSetCookie()
 		.map((c) => c.split(";")[0])
 		.join("; ");
-	const rw = (
-		await createToken(controlDb(), uid, { name: "laptop", scope: "read_write" })
-	).token;
+	const { token: rw, row: rwRow } = await createToken(controlDb(), uid, {
+		name: "laptop",
+		scope: "read_write",
+	});
 	const read = (
 		await createToken(controlDb(), uid, { name: "viewer", scope: "read" })
 	).token;
-	return { uid, cookie, rw, read };
+	return { uid, cookie, rw, rwId: rwRow.id, read };
 }
 
 let owner: Account;
@@ -340,16 +342,18 @@ describe("/mcp tools/call", () => {
 
 	test("a read token cannot call a write tool: nothing written, nothing logged", async () => {
 		const before = await investmentCount(owner.uid);
+		const logged = (await changes(owner.uid)).length;
 		const result = await callTool(owner.read, "plan_add_investment", holding);
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("read-only");
 		expect(result.content[0]?.text).toContain('"read"');
 		expect(await investmentCount(owner.uid)).toBe(before);
-		expect(await changes(owner.uid)).toHaveLength(0);
+		expect(await changes(owner.uid)).toHaveLength(logged);
 	});
 
 	test("a read_write token writes, and the change is logged as mcp", async () => {
 		const before = await investmentCount(owner.uid);
+		const logged = (await changes(owner.uid)).length;
 		const result = await callTool(owner.rw, "plan_add_investment", holding);
 		expect(result.isError).toBeFalsy();
 		const out = JSON.parse(result.content[0]?.text ?? "null") as {
@@ -358,13 +362,22 @@ describe("/mcp tools/call", () => {
 		expect(out.id).toBeDefined();
 		expect(await investmentCount(owner.uid)).toBe(before + 1);
 		const log = await changes(owner.uid);
-		expect(log).toHaveLength(1);
-		expect(log[0]?.source).toBe("mcp");
-		expect(log[0]?.tokenName).toBe("laptop");
-		expect(log[0]?.procedure).toBe("plan.addInvestment");
+		expect(log).toHaveLength(logged + 1);
+		const entry = log.at(-1);
+		expect(entry?.source).toBe("mcp");
+		expect(entry?.tokenName).toBe("laptop");
+		expect(entry?.tokenId).toBe(owner.rwId);
+		expect(entry?.procedure).toBe("plan.addInvestment");
 	});
 
 	test("a read token can call a read tool; the result is JSON text", async () => {
+		await appDbFor(owner.uid)
+			.insert(investments)
+			.values({
+				name: "Seen by a reader",
+				type: "bond",
+				incomeClass: "income",
+			});
 		const result = await callTool(owner.read, "plan_investments");
 		expect(result.isError).toBeFalsy();
 		expect(result.content).toHaveLength(1);
@@ -372,16 +385,17 @@ describe("/mcp tools/call", () => {
 		const rows = JSON.parse(result.content[0]?.text ?? "null") as Array<{
 			name: string;
 		}>;
-		expect(rows.map((r) => r.name)).toContain("Bond via MCP");
+		expect(rows.map((r) => r.name)).toContain("Seen by a reader");
 	});
 
 	test("invalid input comes back as a tool error with the oRPC message", async () => {
+		const logged = (await changes(owner.uid)).length;
 		const result = await callTool(owner.rw, "plan_add_investment", {
 			name: 42,
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content[0]?.text).toContain("Input validation failed");
-		expect(await changes(owner.uid)).toHaveLength(1);
+		expect(await changes(owner.uid)).toHaveLength(logged);
 	});
 
 	test("an unknown tool is a protocol error", async () => {

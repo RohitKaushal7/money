@@ -1,7 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
-import { listChanges, undoChange } from "../change-log";
+import { listChanges, undoChange, withEntityLock } from "../change-log";
 import { protectedProcedure } from "../index";
 
 /** The change log of writes to this user's data, and undo for holdings and recurring expenses. */
@@ -32,7 +32,10 @@ export const changesRouter = {
 		})
 		.input(z.object({ id: z.number().int().positive() }))
 		.handler(async ({ context, input }) => {
-			const r = await undoChange(context.appDb, input.id);
+			// Undo writes a holding or expense row, so it takes turns with logged writes to them.
+			const r = await withEntityLock(context.uid, () =>
+				undoChange(context.appDb, input.id),
+			);
 			// An error, not `{ ok: false }`: the change log records only writes that succeeded.
 			if (!r.ok) throw new ORPCError("CONFLICT", { message: r.reason });
 			return r;

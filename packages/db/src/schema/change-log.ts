@@ -19,8 +19,13 @@ export const changeLog = sqliteTable(
 			.notNull(),
 		/** app | mcp */
 		source: text("source", { enum: ["app", "mcp"] }).notNull(),
-		/** The access token's name when `source = "mcp"`. */
+		/** The access token's name when `source = "mcp"`, as it was named at the time. */
 		tokenName: text("token_name"),
+		/**
+		 * The access token's id (control DB `api_tokens.id`) when `source = "mcp"` — names can repeat, ids
+		 * don't. Not a foreign key: the token lives in another database and the log outlives it.
+		 */
+		tokenId: integer("token_id"),
 		/** Dotted procedure path, e.g. `plan.updateInvestment`. */
 		procedure: text("procedure").notNull(),
 		input: text("input", { mode: "json" }).notNull(),

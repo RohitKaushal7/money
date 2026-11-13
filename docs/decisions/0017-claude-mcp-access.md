@@ -27,7 +27,8 @@ Code conversation that goes through the app's own validation, with a record of w
 - **Writes are logged and undoable** in a per-user change log in `app.db` (holdings and recurring expenses
   record before/after and can be undone; undo refuses if the entity changed since). `update_holdings` is a
   preview, then apply: it checks the screenshot total (±1 per holding), refuses a stale preview and reports
-  a partial apply.
+  a partial apply. Each entry names the token (id and name) that made it, and the log is never pruned: it
+  is the owner's audit trail, and its size is negligible next to the data it describes.
 - **`query` is read-only SQL, sandboxed.** One `SELECT` per call, run in an isolated child process with
   DuckDB opened read-only, external access off, configuration locked, two threads, 500 rows and a 10 s
   limit, then hard-killed. This keeps hard rules 1 to 3 intact: the API still never opens DuckDB read-write.

@@ -131,14 +131,14 @@ export const rulesRouter = {
 		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))
 		.handler(async ({ context, input }) => {
-			let priority = 1;
-			for (const id of input.orderedIds) {
-				await context.appDb
+			// One batch (one SQLite transaction): every priority changes, or none does.
+			const [first, ...rest] = input.orderedIds.map((id, i) =>
+				context.appDb
 					.update(rules)
-					.set({ priority })
-					.where(eq(rules.id, id));
-				priority += 1;
-			}
+					.set({ priority: i + 1 })
+					.where(eq(rules.id, id)),
+			);
+			if (first) await context.appDb.batch([first, ...rest]);
 			return { reordered: input.orderedIds.length };
 		}),
 };

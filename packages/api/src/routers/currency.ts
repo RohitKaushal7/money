@@ -202,17 +202,22 @@ export const currencyRouter = {
 		})
 		.handler(async ({ context }) => {
 			const rows = await context.controlDb.select().from(currencies);
-			const updated: string[] = [];
+			// Fetch every rate first, then save them in one batch (one SQLite transaction): a failed save
+			// leaves all the old rates, never some old and some new.
+			const fetched: Array<{ code: string; rate: number }> = [];
 			for (const row of rows) {
 				if (row.code === BASE_CURRENCY) continue;
 				const rate = await fetchRateToInr(row.code);
-				if (rate == null) continue;
-				await context.controlDb
+				if (rate != null) fetched.push({ code: row.code, rate });
+			}
+			const [first, ...rest] = fetched.map(({ code, rate }) =>
+				context.controlDb
 					.update(currencies)
 					.set({ rateToInr: rate })
-					.where(eq(currencies.code, row.code));
-				updated.push(row.code);
-			}
+					.where(eq(currencies.code, code)),
+			);
+			if (first) await context.controlDb.batch([first, ...rest]);
+			const updated = fetched.map((f) => f.code);
 			return {
 				updated,
 				config: await loadConfig(context.controlDb, context.appDb),

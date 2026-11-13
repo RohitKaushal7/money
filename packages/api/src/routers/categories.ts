@@ -238,14 +238,14 @@ export const categoriesRouter = {
 		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))
 		.handler(async ({ context, input }) => {
-			let sortOrder = 0;
-			for (const id of input.orderedIds) {
-				await context.appDb
+			// One batch (one SQLite transaction): every position changes, or none does.
+			const [first, ...rest] = input.orderedIds.map((id, sortOrder) =>
+				context.appDb
 					.update(categories)
 					.set({ sortOrder })
-					.where(eq(categories.id, id));
-				sortOrder += 1;
-			}
+					.where(eq(categories.id, id)),
+			);
+			if (first) await context.appDb.batch([first, ...rest]);
 			return { reordered: input.orderedIds.length };
 		}),
 };

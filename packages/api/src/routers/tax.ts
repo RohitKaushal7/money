@@ -346,30 +346,38 @@ export const taxRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
+			// One batch (one SQLite transaction), so the switch and the rate change together or not at all.
+			const writes = [];
 			if (input.enabled != null) {
-				await context.appDb
-					.insert(settings)
-					.values({ key: AFTER_TAX_KEY, value: input.enabled })
-					.onConflictDoUpdate({
-						target: settings.key,
-						set: { value: input.enabled },
-					});
+				writes.push(
+					context.appDb
+						.insert(settings)
+						.values({ key: AFTER_TAX_KEY, value: input.enabled })
+						.onConflictDoUpdate({
+							target: settings.key,
+							set: { value: input.enabled },
+						}),
+				);
 			}
-			if (input.rateOverride !== undefined) {
-				if (input.rateOverride === null) {
-					await context.appDb
+			if (input.rateOverride === null) {
+				writes.push(
+					context.appDb
 						.delete(settings)
-						.where(eq(settings.key, RATE_OVERRIDE_KEY));
-				} else {
-					await context.appDb
+						.where(eq(settings.key, RATE_OVERRIDE_KEY)),
+				);
+			} else if (input.rateOverride !== undefined) {
+				writes.push(
+					context.appDb
 						.insert(settings)
 						.values({ key: RATE_OVERRIDE_KEY, value: input.rateOverride })
 						.onConflictDoUpdate({
 							target: settings.key,
 							set: { value: input.rateOverride },
-						});
-				}
+						}),
+				);
 			}
+			const [first, ...rest] = writes;
+			if (first) await context.appDb.batch([first, ...rest]);
 			return {
 				enabled: await loadAfterTaxEnabled(context.appDb),
 				rate: await loadKpiTaxRate(context.appDb, context.uid),
