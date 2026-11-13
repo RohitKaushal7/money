@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
 	SandboxRequest,
@@ -211,12 +212,41 @@ export async function runSandboxedQuery(
 	);
 }
 
+/** What `describeSchema` last read for each DB file, and the version of the file it read it from. */
+const schemas = new Map<string, { version: string; schema: string }>();
+
+/**
+ * A DB file's version: the modified time and size of the file and of its WAL. An ingest rewrites the file in
+ * place, and closing it checkpoints the WAL into it, so any change to the schema changes this.
+ */
+function fileVersion(dbPath: string): string {
+	return [dbPath, `${dbPath}.wal`]
+		.map((path) => {
+			try {
+				const s = statSync(path);
+				return `${s.mtimeMs}:${s.size}`;
+			} catch {
+				return "-";
+			}
+		})
+		.join("|");
+}
+
 /**
  * Every table and view in the DB with its columns and types, one per line:
- * `transactions: txn_id VARCHAR, txn_date DATE, …`, with views marked `(view)`. Read through the same sandbox.
+ * `transactions: txn_id VARCHAR, txn_date DATE, …`, with views marked `(view)`. Read through the same sandbox,
+ * once per version of the file (see {@link fileVersion}): the schema only changes when an ingest rewrites it.
+ * A failed read is not remembered. `run` is for tests.
  */
-export async function describeSchema(dbPath: string): Promise<string> {
-	const { rows } = await runSandboxedQuery(
+export async function describeSchema(
+	dbPath: string,
+	run: typeof runSandboxedQuery = runSandboxedQuery,
+): Promise<string> {
+	// Taken before the read, so a file that changes during it is read again next time.
+	const version = fileVersion(dbPath);
+	const cached = schemas.get(dbPath);
+	if (cached?.version === version) return cached.schema;
+	const { rows } = await run(
 		dbPath,
 		`SELECT c.table_name, t.table_type, c.column_name, c.data_type
 		FROM information_schema.columns c
@@ -236,10 +266,12 @@ export async function describeSchema(dbPath: string): Promise<string> {
 		}
 		table.columns.push(`${row.column_name} ${row.data_type}`);
 	}
-	return [...tables]
+	const schema = [...tables]
 		.map(
 			([name, t]) =>
 				`${name}${t.view ? " (view)" : ""}: ${t.columns.join(", ")}`,
 		)
 		.join("\n");
+	schemas.set(dbPath, { version, schema });
+	return schema;
 }

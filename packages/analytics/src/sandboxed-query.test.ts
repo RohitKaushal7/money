@@ -422,6 +422,57 @@ describe("the sandbox's DuckDB settings, on their own", () => {
 });
 
 describe("describeSchema", () => {
+	type Run = typeof runSandboxedQuery;
+	/** The real sandbox, counting how often it is asked. */
+	function counting() {
+		const calls = { n: 0 };
+		const run: Run = (...args) => {
+			calls.n++;
+			return runSandboxedQuery(...args);
+		};
+		return { calls, run };
+	}
+
+	test("is read once per version of the file: a repeat call doesn't start a sandbox", async () => {
+		const path = join(dir, "cached.duckdb");
+		await buildFixture(path);
+		const { calls, run } = counting();
+		const first = await describeSchema(path, run);
+		const second = await describeSchema(path, run);
+		expect(second).toBe(first);
+		expect(calls.n).toBe(1);
+	});
+
+	test("is read again once the file changes (an ingest rewrote it)", async () => {
+		const path = join(dir, "changing.duckdb");
+		await buildFixture(path);
+		const { calls, run } = counting();
+		expect(await describeSchema(path, run)).not.toContain("added");
+		const db = await openConnection(path, "read_write");
+		try {
+			await db.run("CREATE TABLE added (x INTEGER)");
+		} finally {
+			await db.close();
+		}
+		expect(await describeSchema(path, run)).toContain("added: x INTEGER");
+		expect(calls.n).toBe(2);
+	});
+
+	test("a failed read is not remembered", async () => {
+		const path = join(dir, "flaky.duckdb");
+		await buildFixture(path);
+		let fail = true;
+		const run: Run = (...args) => {
+			if (fail) {
+				fail = false;
+				return Promise.reject(new Error("Query busy"));
+			}
+			return runSandboxedQuery(...args);
+		};
+		await expect(describeSchema(path, run)).rejects.toThrow("Query busy");
+		expect(await describeSchema(path, run)).toContain("transactions:");
+	});
+
 	test("lists each table and view with its columns and types", async () => {
 		const schema = await describeSchema(dbPath);
 		expect(schema).toBe(
