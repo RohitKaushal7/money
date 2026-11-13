@@ -52,7 +52,7 @@ export const rulesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Add a categorisation rule at the end of the list (lowest priority, so earlier rules win). Input: `pattern` (text to look for in a transaction narration), `matchType` (substring or regex), `assignKind` (active_income, passive_income, expense, investment or transfer), `assignCategoryKey` (a category key from the category list), `assignInvestmentId` (optional holding id to link, or null), `minAmount` and `maxAmount` (optional INR bounds on the transaction amount magnitude, or null), `active` (default true). Returns the new rule. It takes effect on spending data only after a re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Add a categorisation rule at the end of the list (lowest priority, so earlier rules win). Input: `pattern` (text to look for in a transaction narration), `matchType` (substring or regex), `assignKind` (active_income, passive_income, expense, investment or transfer), `assignCategoryKey` (a category key from the category list), `assignInvestmentId` (optional holding id to link, or null), `minAmount` and `maxAmount` (optional INR bounds on the transaction amount magnitude, or null), `active` (default true). Returns the new rule. Spending figures and `query` read the rebuilt data, so it takes effect there only after you call the re-tag tool. The change can't be undone from the change log.",
 			},
 		})
 		.input(ruleInput)

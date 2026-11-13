@@ -30,7 +30,7 @@ export const overridesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Pin one bank transaction to a category, overriding the rules; replaces any existing override for it. Input: `txnId` (from the transactions tool), `categoryKey` (a category key; the kind is taken from that category, and null if the key is unknown), `note` (optional text). Returns `{ ok: true }`. The transactions tool shows the override immediately, but spending totals only change after a re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Pin one bank transaction to a category, overriding the rules; replaces any existing override for it. Input: `txnId` (from the transactions tool), `categoryKey` (a category key). The kind is looked up in the built-in category taxonomy only, not the owner's custom categories: a custom (user-created) category key gets kind null, so prefer built-in keys here and tell the owner when a custom category is genuinely needed, `note` (optional text). Returns `{ ok: true }`. The transactions tool shows the override immediately, but spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for it to show up there. The change can't be undone from the change log.",
 			},
 		})
 		.input(

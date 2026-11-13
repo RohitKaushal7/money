@@ -90,7 +90,7 @@ export const analyticsRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"The owner's north-star KPI by month: what fraction of monthly expenses is covered by passive income, on a cash basis from bank statements. Takes no input. Returns one row per month `{ month (YYYY-MM), passiveIncomeCash, imputedDrawdown (always 0 here), expenses, ratio }`; amounts are INR magnitudes and `ratio` is a fraction (0.5 = passive income covers half of expenses). Empty when nothing is imported. Read-only.",
+					"The owner's north-star KPI by month: what fraction of monthly expenses is covered by passive income, on a cash basis from bank statements. Takes no input. Returns one row per month `{ month (YYYY-MM), passiveIncomeCash, imputedDrawdown (always 0 here), expenses, ratio }`; amounts are INR magnitudes and `ratio` is a fraction (0.5 = passive income covers half of expenses) and null for a month with zero expenses. Empty when nothing is imported. Read-only.",
 			},
 		})
 		.handler(async ({ context }): Promise<CoverageRatioPoint[]> => {
@@ -162,7 +162,7 @@ export const analyticsRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"Search and page through the owner's imported bank transactions, uncategorised first-class for review. Input (all optional): `month` (YYYY-MM), `kind` (one of active_income, passive_income, expense, investment, transfer), `uncategorizedOnly` (true = only rows still uncategorised), `search` (case-insensitive substring of the narration), `dateFrom` and `dateTo` (YYYY-MM-DD, inclusive), `limit` (1-500, default 100), `offset` (rows to skip, default 0). Newest first. Returns `{ transactions, total, pendingRetag }`: each transaction has txnId, date, narration, signed INR amount (credits positive), balance, and its category and kind with the owner's current overrides and manual splits already overlaid; `total` is the match count before paging. Filters run against the baked categories, so a just-overridden row keeps its old category in filtering until a re-tag. `pendingRetag` counts overrides or splits not yet baked in. Read-only.",
+					"Search and page through the owner's imported bank transactions, with uncategorised rows filterable for review. Input (all optional): `month` (YYYY-MM), `kind` (one of active_income, passive_income, expense, investment, transfer), `uncategorizedOnly` (true = only rows still uncategorised), `search` (case-insensitive substring of the narration), `dateFrom` and `dateTo` (YYYY-MM-DD, inclusive), `limit` (1-500, default 100), `offset` (rows to skip, default 0). Newest first. Returns `{ transactions, total, pendingRetag }`: each transaction has txnId, date, narration, signed INR amount (credits positive), balance, and its category and kind with the owner's current overrides and manual splits already overlaid; `total` is the match count before paging. Filters run against the baked categories, so a just-overridden row keeps its old category in filtering until a re-tag. `pendingRetag` counts overrides or splits not yet baked in. Read-only.",
 			},
 		})
 		.input(
