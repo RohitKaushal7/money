@@ -67,18 +67,19 @@ function sameRow(a: RawRow, b: RawRow): boolean {
 type UndoResult = { ok: true } | { ok: false; reason: string };
 
 /**
- * Reverse one logged write to a holding or expense: an insert is deleted, an update has its `before` row
- * written back, a delete is re-inserted with its original id and columns.
+ * Reverse one logged write to a holding or expense, by its stored `operation`: an insert is deleted, an
+ * update has its `before` row written back, a delete is re-inserted with its original id and columns.
  *
  * Refused when the row has moved on since the change (its `updated_at`, or any column, differs from the
- * logged `after`; for a delete, a row with that id exists again), when the change was already undone, or
- * when the write wasn't to an undoable entity.
+ * logged `after`; for a delete, a row with that id exists again), when the change was already undone, when
+ * the logged rows don't fit the operation (e.g. an update that matched no row), or when the write wasn't
+ * logged as an undoable entity operation.
  */
 export async function undoChange(
 	appDb: AppDb,
 	id: number,
 ): Promise<UndoResult> {
-	return appDb.transaction(async (tx) => {
+	return appDb.transaction(async (tx): Promise<UndoResult> => {
 		const db = tx as unknown as AppDb;
 		const [change] = await db
 			.select()
@@ -88,58 +89,65 @@ export async function undoChange(
 		if (change.undoneAt) {
 			return { ok: false, reason: `change #${id} was already undone` };
 		}
-		if (!change.entity) {
+		const { entity, operation, entityId } = change;
+		if (!entity || !operation) {
 			return { ok: false, reason: "not undoable in this version" };
 		}
-		const entity = change.entity;
 		const before = (change.before as RawRow | null) ?? null;
 		const after = (change.after as RawRow | null) ?? null;
-		if (change.entityId == null || (!before && !after)) {
-			return { ok: false, reason: `change #${id} wrote nothing to undo` };
-		}
-		const entityId = change.entityId;
+		const nothing: UndoResult = {
+			ok: false,
+			reason: `change #${id} wrote nothing to undo`,
+		};
+		if (entityId == null) return nothing;
 		const label = `${entity} #${entityId}`;
+		const stale: UndoResult = {
+			ok: false,
+			reason: `${label} has changed since change #${id}; undo refused`,
+		};
 		const current = await readEntityRow(db, entity, entityId);
 		const table = sql.identifier(ENTITY_TABLES[entity]);
+		const matchesAfter = (row: RawRow | null, a: RawRow) =>
+			row !== null && row.updated_at === a.updated_at && sameRow(row, a);
 
-		if (after) {
-			if (
-				!current ||
-				current.updated_at !== after.updated_at ||
-				!sameRow(current, after)
-			) {
-				return {
-					ok: false,
-					reason: `${label} has changed since change #${id}; undo refused`,
-				};
+		switch (operation) {
+			case "insert": {
+				if (!after) return nothing;
+				if (!matchesAfter(current, after)) return stale;
+				await db.run(sql`delete from ${table} where id = ${entityId}`);
+				break;
 			}
-			if (before) {
+			case "update": {
+				if (!before || !after) return nothing;
+				if (!matchesAfter(current, after)) return stale;
 				const sets = Object.entries(before)
 					.filter(([k]) => k !== "id")
 					.map(([k, v]) => sql`${sql.identifier(k)} = ${v}`);
 				await db.run(
 					sql`update ${table} set ${sql.join(sets, sql`, `)} where id = ${entityId}`,
 				);
-			} else {
-				await db.run(sql`delete from ${table} where id = ${entityId}`);
+				break;
 			}
-		} else if (before) {
-			if (current) {
-				return {
-					ok: false,
-					reason: `${label} has changed since change #${id} (a row with that id exists again); undo refused`,
-				};
+			case "delete": {
+				if (!before || after) return nothing;
+				if (current) {
+					return {
+						ok: false,
+						reason: `${label} has changed since change #${id} (a row with that id exists again); undo refused`,
+					};
+				}
+				const entries = Object.entries(before);
+				const cols = sql.join(
+					entries.map(([k]) => sql.identifier(k)),
+					sql`, `,
+				);
+				const vals = sql.join(
+					entries.map(([, v]) => sql`${v}`),
+					sql`, `,
+				);
+				await db.run(sql`insert into ${table} (${cols}) values (${vals})`);
+				break;
 			}
-			const entries = Object.entries(before);
-			const cols = sql.join(
-				entries.map(([k]) => sql.identifier(k)),
-				sql`, `,
-			);
-			const vals = sql.join(
-				entries.map(([, v]) => sql`${v}`),
-				sql`, `,
-			);
-			await db.run(sql`insert into ${table} (${cols}) values (${vals})`);
 		}
 
 		await db

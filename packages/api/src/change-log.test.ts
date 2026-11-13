@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,8 @@ const { eq } = await import("drizzle-orm");
 const { appRouter } = await import("./routers/index");
 const { appDbFor, controlDb } = await import("./db");
 const { protectedProcedure } = await import("./index");
-const { listChanges, undoChange } = await import("./change-log");
+const changeLogModule = await import("./change-log");
+const { listChanges, undoChange } = changeLogModule;
 
 type Ctx = Context;
 
@@ -228,6 +229,87 @@ describe("change log", () => {
 		expect(change?.entity).toBeNull();
 		const r = await undoChange(db(), change?.id ?? 0);
 		expect(r).toEqual({ ok: false, reason: "not undoable in this version" });
+	});
+});
+
+describe("ids and operations come from validated input", () => {
+	const addBond = async (name: string) =>
+		Number(
+			(
+				await app.plan.addInvestment({
+					name,
+					type: "bond",
+					incomeClass: "income",
+					annualRate: 0.1,
+				})
+			).id,
+		);
+
+	test("operations are stored explicitly", async () => {
+		const id = await addBond("Op");
+		expect((await latest())?.operation).toBe("insert");
+		await mcp.plan.updateInvestment({ id, annualRate: 0.11 });
+		expect((await latest())?.operation).toBe("update");
+		await mcp.plan.deleteInvestment({ id });
+		expect((await latest())?.operation).toBe("delete");
+	});
+
+	test("an edit addressed by a coerced id ([id]) logs as an update, and undo reverts rather than deletes", async () => {
+		const id = await addBond("Coerced");
+		await mcp.plan.updateInvestment({ id: [id], annualRate: 0.2 } as never);
+		expect((await investmentRow(id))?.annualRate).toBe(0.2);
+		const change = await latest();
+		expect(change?.operation).toBe("update");
+		expect(change?.entityId).toBe(id);
+		expect(raw(change?.before).annual_rate).toBe(0.1);
+		expect(change?.input).toEqual({ id, annualRate: 0.2 });
+
+		expect(await undoChange(db(), change?.id ?? 0)).toEqual({ ok: true });
+		expect((await investmentRow(id))?.annualRate).toBe(0.1);
+	});
+
+	test("an edit addressed by `true` (coerced to 1) is logged against row 1", async () => {
+		const one = await investmentRow(1);
+		expect(one).toBeDefined();
+		await mcp.plan.updateInvestment({ id: true, platform: "x" } as never);
+		const change = await latest();
+		expect(change?.operation).toBe("update");
+		expect(change?.entityId).toBe(1);
+		expect(raw(change?.before).id).toBe(1);
+	});
+
+	test("a delete addressed by a coerced id can still be undone", async () => {
+		const id = await addBond("CoercedDelete");
+		const original = await investmentRow(id);
+		await mcp.plan.deleteInvestment({ id: [id] } as never);
+		expect(await investmentRow(id)).toBeUndefined();
+		const change = await latest();
+		expect(change?.operation).toBe("delete");
+		expect(change?.entityId).toBe(id);
+		expect(await undoChange(db(), change?.id ?? 0)).toEqual({ ok: true });
+		expect(await investmentRow(id)).toEqual(original);
+	});
+
+	test("a failed before-read still writes, but logs an audit-only entry that undo refuses", async () => {
+		const id = await addBond("BeforeFails");
+		const spy = spyOn(changeLogModule, "readEntityRow").mockImplementationOnce(
+			() => Promise.reject(new Error("SQLITE_BUSY")),
+		);
+		try {
+			await mcp.plan.updateInvestment({ id, annualRate: 0.3 });
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await investmentRow(id))?.annualRate).toBe(0.3);
+		const change = await latest();
+		expect(change?.procedure).toBe("plan.updateInvestment");
+		expect(change?.entity).toBeNull();
+		expect(change?.operation).toBeNull();
+		expect(await undoChange(db(), change?.id ?? 0)).toEqual({
+			ok: false,
+			reason: "not undoable in this version",
+		});
+		expect((await investmentRow(id))?.annualRate).toBe(0.3);
 	});
 });
 

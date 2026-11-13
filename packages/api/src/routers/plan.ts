@@ -270,6 +270,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "investments",
+				operation: "insert",
 				description: `Add a holding (investment) to the owner's plan. Returns the new holding with its id. ${INVESTMENT_FIELDS} Required: name, type, incomeClass.`,
 			},
 		})
@@ -287,6 +288,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "investments",
+				operation: "update",
 				description: `Edit one holding (investment) in the owner's plan; only the fields given change. Input: \`id\` (the holding's id) plus any of the fields below. ${INVESTMENT_FIELDS} Returns the updated holding, or null if no holding has that id. Undoable via the change log.`,
 			},
 		})
@@ -305,6 +307,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "investments",
+				operation: "delete",
 				description:
 					"Delete one holding (investment) from the owner's plan. Input: `id` — the holding's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
 			},
@@ -322,6 +325,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "recurring_expenses",
+				operation: "insert",
 				description: `Add a recurring expense — a committed outflow the passive income has to cover — to the owner's plan. Returns the new expense with its id. ${RECURRING_FIELDS} Required: name, amount.`,
 			},
 		})
@@ -339,6 +343,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "recurring_expenses",
+				operation: "update",
 				description: `Edit one recurring expense in the owner's plan; only the fields given change. Input: \`id\` (the expense's id) plus any of the fields below. ${RECURRING_FIELDS} Returns the updated expense, or null if no expense has that id. Undoable via the change log.`,
 			},
 		})
@@ -357,6 +362,7 @@ export const planRouter = {
 			mcp: {
 				kind: "write",
 				entity: "recurring_expenses",
+				operation: "delete",
 				description:
 					"Delete one recurring expense from the owner's plan. Input: `id` — the expense's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
 			},

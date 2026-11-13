@@ -1,0 +1,1 @@
+ALTER TABLE `change_log` ADD `operation` text;

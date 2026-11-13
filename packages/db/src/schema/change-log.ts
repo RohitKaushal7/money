@@ -28,6 +28,8 @@ export const changeLog = sqliteTable(
 		entity: text("entity", {
 			enum: ["investments", "recurring_expenses"],
 		}),
+		/** insert | update | delete — set with `entity`; what undo reverses. */
+		operation: text("operation", { enum: ["insert", "update", "delete"] }),
 		entityId: integer("entity_id"),
 		before: text("before", { mode: "json" }),
 		after: text("after", { mode: "json" }),

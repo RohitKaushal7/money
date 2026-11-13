@@ -1,7 +1,13 @@
 import type { AppDb } from "@money/db";
 import { ORPCError, os } from "@orpc/server";
 
-import { idOf, type RawRow, readEntityRow, recordChange } from "./change-log";
+import {
+	idOf,
+	type NewChange,
+	type RawRow,
+	readEntityRow,
+	recordChange,
+} from "./change-log";
 import type { Context } from "./context";
 import { appDbFor } from "./db";
 import { hasPin } from "./lock";
@@ -53,42 +59,84 @@ const requireUnlocked = o.middleware(async ({ context, next }) => {
 
 /**
  * Records every successful `kind: "write"` procedure in the user's change log — from the app and from
- * MCP alike. For writes to an `entity`, the row is read (raw) before and after so the write can be undone.
+ * MCP alike. A write whose meta names an `entity` and `operation` also gets the raw row before and after,
+ * which is what makes it undoable.
  *
- * Runs before input validation, so `input` is what the caller sent. Recording is best-effort: once the
- * write has succeeded, a failed audit insert is logged and swallowed rather than failing the request,
- * since the caller would otherwise retry a write that already happened.
+ * This middleware runs ahead of oRPC's own input validation, so it parses the input with the procedure's
+ * schema itself: ids are read — and the input logged — exactly as the handler will see them (`[5]` or
+ * `true` coerce to an id just as they do for the handler). Input that fails to parse goes straight on to
+ * oRPC, which rejects it, so nothing is written and nothing logged.
+ *
+ * Recording is best-effort: once the write has succeeded, a failed audit insert is logged and swallowed
+ * rather than failing the request, since the caller would otherwise retry a write that already happened.
+ * If a row can't be read, the entry is still written, but without its entity (audit only, not undoable) —
+ * never with a missing `before` that undo could misread.
  */
 const logWrites = os
 	.$context<Context & { appDb: AppDb }>()
 	.$meta<McpMeta>({})
-	.middleware(async ({ context, next, path, procedure }, input) => {
+	.middleware(async ({ context, next, path, procedure }, rawInput) => {
 		const meta = mcpMetaOf(procedure);
 		if (meta?.kind !== "write") {
 			return next();
 		}
-		const entity = meta.entity;
+		const schema = procedure["~orpc"].inputSchema;
+		let input: unknown = rawInput;
+		if (schema) {
+			const parsed = await schema["~standard"].validate(rawInput);
+			if (parsed.issues) return next();
+			input = parsed.value;
+		}
+
+		const target =
+			meta.entity && meta.operation
+				? { entity: meta.entity, operation: meta.operation }
+				: undefined;
 		const inputId = idOf(input);
+		let undoable = target !== undefined;
 		let before: RawRow | null = null;
-		if (entity && inputId !== undefined) {
-			try {
-				before = await readEntityRow(context.appDb, entity, inputId);
-			} catch (e) {
-				console.error("[change-log] reading the row before a write failed:", e);
+		if (target && target.operation !== "insert") {
+			if (inputId === undefined) {
+				undoable = false;
+			} else {
+				try {
+					before = await readEntityRow(context.appDb, target.entity, inputId);
+				} catch (e) {
+					undoable = false;
+					console.error(
+						"[change-log] reading the row before a write failed:",
+						e,
+					);
+				}
 			}
 		}
 
 		const result = await next();
 
 		try {
-			const outputId = idOf(result.output);
-			// An insert's input has no id; one sent anyway is not the row written, so its `before` is not either.
-			if (outputId !== undefined && outputId !== inputId) before = null;
-			const entityId = entity ? (outputId ?? inputId) : undefined;
-			const after =
-				entity && entityId !== undefined
-					? await readEntityRow(context.appDb, entity, entityId)
-					: null;
+			let undo: Pick<
+				NewChange,
+				"entity" | "operation" | "entityId" | "before" | "after"
+			> = {};
+			if (target && undoable) {
+				const entityId =
+					target.operation === "insert" ? idOf(result.output) : inputId;
+				try {
+					if (entityId !== undefined) {
+						const after = await readEntityRow(
+							context.appDb,
+							target.entity,
+							entityId,
+						);
+						undo = { ...target, entityId, before, after };
+					}
+				} catch (e) {
+					console.error(
+						"[change-log] reading the row after a write failed:",
+						e,
+					);
+				}
+			}
 			await recordChange(context.appDb, {
 				batchId: context.batchId ?? crypto.randomUUID(),
 				at: new Date(),
@@ -96,10 +144,7 @@ const logWrites = os
 				tokenName: context.via?.name ?? null,
 				procedure: path.join("."),
 				input: input ?? {},
-				entity: entity ?? null,
-				entityId: entityId ?? null,
-				before,
-				after,
+				...undo,
 			});
 		} catch (e) {
 			console.error(`[change-log] recording ${path.join(".")} failed:`, e);
