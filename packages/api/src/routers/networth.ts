@@ -158,7 +158,7 @@ export const networthRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Permanently delete one point from the net-worth log. Input: `id` — the point's id as returned by the net-worth list (whole number, not its date). Not undoable. Returns `{ ok: true }` even if no point had that id.",
+					"Permanently delete one point from the net-worth log. Input: `id` (whole number, the point's id from the net-worth list, not its date). Not undoable. Returns `{ ok: true }` even if no point had that id.",
 			},
 		})
 		.input(z.object({ id: z.coerce.number().int().positive() }))

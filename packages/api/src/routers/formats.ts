@@ -54,7 +54,7 @@ export const formatsRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Permanently delete a custom statement format. Input: `id`. Refused for built-in formats and for formats still used by imported files (the error gives the count). Returns `{ deleted: id }`. The change can't be undone from the change log.",
+					"Permanently delete a custom statement format. Input: `id` (whole number, the format's id from the statement-format list). Refused for built-in formats and for formats still used by imported files (the error gives the count). Returns `{ deleted: id }`. The change can't be undone from the change log.",
 			},
 		})
 		.input(z.object({ id: z.number().int() }))

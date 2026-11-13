@@ -130,7 +130,7 @@ export const categoriesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Edit a category. Input: `id` (from the category list) and any of `label`, `active` (false hides it), `colorSlot` (1-5 pins a chart colour, null clears the pin), and for custom categories only `kind` and `taxable` (null clears it). Built-in (system) categories accept only label, active and colorSlot; changing their kind or taxable is refused. Errors if the id is unknown or nothing is given. Returns the updated row. A category's kind is re-applied to spending data at the next re-tag. The change can't be undone from the change log.",
+					"Edit a category. Input: `id` (whole number, the category's id from the category list) and any of `label`, `active` (false hides it), `colorSlot` (1-5 pins a chart colour, null clears the pin), and for custom categories only `kind` and `taxable` (null clears it). Built-in (system) categories accept only label, active and colorSlot; changing their kind or taxable is refused. Errors if the id is unknown or nothing is given. Returns the updated row. A category's kind is re-applied to spending data at the next re-tag. The change can't be undone from the change log.",
 			},
 		})
 		.input(
@@ -197,7 +197,7 @@ export const categoriesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Permanently delete a custom category. Input: `id`. Refused for built-in categories (hide them with the update tool instead) and for categories still used by any rule, override or manual split (reassign those first; the error gives the counts). Returns `{ deleted: id }`. The change can't be undone from the change log.",
+					"Permanently delete a custom category. Input: `id` (whole number, the category's id from the category list). Refused for built-in categories (hide them with the update tool instead) and for categories still used by any rule, override or manual split (reassign those first; the error gives the counts). Returns `{ deleted: id }`. The change can't be undone from the change log.",
 			},
 		})
 		.input(z.object({ id: z.number().int() }))
@@ -233,7 +233,7 @@ export const categoriesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Set the order categories appear in pickers. Input: `orderedIds` \u2014 every category id, top to bottom (at least one); each gets its position as sort order. Ids omitted keep their old order value, so pass the full list. Returns `{ reordered: count }`. Cosmetic only; spending figures are unaffected. The change can't be undone from the change log.",
+					"Set the order categories appear in pickers. Input: `orderedIds` \u2014 every category id (whole numbers), top to bottom (at least one); each gets its position as sort order. Ids omitted keep their old order value, so pass the full list. Returns `{ reordered: count }`. Cosmetic only; spending figures are unaffected. The change can't be undone from the change log.",
 			},
 		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))

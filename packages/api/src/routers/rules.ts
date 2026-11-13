@@ -83,7 +83,7 @@ export const rulesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Edit a rule; send only the fields to change. Input: `id` plus any of `pattern`, `matchType`, `assignKind`, `assignCategoryKey`, `assignInvestmentId`, `minAmount`, `maxAmount`, `active` (same meaning as when creating). Errors if the id is unknown or no field is given. Returns the updated rule. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Edit a rule; send only the fields to change. Input: `id` (whole number, the rule's id from the rule list) plus any of `pattern`, `matchType`, `assignKind`, `assignCategoryKey`, `assignInvestmentId`, `minAmount`, `maxAmount`, `active` (same meaning as when creating). Errors if the id is unknown or no field is given. Returns the updated rule. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
 			},
 		})
 		.input(ruleInput.partial().extend({ id: z.number().int() }))
@@ -111,7 +111,7 @@ export const rulesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Permanently delete a rule. Input: `id`. Returns `{ deleted: id }` even if no such rule existed. Transactions it tagged keep their category until the next re-tag, which then re-derives them without it. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Permanently delete a rule. Input: `id` (whole number, the rule's id from the rule list). Returns `{ deleted: id }` even if no such rule existed. Transactions it tagged keep their category until the next re-tag, which then re-derives them without it. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
 			},
 		})
 		.input(z.object({ id: z.number().int() }))
@@ -126,7 +126,7 @@ export const rulesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Change which rules win by renumbering priorities from a top-to-bottom list. Input: `orderedIds` \u2014 rule ids in the desired match order (priority 1 for the first); pass every rule id, since omitted rules keep their old priority and may clash. Returns `{ reordered: count }`. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Change which rules win by renumbering priorities from a top-to-bottom list. Input: `orderedIds` \u2014 rule ids (whole numbers) in the desired match order (priority 1 for the first); pass every rule id, since omitted rules keep their old priority and may clash. Returns `{ reordered: count }`. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
 			},
 		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))

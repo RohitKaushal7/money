@@ -329,7 +329,7 @@ export const planRouter = {
 				kind: "write",
 				entity: "investments",
 				operation: "update",
-				description: `Edit one holding (investment) in the owner's plan; only the fields given change. Input: \`id\` (the holding's id) plus any of the fields below. ${INVESTMENT_FIELDS} Returns the updated holding, or null if no holding has that id. Undoable via the change log.`,
+				description: `Edit one holding (investment) in the owner's plan; only the fields given change. Input: \`id\` (whole number, the holding's id) plus any of the fields below. ${INVESTMENT_FIELDS} Returns the updated holding, or null if no holding has that id. Undoable via the change log.`,
 			},
 		})
 		.input(investmentInput.partial().merge(idInput))
@@ -349,7 +349,7 @@ export const planRouter = {
 				entity: "investments",
 				operation: "delete",
 				description:
-					"Delete one holding (investment) from the owner's plan. Input: `id` — the holding's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
+					"Delete one holding (investment) from the owner's plan. Input: `id` (whole number, the holding's id). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
 			},
 		})
 		.input(idInput)
@@ -384,7 +384,7 @@ export const planRouter = {
 				kind: "write",
 				entity: "recurring_expenses",
 				operation: "update",
-				description: `Edit one recurring expense in the owner's plan; only the fields given change. Input: \`id\` (the expense's id) plus any of the fields below. ${RECURRING_FIELDS} Returns the updated expense, or null if no expense has that id. Undoable via the change log.`,
+				description: `Edit one recurring expense in the owner's plan; only the fields given change. Input: \`id\` (whole number, the expense's id) plus any of the fields below. ${RECURRING_FIELDS} Returns the updated expense, or null if no expense has that id. Undoable via the change log.`,
 			},
 		})
 		.input(recurringInput.partial().merge(idInput))
@@ -404,7 +404,7 @@ export const planRouter = {
 				entity: "recurring_expenses",
 				operation: "delete",
 				description:
-					"Delete one recurring expense from the owner's plan. Input: `id` — the expense's id (whole number). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
+					"Delete one recurring expense from the owner's plan. Input: `id` (whole number, the expense's id). To keep it but stop counting it, set `active` to false with the edit tool instead. Undoable via the change log.",
 			},
 		})
 		.input(idInput)
