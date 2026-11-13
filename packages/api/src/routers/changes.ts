@@ -10,7 +10,7 @@ export const changesRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					'List recent changes to the owner\'s data, newest first — writes made in the app (source "app") and by Claude (source "mcp"), with the procedure called, its input, and for holdings and recurring expenses the row before and after. Input: `limit` — how many changes to return (whole number, 1–200, default 50). Use a change\'s `id` with the undo tool.',
+					'List recent changes to the owner\'s data, newest first — writes made in the app (source "app") and by Claude (source "mcp"), with the procedure called, its input, its `batchId` (shared by every change one update_holdings apply made), and for holdings and recurring expenses the row before and after. Input: `limit` — how many changes to return (whole number, 1–200, default 50). Use a change\'s `id` with the undo tool.',
 			},
 		})
 		.input(

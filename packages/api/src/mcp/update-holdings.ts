@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { investments } from "@money/db";
-import { createRouterClient, ORPCError } from "@orpc/server";
+import { createRouterClient, ORPCError, type RouterClient } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { z } from "zod";
 
@@ -296,7 +296,7 @@ const refuse = (message: string, data?: unknown) =>
 
 /** One holding write. A seam for tests, which need a write to fail partway through a batch. */
 export type HoldingWriter = (
-	client: ReturnType<typeof createRouterClient<typeof appRouter>>,
+	client: RouterClient<typeof appRouter>,
 	input: { id: number } & HoldingSet,
 ) => Promise<unknown>;
 
@@ -418,7 +418,7 @@ export async function updateHoldings(
 				.slice(i + 1)
 				.map(({ id, name }) => ({ id, name }));
 			throw new ORPCError("INTERNAL_SERVER_ERROR", {
-				message: `Applied partway: ${written.length} of ${toWrite.length} holdings were written before "${r.name}" (id ${r.id}) failed (${error}). The written ones stay written; undo them with change log batch ${batchId}, or preview the rest again.`,
+				message: `Applied partway: ${written.length} of ${toWrite.length} holdings were written before "${r.name}" (id ${r.id}) failed (${error}). The written ones stay written; undo each change in batch ${batchId} with changes_undo (changes_list shows each change's batchId and id), or preview the rest again.`,
 				data: {
 					batchId,
 					written,
@@ -441,7 +441,7 @@ export async function updateHoldings(
 		updated: written.length,
 		written,
 		missing,
-		summary: `${summary}; ${written.length} written.${gone} Undo with change log batch ${batchId}.`,
+		summary: `${summary}; ${written.length} written.${gone} To undo, undo each change in batch ${batchId} with changes_undo (changes_list shows each change's batchId and id).`,
 		rows: plan.rows,
 		total: plan.total,
 	};
@@ -450,7 +450,7 @@ export async function updateHoldings(
 const DESCRIPTION = [
 	"Change several holdings (investments) at once, safely — e.g. to correct them from a portfolio screenshot. Two calls:",
 	"1) Preview: send `changes` (and ideally `expectedTotalValue`) without `apply`. Nothing is written. The result shows each matched holding's `before`/`after`, any `unmatched` or `ambiguous` entries, `errors`, the `total` check, a one-line `summary`, and a `previewId` (null when something must be fixed first).",
-	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. All writes share one change-log batch, returned as `batchId` with the `written` holdings. If a write fails partway, the error says which holdings were already written (they stay written; undo them via that change-log batch) and which failed or were not attempted.",
+	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. All writes share one change-log batch, returned as `batchId` with the `written` holdings. There is no batch undo: to undo an apply, call changes_list, take the `id` of every change whose `batchId` matches, and undo each with changes_undo. If a write fails partway, the error says which holdings were already written (they stay written; undo them the same way) and which failed or were not attempted.",
 	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (interest per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.), `maturityDate` (YYYY-MM-DD) and `active`.",
 	"When using `expectedTotalValue`, send EVERY holding the screenshot shows, unchanged ones included (with an empty `set`): the total is the sum of today's value across the holdings sent, after the changes, and must be within ±1 per holding sent. All those holdings must share one currency.",
 ].join(" ");

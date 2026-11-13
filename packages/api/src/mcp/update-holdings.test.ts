@@ -253,6 +253,9 @@ describe("update_holdings tool", () => {
 		expect(tool().inputSchema.type).toBe("object");
 		expect(tool().description).toContain("previewId");
 		expect(tool().description).toContain("expectedTotalValue");
+		// How to undo an apply: find the batch's changes in changes_list by batchId, undo each one.
+		expect(tool().description).toContain("changes_list");
+		expect(tool().description).toContain("changes_undo");
 	});
 
 	test("apply without a preview is refused", async () => {
@@ -302,6 +305,11 @@ describe("update_holdings tool", () => {
 			previewId: preview.previewId,
 		});
 		expect(typeof applied.batchId).toBe("string");
+		// There is no batch undo: the summary must point at changes_undo, one change at a time.
+		expect(applied.summary).toContain(
+			`undo each change in batch ${applied.batchId} with changes_undo`,
+		);
+		expect(applied.summary).not.toContain("Undo with change log batch");
 
 		const rows = await appDbFor(uid).select().from(investments);
 		const by = (n: string) => rows.find((r) => r.name === n);
@@ -417,6 +425,8 @@ describe("update_holdings tool", () => {
 		const e = err as InstanceType<typeof ORPCError>;
 		expect(e.message).toContain("Beta Bond");
 		expect(e.message).toContain("1 of 3");
+		expect(e.message).toContain("with changes_undo");
+		expect(e.message).not.toContain("undo them with change log batch");
 		const data = e.data as {
 			batchId: string;
 			written: Array<{ id: number; name: string }>;
