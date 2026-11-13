@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { createContext, UNLOCK_HEADER } from "@money/api/context";
+import { handleMcp } from "@money/api/mcp/handler";
 import { appRouter } from "@money/api/routers/index";
 import { auth } from "@money/auth";
 import { env } from "@money/env/server";
@@ -31,6 +33,23 @@ app.use(
 app.get("/healthz", (c) => c.text("OK"));
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+/** The deployed app's version — the web app's, which is what a release bumps. */
+function appVersion(): string {
+	try {
+		const pkg = JSON.parse(
+			readFileSync(new URL("../../web/package.json", import.meta.url), "utf8"),
+		) as { version?: string };
+		return pkg.version ?? "0.0.0";
+	} catch {
+		return "0.0.0";
+	}
+}
+const version = appVersion();
+
+// Claude Code's MCP endpoint. Registered before the `/*` middleware below so a request here never builds a
+// cookie session or falls through to the SPA: /mcp authenticates with a Bearer access token and nothing else.
+app.all("/mcp", (c) => handleMcp(c.req.raw, { version }));
 
 export const apiHandler = new OpenAPIHandler(appRouter, {
 	plugins: [

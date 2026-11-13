@@ -16,6 +16,7 @@
 		"@money/db": "workspace:*",
 		"@money/env": "workspace:*",
 		"@money/shared": "workspace:*",
+		"@modelcontextprotocol/sdk": "catalog:",
 		"@orpc/client": "catalog:",
 		"@orpc/openapi": "catalog:",
 		"@orpc/server": "catalog:",

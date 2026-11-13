@@ -1,0 +1,354 @@
+import { beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+process.env.SKIP_ENV_VALIDATION = "1";
+const dir = mkdtempSync(join(tmpdir(), "money-mcp-handler-"));
+process.env.DATA_DIR = dir;
+process.env.BETTER_AUTH_URL = "http://localhost:3000";
+process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
+
+const { Hono } = await import("hono");
+const { RPCHandler } = await import("@orpc/server/fetch");
+const { auth } = await import("@money/auth");
+const { changeLog, investments } = await import("@money/db");
+const { runControlMigrations } = await import("@money/db/migrate");
+const { appRouter } = await import("../routers/index");
+const { createContext } = await import("../context");
+const { appDbFor, controlDb } = await import("../db");
+const { setPin } = await import("../lock");
+const { dataDir } = await import("../paths");
+const { createToken, revokeToken } = await import("../tokens");
+const { buildProcedureTools, extraTools, toolName } = await import("./tools");
+const { handleMcp } = await import("./handler");
+
+const PASSWORD = "correct-horse-battery";
+
+interface Account {
+	uid: string;
+	cookie: string;
+	rw: string;
+	read: string;
+}
+
+/** A real Better-Auth user, signed in for a real session cookie, with one token of each scope. */
+async function account(email: string): Promise<Account> {
+	const created = await auth.api.createUser({
+		body: { email, name: email, password: PASSWORD, role: "user" },
+	});
+	const uid = created.user.id;
+	const res = await auth.api.signInEmail({
+		body: { email, password: PASSWORD },
+		asResponse: true,
+	});
+	const cookie = res.headers
+		.getSetCookie()
+		.map((c) => c.split(";")[0])
+		.join("; ");
+	const rw = (
+		await createToken(controlDb(), uid, { name: "laptop", scope: "read_write" })
+	).token;
+	const read = (
+		await createToken(controlDb(), uid, { name: "viewer", scope: "read" })
+	).token;
+	return { uid, cookie, rw, read };
+}
+
+let owner: Account;
+let pinned: Account;
+let revoked: string;
+
+beforeAll(async () => {
+	// `bun test packages` runs every file in one module registry, so the auth and controlDb() singletons may
+	// already be open on an earlier file's DATA_DIR. Follow them there, so the users, sessions, tokens and
+	// app DBs below all land in the databases those singletons actually read.
+	const live = (await controlDb().$client.execute("PRAGMA database_list"))
+		.rows[0]?.file;
+	if (typeof live === "string" && live) process.env.DATA_DIR = dirname(live);
+	await runControlMigrations(`file:${dataDir()}/control.db`);
+	owner = await account("mcp-owner@x.test");
+	pinned = await account("mcp-pinned@x.test");
+	const r = await createToken(controlDb(), owner.uid, {
+		name: "old",
+		scope: "read_write",
+	});
+	await revokeToken(controlDb(), owner.uid, r.row.id);
+	revoked = r.token;
+	await setPin(pinned.uid, "1234");
+});
+
+let rpcId = 0;
+function mcp(
+	method: string,
+	params: unknown,
+	headers: Record<string, string>,
+): Promise<Response> {
+	return handleMcp(
+		new Request("http://localhost:3000/mcp", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json, text/event-stream",
+				...headers,
+			},
+			body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+		}),
+		{ version: "9.9.9" },
+	);
+}
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+interface ToolResult {
+	isError?: boolean;
+	content: Array<{ type: string; text: string }>;
+}
+async function callTool(
+	token: string,
+	name: string,
+	args: Record<string, unknown> = {},
+): Promise<ToolResult> {
+	const res = await mcp("tools/call", { name, arguments: args }, bearer(token));
+	expect(res.status).toBe(200);
+	const body = (await res.json()) as { result: ToolResult };
+	return body.result;
+}
+
+const investmentCount = async (uid: string) =>
+	(await appDbFor(uid).select().from(investments)).length;
+const changes = (uid: string) => appDbFor(uid).select().from(changeLog);
+
+/** The `/*` RPC middleware of apps/server, mounted the same way. */
+const rpcHandler = new RPCHandler(appRouter);
+const rpcApp = new Hono();
+rpcApp.use("/*", async (c, next) => {
+	const context = await createContext({ context: c });
+	const result = await rpcHandler.handle(c.req.raw, {
+		prefix: "/rpc",
+		context,
+	});
+	if (result.matched) return result.response;
+	await next();
+});
+async function rpc(path: string, headers: Record<string, string>) {
+	const res = await rpcApp.request(`http://localhost:3000/rpc/${path}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", ...headers },
+		body: JSON.stringify({}),
+	});
+	const body = (await res.json()) as { json?: { code?: string } };
+	return { status: res.status, code: body.json?.code };
+}
+
+describe("procedure tools", () => {
+	const tools = buildProcedureTools();
+	const byName = new Map(tools.map((t) => [t.name, t]));
+
+	test("names are snake_case paths", () => {
+		expect(toolName(["plan", "updateInvestment"])).toBe(
+			"plan_update_investment",
+		);
+		expect(toolName(["ingest", "retag"])).toBe("ingest_retag");
+		expect(toolName(["x", "y"], "customName")).toBe("custom_name");
+	});
+
+	test("exposes described procedures with their kind", () => {
+		expect(byName.get("plan_update_investment")?.kind).toBe("write");
+		expect(byName.get("plan_wealth")?.kind).toBe("read");
+		expect(byName.get("plan_wealth")?.inputSchema).toEqual({
+			type: "object",
+			properties: {},
+		});
+		const add = byName.get("plan_add_investment");
+		expect(add?.inputSchema.type).toBe("object");
+		expect(add?.inputSchema.properties).toHaveProperty("name");
+	});
+
+	test("never exposes excluded routers or procedures", () => {
+		for (const t of tools) {
+			expect(t.name).not.toMatch(/^(admin|setup|lock|import|tokens)_/);
+		}
+		for (const name of [
+			"axio_commit_import",
+			"axio_remove_import",
+			"health_check",
+			"private_data",
+		]) {
+			expect(byName.has(name)).toBe(false);
+		}
+	});
+
+	test("every tool has an object input schema and a description", () => {
+		for (const t of tools) {
+			expect(t.inputSchema.type).toBe("object");
+			expect(t.description.length).toBeGreaterThan(0);
+		}
+	});
+
+	test("tool names are unique across procedure and extra tools", () => {
+		const names = [...tools, ...extraTools()].map((t) => t.name);
+		expect(new Set(names).size).toBe(names.length);
+	});
+});
+
+describe("/mcp authentication", () => {
+	test("no Authorization header → 401 with a Bearer challenge", async () => {
+		const res = await mcp("tools/list", {}, {});
+		expect(res.status).toBe(401);
+		expect(res.headers.get("WWW-Authenticate")).toStartWith("Bearer");
+	});
+
+	test("a real session cookie and no bearer → 401", async () => {
+		// The cookie is genuine: Better-Auth resolves it to a session.
+		const session = await auth.api.getSession({
+			headers: new Headers({ cookie: owner.cookie }),
+		});
+		expect(session?.user.id).toBe(owner.uid);
+
+		const res = await mcp("tools/list", {}, { Cookie: owner.cookie });
+		expect(res.status).toBe(401);
+		expect(res.headers.get("WWW-Authenticate")).toStartWith("Bearer");
+	});
+
+	test("a revoked token → 401", async () => {
+		const res = await mcp("tools/list", {}, bearer(revoked));
+		expect(res.status).toBe(401);
+	});
+
+	test("a malformed or unknown token → 401", async () => {
+		expect((await mcp("tools/list", {}, bearer("nope"))).status).toBe(401);
+		expect(
+			(await mcp("tools/list", {}, bearer(`money_pat_${"x".repeat(43)}`)))
+				.status,
+		).toBe(401);
+		expect(
+			(await mcp("tools/list", {}, { Authorization: `Basic ${owner.rw}` }))
+				.status,
+		).toBe(401);
+	});
+
+	test("a token sent to /rpc is not a session → UNAUTHORIZED", async () => {
+		// Sanity: the same handler signs the cookie in.
+		expect(
+			(await rpc("plan/investments", { Cookie: owner.cookie })).status,
+		).toBe(200);
+		const r = await rpc("plan/investments", bearer(owner.rw));
+		expect(r.status).toBe(401);
+		expect(r.code).toBe("UNAUTHORIZED");
+	});
+});
+
+describe("/mcp protocol", () => {
+	test("initialize names the server and carries instructions", async () => {
+		const res = await mcp(
+			"initialize",
+			{
+				protocolVersion: "2025-06-18",
+				capabilities: {},
+				clientInfo: { name: "test", version: "0" },
+			},
+			bearer(owner.read),
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			result: {
+				serverInfo: { name: string; version: string };
+				instructions: string;
+			};
+		};
+		expect(body.result.serverInfo).toEqual({ name: "money", version: "9.9.9" });
+		expect(body.result.instructions).toContain("ingest_retag");
+	});
+
+	test("tools/list includes the procedure tools", async () => {
+		const res = await mcp("tools/list", {}, bearer(owner.read));
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			result: {
+				tools: Array<{ name: string; inputSchema: { type: string } }>;
+			};
+		};
+		const names = body.result.tools.map((t) => t.name);
+		expect(names).toContain("plan_update_investment");
+		expect(names).toContain("plan_wealth");
+	});
+});
+
+describe("/mcp tools/call", () => {
+	const holding = {
+		name: "Bond via MCP",
+		type: "bond",
+		incomeClass: "income",
+		annualRate: 0.1,
+		currentValue: 1000,
+	};
+
+	test("a read token cannot call a write tool: nothing written, nothing logged", async () => {
+		const before = await investmentCount(owner.uid);
+		const result = await callTool(owner.read, "plan_add_investment", holding);
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("read-only");
+		expect(result.content[0]?.text).toContain('"read"');
+		expect(await investmentCount(owner.uid)).toBe(before);
+		expect(await changes(owner.uid)).toHaveLength(0);
+	});
+
+	test("a read_write token writes, and the change is logged as mcp", async () => {
+		const before = await investmentCount(owner.uid);
+		const result = await callTool(owner.rw, "plan_add_investment", holding);
+		expect(result.isError).toBeFalsy();
+		const out = JSON.parse(result.content[0]?.text ?? "null") as {
+			id: unknown;
+		};
+		expect(out.id).toBeDefined();
+		expect(await investmentCount(owner.uid)).toBe(before + 1);
+		const log = await changes(owner.uid);
+		expect(log).toHaveLength(1);
+		expect(log[0]?.source).toBe("mcp");
+		expect(log[0]?.tokenName).toBe("laptop");
+		expect(log[0]?.procedure).toBe("plan.addInvestment");
+	});
+
+	test("a read token can call a read tool; the result is JSON text", async () => {
+		const result = await callTool(owner.read, "plan_investments");
+		expect(result.isError).toBeFalsy();
+		expect(result.content).toHaveLength(1);
+		expect(result.content[0]?.type).toBe("text");
+		const rows = JSON.parse(result.content[0]?.text ?? "null") as Array<{
+			name: string;
+		}>;
+		expect(rows.map((r) => r.name)).toContain("Bond via MCP");
+	});
+
+	test("invalid input comes back as a tool error with the oRPC message", async () => {
+		const result = await callTool(owner.rw, "plan_add_investment", {
+			name: 42,
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content[0]?.text).toContain("Input validation failed");
+		expect(await changes(owner.uid)).toHaveLength(1);
+	});
+
+	test("an unknown tool is a protocol error", async () => {
+		const res = await mcp(
+			"tools/call",
+			{ name: "no_such_tool", arguments: {} },
+			bearer(owner.rw),
+		);
+		const body = (await res.json()) as { error?: { message: string } };
+		expect(body.error?.message).toContain("no_such_tool");
+	});
+});
+
+describe("the screen-lock PIN guards browser sessions only", () => {
+	test("a cookie session with a PIN set and no unlock pass is LOCKED", async () => {
+		const r = await rpc("plan/investments", { Cookie: pinned.cookie });
+		expect(r.code).toBe("LOCKED");
+	});
+
+	test("the same user's token is not behind the lock", async () => {
+		const result = await callTool(pinned.read, "plan_investments");
+		expect(result.isError).toBeFalsy();
+		expect(JSON.parse(result.content[0]?.text ?? "null")).toEqual([]);
+	});
+});
