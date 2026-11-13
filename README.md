@@ -197,8 +197,8 @@ bun run db:migrate     # apply SQLite migrations (control.db + every users/<id>/
 ```
 
 Common scripts: `bun run check-types`, `bun run check` (Biome), `bun run db:studio`, `bun run ingest`.
-Build and ship the container with `bun run docker:build` and `bun run deploy` (see `deploy.sh`) — both are
-host-arch only, which is all a deploy to your own x86 server needs. `bun run docker:publish` is the
+Build the container locally with `bun run docker:build`, or ship the committed source to your server and
+build it there with `bun run deploy` (see `deploy.sh`) — the server builds for its own architecture. `bun run docker:publish` is the
 multi-arch one: it cross-builds amd64 + arm64 and pushes a single manifest list (see `publish.sh`). Full
 list of scripts in the root `package.json` and `CLAUDE.md`.
 

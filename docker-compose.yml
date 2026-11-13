@@ -1,7 +1,7 @@
 name: money
 
-# Deployed image is built locally and shipped with deploy.sh (docker save | rsync | docker load) — the
-# server never builds on the host, so there is no `build:` here, only an `image:` reference.
+# deploy.sh ships the committed source to the server and builds `money:latest` there, as its own step —
+# so there is no `build:` here, only an `image:` reference.
 services:
   money:
     container_name: money

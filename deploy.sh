@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 #
-# Manual deploy: build the image locally, ship it to the server over SSH (no registry, no CI), and restart.
-# Self-cleaning — the image tar is deleted on both ends and dangling images are pruned, so nothing piles up.
+# Manual deploy: ship the committed source to the server over SSH, build the image THERE, and restart. No
+# registry, no CI, and no image tarball crossing the network — only the source (a few MB) travels, and the
+# server builds natively for its own architecture.
 #
 #   REMOTE_HOST=myserver ./deploy.sh
 #
+# What ships is `git archive HEAD`: tracked files only, so data/, .env and anything else gitignored can never
+# leave this machine. Uncommitted edits to tracked files are refused rather than silently left out.
+#
 # Most people should not need this: `docker compose pull` off the published image (see README) is the
-# supported path. This exists for pushing a locally built image to your own box without a registry.
+# supported path. This exists for building and running your own revision on your own box.
 #
 # Prerequisites on the server, one-time:
-#   - Docker + docker compose, and a reverse proxy forwarding your HTTPS host to :3000
+#   - Docker with BuildKit (any current Docker), and a reverse proxy forwarding your HTTPS host to :3000
 #   - <REMOTE_DIR>/.env created from .env.example (deploy.sh rsyncs the template and refuses to start without it)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -18,20 +22,19 @@ cd "$(dirname "$0")"
 REMOTE_HOST="${REMOTE_HOST:?set REMOTE_HOST to your server, e.g. REMOTE_HOST=myserver ./deploy.sh}"
 REMOTE_DIR="${REMOTE_DIR:-apps/money}"   # relative to the remote home (root -> /root/apps/money)
 IMAGE="money:latest"
-TAR="money-image.tar.gz"
-TMP_TAR="/tmp/${TAR}"
 
-echo "==> Building ${IMAGE}..."
-docker build -f apps/server/Dockerfile -t "${IMAGE}" .
+if ! git diff --quiet HEAD --; then
+  echo "ERROR: tracked files have uncommitted changes. Commit them first — deploy ships HEAD only." >&2
+  exit 1
+fi
+REV="$(git describe --tags --always)"
 
-echo "==> Saving image to ${TMP_TAR}..."
-docker save "${IMAGE}" | gzip > "${TMP_TAR}"
+echo "==> Shipping the source of ${REV} to ${REMOTE_HOST}:${REMOTE_DIR}/src ..."
+ssh "${REMOTE_HOST}" "mkdir -p ${REMOTE_DIR} && rm -rf ${REMOTE_DIR}/src && mkdir ${REMOTE_DIR}/src"
+git archive --format=tar HEAD | ssh "${REMOTE_HOST}" "tar -x -C ${REMOTE_DIR}/src"
+rsync -avz docker-compose.yml .env.example "${REMOTE_HOST}:${REMOTE_DIR}/"
 
-echo "==> Syncing image + compose + env template to ${REMOTE_HOST}:${REMOTE_DIR}/ ..."
-ssh "${REMOTE_HOST}" "mkdir -p ${REMOTE_DIR}"
-rsync -avz "${TMP_TAR}" docker-compose.yml .env.example "${REMOTE_HOST}:${REMOTE_DIR}/"
-
-echo "==> Loading image and (re)starting on ${REMOTE_HOST}..."
+echo "==> Building ${IMAGE} on ${REMOTE_HOST} and (re)starting..."
 ssh "${REMOTE_HOST}" bash -s <<EOF
 set -euo pipefail
 cd "${REMOTE_DIR}"
@@ -40,17 +43,13 @@ if [ ! -f .env ]; then
   echo "  cp .env.example .env  # then fill it in (openssl rand -base64 32 for BETTER_AUTH_SECRET)" >&2
   exit 1
 fi
-gunzip -c "${TAR}" | docker load
+docker build -f src/apps/server/Dockerfile -t "${IMAGE}" src
+rm -rf src                # the image holds everything it runs; no stale tree left beside the data
 # --remove-orphans: renaming a compose service leaves the old container running and
 # unmanaged. That once stranded a second app process bind-mounting the same ./data,
 # i.e. two writers on one set of SQLite files. Never again.
 docker compose up -d --remove-orphans
 docker image prune -f     # drop the now-dangling previous image (dangling only — leaves other apps alone)
-rm -f "${TAR}"
 EOF
 
-echo "==> Cleaning up locally..."
-rm -f "${TMP_TAR}"
-docker image prune -f
-
-echo "==> Done. The app should be live via your reverse proxy."
+echo "==> Done. ${REV} should be live via your reverse proxy."
