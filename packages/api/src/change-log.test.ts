@@ -388,7 +388,14 @@ describe("changes router", () => {
 		expect(undoEntry?.entity).toBeNull();
 		expect(undoEntry?.input).toEqual({ id: change?.id });
 
-		const r = await mcp.changes.undo({ id: change?.id ?? 0 });
-		expect(r.ok).toBe(false);
+		// A refused undo is an error, so it isn't logged as a successful write.
+		const n = (await allChanges()).length;
+		await expect(
+			mcp.changes.undo({ id: change?.id ?? 0 }),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: `change #${change?.id} was already undone`,
+		});
+		expect(await allChanges()).toHaveLength(n);
 	});
 });

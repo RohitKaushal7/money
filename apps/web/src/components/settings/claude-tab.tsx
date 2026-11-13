@@ -400,12 +400,10 @@ function RecentChanges() {
 
 	const undo = useMutation({
 		...orpc.changes.undo.mutationOptions(),
-		onSuccess: (r) => {
-			if (r.ok) toast.success("Change undone.");
-			else toast.error(r.reason);
-			qc.invalidateQueries();
-		},
+		onSuccess: () => toast.success("Change undone."),
+		// A refused undo (edited since, already undone) is an error carrying the reason.
 		onError: (e: Error) => toast.error(e.message),
+		onSettled: () => qc.invalidateQueries(),
 	});
 
 	return (

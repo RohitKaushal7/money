@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { listChanges, undoChange } from "../change-log";
@@ -26,9 +27,14 @@ export const changesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Undo one earlier change to a holding (investment) or recurring expense: an add is removed, an edit is reverted to the previous values, a delete is restored with the same id. Input: `id` — the change's id from the change list (whole number). Refused, with the reason, if that holding or expense has been edited since, if the change was already undone, or if it was not to a holding or expense.",
+					"Undo one earlier change to a holding (investment) or recurring expense: an add is removed, an edit is reverted to the previous values, a delete is restored with the same id. Input: `id` — the change's id from the change list (whole number). Returns `{ ok: true }` once undone. Refused with a CONFLICT error giving the reason (and nothing changed) if that holding or expense has been edited since, if the change was already undone, or if it was not to a holding or expense.",
 			},
 		})
 		.input(z.object({ id: z.number().int().positive() }))
-		.handler(({ context, input }) => undoChange(context.appDb, input.id)),
+		.handler(async ({ context, input }) => {
+			const r = await undoChange(context.appDb, input.id);
+			// An error, not `{ ok: false }`: the change log records only writes that succeeded.
+			if (!r.ok) throw new ORPCError("CONFLICT", { message: r.reason });
+			return r;
+		}),
 };
