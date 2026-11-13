@@ -8,6 +8,7 @@ import { AccountTab } from "@/components/settings/account-tab";
 import { DataTab } from "@/components/settings/data-tab";
 import { SecurityTab } from "@/components/settings/security-tab";
 import { TabBar } from "@/components/tab-bar";
+import { authClient } from "@/lib/auth-client";
 import { useCurrencyConfig } from "@/lib/currency";
 import { orpc } from "@/utils/orpc";
 
@@ -148,6 +149,10 @@ function TaxKpi() {
 
 function Currencies() {
 	const cfg = useCurrencyConfig();
+	// Rates are shared by every user on the install, so only an admin may add, edit or refresh them.
+	const { data: session } = authClient.useSession();
+	const isAdmin =
+		(session?.user as { role?: string } | undefined)?.role === "admin";
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 
@@ -180,17 +185,19 @@ function Currencies() {
 		<section className="flex flex-col gap-5">
 			<div className="flex flex-wrap items-end justify-between gap-3 border-border border-b-2 pb-2">
 				<h2 className="font-display font-medium text-xl">Currencies</h2>
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={() => refresh.mutate(undefined)}
-					disabled={refresh.isPending}
-				>
-					<RefreshCw
-						className={`size-3.5 ${refresh.isPending ? "animate-spin" : ""}`}
-					/>
-					Refresh rates
-				</Button>
+				{isAdmin && (
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => refresh.mutate(undefined)}
+						disabled={refresh.isPending}
+					>
+						<RefreshCw
+							className={`size-3.5 ${refresh.isPending ? "animate-spin" : ""}`}
+						/>
+						Refresh rates
+					</Button>
+				)}
 			</div>
 
 			{/* display-currency switcher */}
@@ -235,6 +242,7 @@ function Currencies() {
 						symbol={c.symbol}
 						rateToInr={c.rateToInr}
 						enabled={c.enabled}
+						canEdit={isAdmin}
 						onRate={(rateToInr) => setRate.mutate({ code: c.code, rateToInr })}
 						onToggle={(enabled) =>
 							upsert.mutate({ code: c.code, symbol: c.symbol, enabled })
@@ -243,7 +251,17 @@ function Currencies() {
 				))}
 			</ul>
 
-			<AddCurrency onAdd={(v) => upsert.mutate(v)} pending={upsert.isPending} />
+			{isAdmin ? (
+				<AddCurrency
+					onAdd={(v) => upsert.mutate(v)}
+					pending={upsert.isPending}
+				/>
+			) : (
+				<p className="text-muted-foreground text-xs">
+					Exchange rates are shared by everyone on this install; only the admin
+					can change them.
+				</p>
+			)}
 		</section>
 	);
 }
@@ -253,6 +271,7 @@ function CurrencyRow({
 	symbol,
 	rateToInr,
 	enabled,
+	canEdit,
 	onRate,
 	onToggle,
 }: {
@@ -260,6 +279,7 @@ function CurrencyRow({
 	symbol: string;
 	rateToInr: number;
 	enabled: boolean;
+	canEdit: boolean;
 	onRate: (rate: number) => void;
 	onToggle: (enabled: boolean) => void;
 }) {
@@ -275,6 +295,10 @@ function CurrencyRow({
 			{isBase ? (
 				<span className="flex-1 text-muted-foreground text-sm">
 					base currency
+				</span>
+			) : !canEdit ? (
+				<span className="tnum flex-1 text-muted-foreground text-sm">
+					1 {code} = ₹{rateToInr}
 				</span>
 			) : (
 				<div className="flex flex-1 items-center gap-2 text-sm">
@@ -299,13 +323,13 @@ function CurrencyRow({
 			)}
 			<button
 				type="button"
-				disabled={isBase}
+				disabled={isBase || !canEdit}
 				onClick={() => onToggle(!enabled)}
 				className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
 					enabled
 						? "bg-[var(--covered)]/15 text-[var(--covered)]"
 						: "bg-muted text-muted-foreground"
-				} ${isBase ? "cursor-default opacity-60" : "hover:opacity-80"}`}
+				} ${isBase || !canEdit ? "cursor-default" : "hover:opacity-80"} ${isBase ? "opacity-60" : ""}`}
 			>
 				{enabled ? "enabled" : "disabled"}
 			</button>

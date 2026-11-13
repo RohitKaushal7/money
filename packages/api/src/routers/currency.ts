@@ -7,7 +7,7 @@ import {
 } from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { protectedProcedure } from "../index";
+import { adminProcedure, protectedProcedure } from "../index";
 
 /**
  * The **currency** router. INR is the canonical base (ADR: multi-currency). `currencies` holds each code's
@@ -89,12 +89,25 @@ async function fetchRateToInr(code: string): Promise<number | null> {
 
 export const currencyRouter = {
 	/** The full currency config: every currency + the active display currency. */
-	config: protectedProcedure.handler(({ context }) =>
-		loadConfig(context.controlDb, context.appDb),
-	),
+	config: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Currency settings: the base currency (always INR), the owner's display currency, and every known currency as `{ code, symbol, rateToInr, enabled }`. `rateToInr` is how many rupees one unit of that currency is worth (INR = 1). These rates are shared by everyone on this install and are used to convert foreign-currency holdings and expenses to INR. Takes no input.",
+			},
+		})
+		.handler(({ context }) => loadConfig(context.controlDb, context.appDb)),
 
 	/** Switch the active display currency (must be an enabled currency). */
 	setDisplay: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Switch which currency the owner's app displays amounts in. Input: `code` (3-letter ISO code such as USD; case-insensitive; must already be enabled, otherwise this errors). Only affects display for this owner; stored amounts and rates do not change. Returns the updated currency settings.",
+			},
+		})
 		.input(codeInput)
 		.handler(async ({ context, input }) => {
 			const [cur] = await context.controlDb
@@ -113,7 +126,14 @@ export const currencyRouter = {
 		}),
 
 	/** Add or update a currency (symbol / manual rate / enabled). INR's rate is pinned to 1. */
-	upsert: protectedProcedure
+	upsert: adminProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Admin only — changes rates shared by every user of this install. Add a currency or update its symbol, rate or enabled flag. Input: `code` (3-letter ISO code), `symbol` (1-4 characters, e.g. $), optional `rateToInr` (rupees per one unit of the currency, positive; omitted keeps the existing rate, or 1 for a new currency; INR is always pinned to 1), optional `enabled` (default true for a new currency). Returns the updated currency settings.",
+			},
+		})
 		.input(
 			codeInput.extend({
 				symbol: z.string().trim().min(1).max(4),
@@ -144,7 +164,14 @@ export const currencyRouter = {
 		}),
 
 	/** Set a manual INR-per-unit rate for one currency. */
-	setRate: protectedProcedure
+	setRate: adminProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Admin only — changes a rate shared by every user of this install, and so every user's INR conversions. Set one currency's exchange rate by hand. Input: `code` (3-letter ISO code of an existing non-INR currency), `rateToInr` (rupees per one unit of that currency, positive, e.g. 83.2 for USD). INR itself is rejected. Returns the updated currency settings.",
+			},
+		})
 		.input(codeInput.extend({ rateToInr: z.number().positive() }))
 		.handler(async ({ context, input }) => {
 			if (input.code === BASE_CURRENCY) throw new Error("INR is the base (=1)");
@@ -156,22 +183,30 @@ export const currencyRouter = {
 		}),
 
 	/** Refresh every non-INR currency's rate from frankfurter.dev (ECB). Skips any that fail. */
-	refresh: protectedProcedure.handler(async ({ context }) => {
-		const rows = await context.controlDb.select().from(currencies);
-		const updated: string[] = [];
-		for (const row of rows) {
-			if (row.code === BASE_CURRENCY) continue;
-			const rate = await fetchRateToInr(row.code);
-			if (rate == null) continue;
-			await context.controlDb
-				.update(currencies)
-				.set({ rateToInr: rate })
-				.where(eq(currencies.code, row.code));
-			updated.push(row.code);
-		}
-		return {
-			updated,
-			config: await loadConfig(context.controlDb, context.appDb),
-		};
-	}),
+	refresh: adminProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Admin only — overwrites rates shared by every user of this install. Fetch current rates for every non-INR currency from the ECB feed (frankfurter.dev) and save them, replacing any manual rates; currencies the feed fails for are skipped. Takes no input. Returns `{ updated: [codes refreshed], config }` with the new currency settings.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const rows = await context.controlDb.select().from(currencies);
+			const updated: string[] = [];
+			for (const row of rows) {
+				if (row.code === BASE_CURRENCY) continue;
+				const rate = await fetchRateToInr(row.code);
+				if (rate == null) continue;
+				await context.controlDb
+					.update(currencies)
+					.set({ rateToInr: rate })
+					.where(eq(currencies.code, row.code));
+				updated.push(row.code);
+			}
+			return {
+				updated,
+				config: await loadConfig(context.controlDb, context.appDb),
+			};
+		}),
 };

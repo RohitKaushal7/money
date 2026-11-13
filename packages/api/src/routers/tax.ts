@@ -182,6 +182,13 @@ function defined<T extends Record<string, unknown>>(obj: T): Partial<T> {
 export const taxRouter = {
 	/** Ledger-derived income suggestions for a FY (passive auto-summed; salary is a hint only). */
 	suggestIncome: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					'Income figures for a financial year worked out from the owner\'s imported statements, to help fill in the tax profile. Input: `fy` (label like "FY2025-26"; the Indian financial year runs Apr 1 to Mar 31). Returns `{ fy, passive, salaryHint, rent, isCurrent }`: `passive` is the sum of taxable passive-income credits (e.g. interest) in INR, `salaryHint` the salary credits (a hint only, not authoritative), `rent` the rent paid, and `isCurrent` whether `fy` is the current year. All zero when no statements are imported. Read-only.',
+			},
+		})
 		.input(z.object({ fy: z.string() }))
 		.handler(async ({ context, input }) => {
 			const { passive, salary, rent } = await ledgerIncome(
@@ -199,6 +206,13 @@ export const taxRouter = {
 
 	/** The stored profile for a FY (or null). */
 	get: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					'The owner\'s saved tax profile for one financial year, or null if none is saved. Input: `fy` (label like "FY2025-26"). Fields are INR amounts for that year: `salaryIncome`, `otherIncome`, `basicSalary`, `hraReceived`, `rentPaid`, `metro` (lives in a metro city, for HRA), `capitalGains` (equityStcg, equityLtcg, crypto, otherStcg, otherLtcg), `deductions` (s80c, s80d, s80tta, s80dd), `regimeChoice` (old | new | null when not yet chosen) and `notes`.',
+			},
+		})
 		.input(z.object({ fy: z.string() }))
 		.handler(
 			async ({ context, input }) =>
@@ -207,6 +221,13 @@ export const taxRouter = {
 
 	/** Upsert the confirmed profile. */
 	upsert: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					'Create or update the owner\'s tax profile for one financial year. Input: `fy` (required, label like "FY2025-26"); every other field is optional and an omitted field keeps its stored value: `regimeChoice` (old | new), `salaryIncome`, `otherIncome`, `basicSalary`, `hraReceived`, `rentPaid` (all annual INR; `rentPaid` unset falls back to rent seen in statements), `metro` (true for a metro city), `capitalGains` (object of INR amounts: equityStcg, equityLtcg, crypto, otherStcg, otherLtcg; unspecified keys become 0), `deductions` (object of INR amounts: s80c, s80d, s80tta, s80dd; unspecified keys become 0), `notes`. A null value clears a field. Passing `capitalGains` or `deductions` replaces the whole object. Returns the saved profile.',
+			},
+		})
 		.input(
 			z.object({
 				fy: z.string(),
@@ -233,6 +254,13 @@ export const taxRouter = {
 
 	/** Old-vs-new comparison + breakeven + LTCG headroom for a FY. */
 	compute: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					'Compare income tax under the old and new regimes for one financial year, from the saved profile plus passive income seen in statements. Input: `fy` (label like "FY2025-26"). Returns `old` and `new` (each regime\'s result, including `totalTax`), the `recommended` regime, `saving` (INR difference between the two), the `breakeven` deduction at which old would match new, `ltcgHeadroom` (equity long-term gains still within the exempt limit), `hraExemption` (INR) and `availableFys` (the years the app has tax rules for). Read-only; amounts are annual INR.',
+			},
+		})
 		.input(z.object({ fy: z.string() }))
 		.handler(async ({ context, input }) => {
 			const [row, ledger] = await Promise.all([
@@ -255,6 +283,13 @@ export const taxRouter = {
 
 	/** Pin the regime so a closed FY stays locked. */
 	finalize: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					'Lock in the tax regime for a financial year so it stops following the recommendation. Input: `fy` (label like "FY2025-26") and `regimeChoice` (old | new). Only updates an existing profile; if none is saved for that year nothing changes and null is returned (save a profile first). Returns the profile.',
+			},
+		})
 		.input(z.object({ fy: z.string(), regimeChoice: z.enum(["old", "new"]) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb
@@ -265,13 +300,28 @@ export const taxRouter = {
 		}),
 
 	/** The after-tax KPI knobs (switch + effective rate). */
-	getKpiConfig: protectedProcedure.handler(async ({ context }) => ({
-		enabled: await loadAfterTaxEnabled(context.appDb),
-		rate: await loadKpiTaxRate(context.appDb, context.uid),
-	})),
+	getKpiConfig: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The after-tax setting for the coverage KPI. Takes no input. Returns `enabled` (when true, income holdings' returns are reduced by tax before being compared to expenses) and `rate` (the marginal tax rate used, a fraction: 0.312 = 31.2%; taken from the manual override if set, else from the current year's tax profile, else 31.2%).",
+			},
+		})
+		.handler(async ({ context }) => ({
+			enabled: await loadAfterTaxEnabled(context.appDb),
+			rate: await loadKpiTaxRate(context.appDb, context.uid),
+		})),
 
 	/** Toggle the switch and/or set a manual rate override (null clears it). */
 	setKpiConfig: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Change the after-tax setting for the coverage KPI. Input, both optional: `enabled` (true to net income holdings' returns of tax in the KPI, false for pre-tax) and `rateOverride` (marginal tax rate as a fraction, positive: 0.312 = 31.2%; null removes the override so the rate comes from the tax profile again; omit to leave unchanged). This changes the headline coverage numbers. Returns `{ enabled, rate }`.",
+			},
+		})
 		.input(
 			z.object({
 				enabled: z.boolean().optional(),

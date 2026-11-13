@@ -1,3 +1,5 @@
+import { type AnyProcedure, isProcedure } from "@orpc/server";
+
 export type McpKind = "read" | "write";
 export type McpEntity = "investments" | "recurring_expenses";
 /** What an undoable write does to its entity row — stored with the change, never inferred from it. */
@@ -36,4 +38,35 @@ export function mcpMetaOf(procedure: unknown): McpMeta["mcp"] | undefined {
 		"~orpc"
 	];
 	return orpc?.meta?.mcp;
+}
+
+/** Routers whose procedures are never offered to Claude, whether or not they carry a description. */
+export const MCP_EXCLUDED_ROUTERS = [
+	"admin",
+	"setup",
+	"lock",
+	"import",
+	"tokens",
+] as const;
+
+/** Individual procedures (dotted path) that are never offered to Claude. */
+export const MCP_EXCLUDED_PROCEDURES = [
+	"axio.commitImport",
+	"axio.removeImport",
+	"healthCheck",
+	"privateData",
+] as const;
+
+/** Every procedure under a router tree, with its path (e.g. `["plan", "ladder"]`). */
+export function walkProcedures(
+	router: unknown,
+	prefix: string[] = [],
+): Array<{ path: string[]; procedure: AnyProcedure }> {
+	if (isProcedure(router)) {
+		return [{ path: prefix, procedure: router as AnyProcedure }];
+	}
+	if (router === null || typeof router !== "object") return [];
+	return Object.entries(router as Record<string, unknown>).flatMap(
+		([key, child]) => walkProcedures(child, [...prefix, key]),
+	);
 }

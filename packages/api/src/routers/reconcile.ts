@@ -95,6 +95,13 @@ const monthInput = z.object({
 export const reconcileRouter = {
 	/** Expected-vs-actual for a month: received/pending/missed events + unrecognised-credit suggestions. */
 	month: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Check, for one month, whether the interest payouts the owner's plan expects actually arrived in the bank statements. Input: optional `month` (YYYY-MM, default the current month). Returns `events` — one per holding (or group of holdings), each with `expectedAmount` and `actualAmount` in INR, `delta` (actual − expected), the matched credits and a `status`: received | partial (short but the month is still running) | differs | pending (nothing yet, month not over) | missed (nothing, month over); `suggestions` — unmatched income-looking credits that may be holdings missing from the plan; and a `summary` with counts and expected/actual totals. Read-only. Needs imported statements; without any, everything shows pending or missed.",
+			},
+		})
 		.input(monthInput)
 		.handler(async ({ context, input }) => {
 			const today = todayISO();
@@ -116,6 +123,13 @@ export const reconcileRouter = {
 	 * selected month's detail comes from `month` above.
 	 */
 	history: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Expected-vs-actual interest payouts for each of the last N months, one summary per month, oldest first — for spotting months where income fell short of the plan. Input: optional `months` (whole number 1-36, default 12, ending with the current month). Each summary has `month` (YYYY-MM), `inProgress`, counts of events that were received, partial, differing, pending and missed, and `expectedAmount` / `actualAmount` in INR. Per-holding detail comes from the single-month reconcile tool. Read-only.",
+			},
+		})
 		.input(
 			z.object({ months: z.coerce.number().int().min(1).max(36).default(12) }),
 		)
@@ -148,13 +162,21 @@ export const reconcileRouter = {
 		}),
 
 	/** Statement months available to reconcile (newest first), for the picker. */
-	months: protectedProcedure.handler(async ({ context }): Promise<string[]> => {
-		if (!analyticsReady(context.uid)) return [];
-		const rows = await withReader(context.uid, (reader) =>
-			reader.query<{ month: string }>(
-				"SELECT DISTINCT month FROM transactions ORDER BY month DESC",
-			),
-		);
-		return rows.map((r) => r.month);
-	}),
+	months: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"List the statement months (YYYY-MM, newest first) that have imported transactions and so can be reconciled. Takes no input. Empty when no statement has been imported.",
+			},
+		})
+		.handler(async ({ context }): Promise<string[]> => {
+			if (!analyticsReady(context.uid)) return [];
+			const rows = await withReader(context.uid, (reader) =>
+				reader.query<{ month: string }>(
+					"SELECT DISTINCT month FROM transactions ORDER BY month DESC",
+				),
+			);
+			return rows.map((r) => r.month);
+		}),
 };

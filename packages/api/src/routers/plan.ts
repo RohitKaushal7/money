@@ -195,79 +195,115 @@ export function todayISO(): string {
 
 export const planRouter = {
 	/** Three nested coverage tiers: cash-in-hand ⊆ fixed-income ⊆ total return (ADR-0015). INR aggregates. */
-	ladder: protectedProcedure.handler(async ({ context }) => {
-		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
-			listInvestments(context.appDb),
-			listRecurring(context.appDb),
-			loadRates(context.controlDb),
-			loadAfterTaxEnabled(context.appDb),
-			loadKpiTaxRate(context.appDb, context.uid),
-		]);
-		const inrInvestments = invs.map((i) => investmentToInr(i, rates));
-		const inrRecurring = recs.map((r) => recurringToInr(r, rates));
+	ladder: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The owner's headline KPI: how much of their monthly expenses is covered by passive income, in three nested tiers computed from the plan (holdings and recurring expenses, not bank statements). Takes no input. Returns `expenses` (total monthly recurring expenses, INR) and three tiers `cash`, `fixed`, `total`, each `{ income, ratio }`: `income` is monthly INR and `ratio` is income ÷ expenses (1 = fully covered, null when there are no expenses). `cash` = interest actually deposited to the bank (income holdings with payout cash); `fixed` = every income-class holding's expected return (cash + accruing); `total` = every holding's expected return including growth holdings. Foreign-currency amounts are converted to INR. When the owner's after-tax switch is on, income-holding returns are netted by their marginal tax rate. Side effect: it also saves this month's snapshot for the coverage history.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
+				listInvestments(context.appDb),
+				listRecurring(context.appDb),
+				loadRates(context.controlDb),
+				loadAfterTaxEnabled(context.appDb),
+				loadKpiTaxRate(context.appDb, context.uid),
+			]);
+			const inrInvestments = invs.map((i) => investmentToInr(i, rates));
+			const inrRecurring = recs.map((r) => recurringToInr(r, rates));
 
-		// Record this month's plan so the KPI's "trending up" half has something to draw. Stored pre-tax so
-		// the after-tax toggle stays a read-time concern. Opportunistic: a snapshot failure must never take
-		// down the headline KPI, so it is logged and swallowed rather than propagated.
-		try {
-			await captureCoverageSnapshot(context.appDb, {
-				investments: inrInvestments,
+			// Record this month's plan so the KPI's "trending up" half has something to draw. Stored pre-tax so
+			// the after-tax toggle stays a read-time concern. Opportunistic: a snapshot failure must never take
+			// down the headline KPI, so it is logged and swallowed rather than propagated.
+			try {
+				await captureCoverageSnapshot(context.appDb, {
+					investments: inrInvestments,
+					recurring: inrRecurring,
+				});
+			} catch (e) {
+				console.error("[coverage] snapshot failed:", e);
+			}
+
+			return coverageLadder({
+				investments: afterTax
+					? inrInvestments.map((i) => netIncomeOfTax(i, taxRate))
+					: inrInvestments,
 				recurring: inrRecurring,
+				today: todayISO(),
 			});
-		} catch (e) {
-			console.error("[coverage] snapshot failed:", e);
-		}
-
-		return coverageLadder({
-			investments: afterTax
-				? inrInvestments.map((i) => netIncomeOfTax(i, taxRate))
-				: inrInvestments,
-			recurring: inrRecurring,
-			today: todayISO(),
-		});
-	}),
+		}),
 
 	/**
 	 * The KPI over time — every captured month replayed through the current ladder. Empty until the first
 	 * snapshot lands; there is no backfill, because the plan never stored history to reconstruct from.
 	 */
-	coverageHistory: protectedProcedure.handler(async ({ context }) => {
-		const [afterTax, taxRate] = await Promise.all([
-			loadAfterTaxEnabled(context.appDb),
-			loadKpiTaxRate(context.appDb, context.uid),
-		]);
-		return loadCoverageHistory(context.appDb, {
-			afterTax,
-			taxRate,
-			today: todayISO(),
-		});
-	}),
+	coverageHistory: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The KPI over time: one entry per month for which a plan snapshot was captured, each replayed through the current coverage ladder (same cash / fixed / total tiers as the ladder tool, ratios are income ÷ expenses). Takes no input. Empty until the first snapshot exists; there is no backfill, so history only starts from when the app first recorded a month. Honours the owner's after-tax switch.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const [afterTax, taxRate] = await Promise.all([
+				loadAfterTaxEnabled(context.appDb),
+				loadKpiTaxRate(context.appDb, context.uid),
+			]);
+			return loadCoverageHistory(context.appDb, {
+				afterTax,
+				taxRate,
+				today: todayISO(),
+			});
+		}),
 
 	/** Portfolio rollup: total wealth, grouped holdings + weighted rate, avg/required ROI, years-left. */
-	wealth: protectedProcedure.handler(async ({ context }) => {
-		const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
-			listInvestments(context.appDb),
-			listRecurring(context.appDb),
-			loadRates(context.controlDb),
-			loadAfterTaxEnabled(context.appDb),
-			loadKpiTaxRate(context.appDb, context.uid),
-		]);
-		// Holdings go in gross; the summary nets only the ₹ returns, so every rate it hands back is the
-		// pre-tax one the owner entered — never a netted figure an editor could save back as pre-tax.
-		return wealthSummary({
-			investments: invs.map((i) => investmentToInr(i, rates)),
-			recurring: recs.map((r) => recurringToInr(r, rates)),
-			today: todayISO(),
-			taxRate: afterTax ? taxRate : 0,
-		});
-	}),
+	wealth: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Portfolio rollup of the owner's plan in INR: total wealth (sum of each holding's `currentValue`, today's value, not the amount invested), holdings rolled up by `group` (standalone holdings alone), each with value, share of wealth, a value-weighted pre-tax `rate`, expected `monthly` return and its member holdings, sorted by value; `annualReturn` (INR per year); `avgRoi` (portfolio return as a fraction of total value); `requiredRoi` (the return needed to cover all expenses, as a fraction); `monthlyExpenses` (INR); and `maturedValue` (principal sitting in matured holdings awaiting redeployment). Takes no input. Every rate returned is a pre-tax fraction (0.1175 = 11.75%) exactly as the owner entered it; only the rupee return figures are netted by tax when the owner's after-tax switch is on. Foreign-currency holdings are converted to INR.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const [invs, recs, rates, afterTax, taxRate] = await Promise.all([
+				listInvestments(context.appDb),
+				listRecurring(context.appDb),
+				loadRates(context.controlDb),
+				loadAfterTaxEnabled(context.appDb),
+				loadKpiTaxRate(context.appDb, context.uid),
+			]);
+			// Holdings go in gross; the summary nets only the ₹ returns, so every rate it hands back is the
+			// pre-tax one the owner entered — never a netted figure an editor could save back as pre-tax.
+			return wealthSummary({
+				investments: invs.map((i) => investmentToInr(i, rates)),
+				recurring: recs.map((r) => recurringToInr(r, rates)),
+				today: todayISO(),
+				taxRate: afterTax ? taxRate : 0,
+			});
+		}),
 
-	investments: protectedProcedure.handler(({ context }) =>
-		listInvestments(context.appDb),
-	),
-	recurring: protectedProcedure.handler(({ context }) =>
-		listRecurring(context.appDb),
-	),
+	investments: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"List every holding (investment) in the owner's plan, including inactive and matured ones. Takes no input. Each holding has: `id` (string; pass it as a number to the edit and delete tools), `name`, `type`, `incomeClass` (income | growth), `valuationSource`, `isPassiveIncomeSource`, `active`, `platform`, `group`, `payout` (cash | accrue), `principal` (amount originally invested), `currentValue` (worth today, not the amount invested), `annualRate` (pre-tax fraction, 0.1175 = 11.75%), `expectedMonthlyInterest` (when set it overrides principal/currentValue × annualRate ÷ 12), `interestCadence`, `principalCadence`, `startDate`, `maturityDate` (YYYY-MM-DD), `actionOnMaturity`, `status` (active | matured | closed) and `currency`; money amounts are in that `currency` (INR unless stated). Absent fields are omitted.",
+			},
+		})
+		.handler(({ context }) => listInvestments(context.appDb)),
+	recurring: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"List every recurring expense in the owner's plan — the committed outflows passive income has to cover — including inactive ones. Takes no input. Each has `id` (string; pass it as a number to the edit and delete tools), `name`, `category`, `amount` (paid each period, in the expense's `currency`, INR unless stated), `cadence` (monthly | quarterly | half_yearly | yearly), `active`, `currency`, `startDate` / `endDate` (YYYY-MM-DD) and `source` (manual | seeded). To compare expenses, divide by the cadence: a quarterly amount is a third of its monthly cost.",
+			},
+		})
+		.handler(({ context }) => listRecurring(context.appDb)),
 
 	addInvestment: protectedProcedure
 		.meta({

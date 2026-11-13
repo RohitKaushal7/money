@@ -86,31 +86,54 @@ async function upsertLog(
 
 export const networthRouter = {
 	/** The full chronological series with per-step annualised growth + the headline CAGR. */
-	list: protectedProcedure.handler(async ({ context }) => {
-		const rows = await context.appDb.select().from(networthLogs);
-		return networthSeries(rows.map(toLog));
-	}),
+	list: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The owner's net-worth log: dated total-net-worth points in INR, oldest first. Takes no input. Each point has `id`, `asOf` (YYYY-MM-DD), `value` (INR), `source` (manual | computed), optional `note`, `growth` (annualised simple growth since the previous point as a fraction, 0.1 = 10%; null for the first) and `days` since the previous point. Also returns `first`, `latest`, `change` (absolute INR, first to latest) and `cagr` (compound annual growth rate as a fraction; null with fewer than 2 points).",
+			},
+		})
+		.handler(async ({ context }) => {
+			const rows = await context.appDb.select().from(networthLogs);
+			return networthSeries(rows.map(toLog));
+		}),
 
 	/** Compute today's net worth (cash + Σ current_value) and log it (source = computed; upserts today). */
-	logToday: protectedProcedure.handler(async ({ context }) => {
-		const [cash, invested] = await Promise.all([
-			cashOnHand(context.uid),
-			investmentValue(context.appDb, context.controlDb),
-		]);
-		const asOf = todayISO();
-		const value = Math.round((cash + invested) * 100) / 100;
-		await upsertLog(
-			context.appDb,
-			asOf,
-			value,
-			"computed",
-			"auto: cash + Σ current_value",
-		);
-		return { asOf, value, cash, invested };
-	}),
+	logToday: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Compute today's net worth and save it to the net-worth log. Takes no input. Net worth = cash on hand (latest statement balance of each account) + the sum of `currentValue` of all active holdings, converted to INR. Writes a point dated today with source computed, replacing any existing point for today (including one the owner entered by hand). Returns `{ asOf, value, cash, invested }` in INR.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const [cash, invested] = await Promise.all([
+				cashOnHand(context.uid),
+				investmentValue(context.appDb, context.controlDb),
+			]);
+			const asOf = todayISO();
+			const value = Math.round((cash + invested) * 100) / 100;
+			await upsertLog(
+				context.appDb,
+				asOf,
+				value,
+				"computed",
+				"auto: cash + Σ current_value",
+			);
+			return { asOf, value, cash, invested };
+		}),
 
 	/** Add / correct a manual net-worth point (upserts on date). */
 	add: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Add or correct a manually entered net-worth point. Input: `asOf` (date, YYYY-MM-DD), `value` (total net worth in INR, not negative), optional `note`. If a point already exists for that date it is overwritten, replacing its value and note and marking it manual. Returns `{ ok: true }`.",
+			},
+		})
 		.input(
 			z.object({
 				asOf: dateInput,
@@ -131,6 +154,13 @@ export const networthRouter = {
 
 	/** Delete a logged point by id. */
 	remove: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Permanently delete one point from the net-worth log. Input: `id` — the point's id as returned by the net-worth list (whole number, not its date). Not undoable. Returns `{ ok: true }` even if no point had that id.",
+			},
+		})
 		.input(z.object({ id: z.coerce.number().int().positive() }))
 		.handler(async ({ context, input }) => {
 			await context.appDb
