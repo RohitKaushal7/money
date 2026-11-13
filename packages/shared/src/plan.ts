@@ -196,20 +196,28 @@ export function coverageLadder(input: {
 	};
 }
 
+/**
+ * A holding exactly as stored — `annualRate` and `expectedMonthlyInterest` are the **pre-tax** figures the
+ * owner entered — plus `monthly`, its expected return in the summary's tax mode. Keeping the two apart is
+ * the point: an editor seeded from a netted copy would save a post-tax rate back as a pre-tax one.
+ */
+export type HoldingMember = Investment & { monthly: number };
+
 /** A holding or a group of holdings, rolled up with a value-weighted annual rate. */
 export interface HoldingRollup {
 	/** group name when grouped, else null (a standalone holding) */
 	group: string | null;
 	name: string;
 	value: number;
-	/** value-weighted annual return across members; null if no value */
+	/** value-weighted **pre-tax** annual return across members; null if no value */
 	rate: number | null;
+	/** expected monthly return, netted of tax when the summary was given a `taxRate` */
 	monthly: number;
 	/** fraction of total live wealth */
 	share: number;
 	incomeClass: IncomeClass;
 	/** 1 member for standalone; N for a group */
-	members: Investment[];
+	members: HoldingMember[];
 	maturityDate?: string;
 }
 
@@ -234,18 +242,26 @@ export function wealthSummary(input: {
 	investments: Investment[];
 	recurring: RecurringExpense[];
 	today?: string;
+	/**
+	 * Marginal rate to net income-class returns by (the after-tax KPI switch); omit or 0 for pre-tax. Only
+	 * the ₹ returns are netted — every rate in the result stays the pre-tax one, as entered.
+	 */
+	taxRate?: number;
 }): WealthSummary {
-	const live = input.investments.filter((i) => isLive(i, input.today));
+	const taxRate = input.taxRate ?? 0;
+	const live: HoldingMember[] = input.investments
+		.filter((i) => isLive(i, input.today))
+		.map((i) => ({ ...i, monthly: monthlyReturn(netIncomeOfTax(i, taxRate)) }));
 	const totalValue = live.reduce((s, i) => s + (i.currentValue ?? 0), 0);
-	const annualReturn = live.reduce((s, i) => s + monthlyReturn(i) * 12, 0);
+	const annualReturn = live.reduce((s, i) => s + i.monthly * 12, 0);
 	const monthlyExpenses = input.recurring.reduce(
 		(s, e) => s + monthlyAmount(e, input.today),
 		0,
 	);
 	const annualExpenses = monthlyExpenses * 12;
 
-	const byGroup = new Map<string, Investment[]>();
-	const singles: Investment[] = [];
+	const byGroup = new Map<string, HoldingMember[]>();
+	const singles: HoldingMember[] = [];
 	for (const inv of live) {
 		if (inv.group) {
 			const arr = byGroup.get(inv.group) ?? [];
@@ -259,13 +275,13 @@ export function wealthSummary(input: {
 	const rollups: HoldingRollup[] = [];
 	for (const [group, members] of byGroup) {
 		const value = members.reduce((s, i) => s + (i.currentValue ?? 0), 0);
-		const monthly = members.reduce((s, i) => s + monthlyReturn(i), 0);
+		const grossMonthly = members.reduce((s, i) => s + monthlyReturn(i), 0);
 		rollups.push({
 			group,
 			name: group,
 			value,
-			rate: value > 0 ? (monthly * 12) / value : null,
-			monthly,
+			rate: value > 0 ? (grossMonthly * 12) / value : null,
+			monthly: members.reduce((s, i) => s + i.monthly, 0),
 			share: totalValue > 0 ? value / totalValue : 0,
 			incomeClass: members[0]?.incomeClass ?? "income",
 			members,
@@ -278,7 +294,7 @@ export function wealthSummary(input: {
 			name: inv.name,
 			value,
 			rate: inv.annualRate ?? null,
-			monthly: monthlyReturn(inv),
+			monthly: inv.monthly,
 			share: totalValue > 0 ? value / totalValue : 0,
 			incomeClass: inv.incomeClass,
 			members: [inv],

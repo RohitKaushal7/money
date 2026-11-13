@@ -34,6 +34,7 @@ import { ArmedDelete } from "@/components/armed-delete";
 import { CoverageHistory } from "@/components/plan/coverage-history";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
+import { formatRate } from "@/lib/format";
 import { useIsDesktop } from "@/lib/media";
 import { usePlanPeriod } from "@/lib/period";
 import { usePreference } from "@/lib/preferences";
@@ -79,6 +80,9 @@ interface RecurringDraft {
 	endDate?: string;
 }
 
+/** A holding as stored (pre-tax rate), plus its monthly return in the current tax mode. */
+type Member = Investment & { monthly: number };
+
 // mirrors @money/shared HoldingRollup (kept local to avoid importing server-only shapes)
 interface Rollup {
 	group: string | null;
@@ -88,7 +92,7 @@ interface Rollup {
 	monthly: number;
 	share: number;
 	incomeClass: IncomeClass;
-	members: Investment[];
+	members: Member[];
 	maturityDate?: string;
 }
 interface Tier {
@@ -131,8 +135,6 @@ const OUT = "var(--uncovered)";
 const tint = (c: string, pct: number) =>
 	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
 const ratioStr = (r: number | null) => (r == null ? "—" : `${r.toFixed(2)}×`);
-const pct1 = (r: number | null) =>
-	r == null ? "—" : `${(r * 100).toFixed(1)}%`;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 /** Today as YYYY-MM-DD (client clock) — drives the maturity countdown and the payment schedule. */
@@ -759,10 +761,10 @@ function IncomingColumn({
 		onSuccess: onDone,
 	});
 
-	// Every holding across every rollup, so the dialog can resolve an id without caring where the row lives.
-	const editingInv = rollups
-		.flatMap((r) => r.members)
-		.find((m) => m.id === editing);
+	// The editor is seeded from the holding *as stored*, never from a rollup member: rollups are INR-converted
+	// views, so seeding from one would save converted figures back over the real ones.
+	const stored = useQuery(orpc.plan.investments.queryOptions());
+	const editingInv = (stored.data ?? []).find((i) => i.id === editing);
 
 	return (
 		<section className="flex flex-col">
@@ -860,7 +862,7 @@ function StandaloneRow({
 					<span className="flex items-center gap-2 text-muted-foreground text-xs">
 						<span>
 							{rollup.incomeClass === "growth" ? "growth" : "income"}
-							{rollup.rate != null ? ` · ${pct1(rollup.rate)}` : ""}
+							{rollup.rate != null ? ` · ${formatRate(rollup.rate)}` : ""}
 						</span>
 						<MaturityMini inv={rollup.members[0]} />
 					</span>
@@ -897,7 +899,7 @@ function GroupRow({
 						<span className="block truncate font-medium">{rollup.name}</span>
 						<span className="block text-muted-foreground text-xs">
 							{rollup.members.length} holdings
-							{rollup.rate != null ? ` · ${pct1(rollup.rate)} wtd` : ""}
+							{rollup.rate != null ? ` · ${formatRate(rollup.rate)} wtd` : ""}
 						</span>
 					</span>
 				</button>
@@ -914,12 +916,10 @@ function GroupRow({
 	);
 }
 
-function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
+function MemberRow({ inv, onEdit }: { inv: Member; onEdit: () => void }) {
 	const { fmt } = useMoney();
 	const { scale, suffix } = usePlanPeriod();
-	const monthly =
-		inv.expectedMonthlyInterest ??
-		((inv.currentValue ?? 0) * (inv.annualRate ?? 0)) / 12;
+	const monthly = inv.monthly;
 	return (
 		<li className="flex items-center gap-3 py-1.5 transition-colors hover:bg-secondary/20">
 			<button
@@ -933,7 +933,7 @@ function MemberRow({ inv, onEdit }: { inv: Investment; onEdit: () => void }) {
 					<span className="flex items-center gap-2 text-muted-foreground text-xs">
 						<span>
 							{fmt(inv.currentValue ?? 0)}
-							{inv.annualRate != null ? ` · ${pct1(inv.annualRate)}` : ""}
+							{inv.annualRate != null ? ` · ${formatRate(inv.annualRate)}` : ""}
 						</span>
 						<MaturityMini inv={inv} />
 					</span>
@@ -1245,9 +1245,11 @@ function InvestmentForm({
 	const [platform, setPlatform] = useState(initial?.platform ?? "");
 	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [value, setValue] = useState(str(initial?.currentValue));
+	// Exact, not rounded: rounding here re-saved 7.75% as 7.8% on any edit. toFixed(6) only strips float
+	// noise (0.0775 × 100 = 7.750000000000001); Number() then drops the trailing zeros.
 	const [ratePct, setRatePct] = useState(
 		initial?.annualRate != null
-			? String(Math.round(initial.annualRate * 1000) / 10)
+			? String(Number((initial.annualRate * 100).toFixed(6)))
 			: "",
 	);
 	const [monthly, setMonthly] = useState(str(initial?.expectedMonthlyInterest));
@@ -1357,10 +1359,10 @@ function InvestmentForm({
 						placeholder="100000"
 					/>
 				</Field>
-				<Field label="Rate % / yr">
+				<Field label="Rate % / yr, pre-tax">
 					<Input
 						type="number"
-						step="0.1"
+						step="any"
 						value={ratePct}
 						onChange={(e) => setRatePct(e.target.value)}
 						className="tnum"

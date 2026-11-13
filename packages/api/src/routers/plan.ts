@@ -215,14 +215,13 @@ export const planRouter = {
 			loadAfterTaxEnabled(context.appDb),
 			loadKpiTaxRate(context.appDb, context.uid),
 		]);
-		const mapInv = (i: Investment) => {
-			const inr = investmentToInr(i, rates);
-			return afterTax ? netIncomeOfTax(inr, taxRate) : inr;
-		};
+		// Holdings go in gross; the summary nets only the ₹ returns, so every rate it hands back is the
+		// pre-tax one the owner entered — never a netted figure an editor could save back as pre-tax.
 		return wealthSummary({
-			investments: invs.map(mapInv),
+			investments: invs.map((i) => investmentToInr(i, rates)),
 			recurring: recs.map((r) => recurringToInr(r, rates)),
 			today: todayISO(),
+			taxRate: afterTax ? taxRate : 0,
 		});
 	}),
 

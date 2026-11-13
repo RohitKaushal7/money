@@ -346,6 +346,36 @@ describe("wealthSummary", () => {
 		const w = wealthSummary({ investments, recurring, today: "2026-07-19" });
 		expect(w.requiredRoi).toBeCloseTo((50_000 * 12) / 1_160_000, 4);
 	});
+
+	test("each member carries its own monthly return", () => {
+		const w = wealthSummary({ investments, recurring, today: "2026-07-19" });
+		const sv = w.rollups.find((r) => r.group === "SustVest");
+		expect(sv?.members.map((m) => m.monthly)).toEqual([916.67, 530]);
+	});
+
+	// The after-tax switch used to arrive as already-netted holdings, so the rate a member carried was the
+	// post-tax one — and the editor, seeded from that member, saved it back as though it were pre-tax.
+	test("after tax: ₹ returns are netted, but every rate stays the pre-tax one you entered", () => {
+		const w = wealthSummary({
+			investments,
+			recurring,
+			today: "2026-07-19",
+			taxRate: 0.312,
+		});
+		const sv = w.rollups.find((r) => r.group === "SustVest");
+		expect(sv?.members.map((m) => m.annualRate)).toEqual([0.11, 0.106]);
+		expect(sv?.members[0]?.expectedMonthlyInterest).toBe(916.67);
+		expect(sv?.members[0]?.monthly).toBeCloseTo(916.67 * 0.688, 6);
+		expect(sv?.monthly).toBeCloseTo((916.67 + 530) * 0.688, 6);
+		expect(sv?.rate).toBeCloseTo(((916.67 + 530) * 12) / 160_000, 6);
+		// growth is capital-gains taxed elsewhere, never slab-netted
+		const growth = w.rollups.find((r) => r.incomeClass === "growth");
+		expect(growth?.monthly).toBeCloseTo((1_000_000 * 0.12) / 12, 6);
+		expect(w.annualReturn).toBeCloseTo(
+			(916.67 + 530) * 0.688 * 12 + 120_000,
+			4,
+		);
+	});
 });
 
 describe("netIncomeOfTax", () => {

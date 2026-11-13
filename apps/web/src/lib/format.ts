@@ -119,3 +119,11 @@ export function useFormat() {
 		[hidden],
 	);
 }
+
+/**
+ * An annual rate (0.0775) as a percent to two decimals (7.75%). Two, because Indian FD, bond and P2P rates
+ * are quoted in quarter points — one decimal turned 7.75% into 7.8% and 11.75% into 11.8%.
+ */
+export function formatRate(r: number | null | undefined): string {
+	return r == null ? "—" : `${(r * 100).toFixed(2)}%`;
+}

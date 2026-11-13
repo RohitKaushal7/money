@@ -19,8 +19,10 @@ import {
 	YAxis,
 	ZAxis,
 } from "recharts";
+import { TaxModeChip } from "@/components/tax-mode-chip";
 import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { useMoney } from "@/lib/currency";
+import { formatRate } from "@/lib/format";
 import { useRunwayAssumptions } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -39,8 +41,6 @@ const PALETTE = [
 	"oklch(0.58 0.10 305)", // plum
 	"oklch(0.70 0.05 80)", // warm grey
 ];
-const pct1 = (r: number | null | undefined) =>
-	r == null ? "—" : `${(r * 100).toFixed(1)}%`;
 
 function daysUntil(iso?: string): number | null {
 	if (!iso) return null;
@@ -73,7 +73,7 @@ function DonutTip({
 		<div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
 			<p className="font-medium text-sm">{d.name}</p>
 			<p className="tnum mt-0.5 text-muted-foreground text-xs">
-				{fmt(d.value)} · {Math.round(d.share * 100)}% · {pct1(d.rate)} ·{" "}
+				{fmt(d.value)} · {Math.round(d.share * 100)}% · {formatRate(d.rate)} ·{" "}
 				{fmt(d.monthly)}/mo
 			</p>
 		</div>
@@ -357,7 +357,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 								{fmtc(act.value)}
 							</span>
 							<span className="text-muted-foreground text-xs">
-								{pct1(act.rate)} · {Math.round(act.share * 100)}%
+								{formatRate(act.rate)} · {Math.round(act.share * 100)}%
 							</span>
 						</>
 					) : (
@@ -442,17 +442,19 @@ function Metrics({ w }: { w: WealthSummary }) {
 					<span className="tnum text-foreground/80">
 						{fmt(Math.round(w.annualReturn / 12))}
 					</span>{" "}
-					/mo
+					/mo{" "}
+					{/* Returns and Avg ROI follow the tax mode; per-holding rates are always the pre-tax ones. */}
+					<TaxModeChip className="align-middle" />
 				</p>
 			</div>
 
 			<div className="grid grid-cols-2 gap-x-8 gap-y-5">
 				<Metric
 					label="Avg ROI"
-					value={pct1(w.avgRoi)}
+					value={formatRate(w.avgRoi)}
 					tone={free ? "covered" : undefined}
 				/>
-				<Metric label="Required to be free" value={pct1(w.requiredRoi)} />
+				<Metric label="Required to be free" value={formatRate(w.requiredRoi)} />
 				<Metric
 					label="Cushion"
 					value={
@@ -470,18 +472,20 @@ function Metrics({ w }: { w: WealthSummary }) {
 					<>
 						You're earning{" "}
 						<span className="font-medium text-[var(--covered)]">
-							{pct1(w.avgRoi)}
+							{formatRate(w.avgRoi)}
 						</span>{" "}
-						vs the <span className="font-medium">{pct1(w.requiredRoi)}</span>{" "}
+						vs the{" "}
+						<span className="font-medium">{formatRate(w.requiredRoi)}</span>{" "}
 						you'd need to fully cover expenses — you're past free on a
 						total-return basis.
 					</>
 				) : (
 					<>
-						You're earning <span className="font-medium">{pct1(w.avgRoi)}</span>
-						; you'd need{" "}
+						You're earning{" "}
+						<span className="font-medium">{formatRate(w.avgRoi)}</span>; you'd
+						need{" "}
 						<span className="font-medium text-[var(--uncovered)]">
-							{pct1(w.requiredRoi)}
+							{formatRate(w.requiredRoi)}
 						</span>{" "}
 						for wealth alone to cover expenses.
 					</>
@@ -519,7 +523,7 @@ function RunwayMetric({ w }: { w: WealthSummary }) {
 		assumptions,
 	});
 	const parts = [
-		returnsOn ? `at ${pct1(w.avgRoi)}` : "no growth assumed",
+		returnsOn ? `at ${formatRate(w.avgRoi)}` : "no growth assumed",
 		inflationOn ? `${(inflationRate * 100).toFixed(1)}% inflation` : null,
 	].filter(Boolean);
 	return (
@@ -625,8 +629,8 @@ function HoldingCard({
 					<p className="truncate font-medium">{rollup.name}</p>
 					<p className="text-muted-foreground text-xs">
 						{grouped
-							? `${rollup.members.length} holdings · ${pct1(rollup.rate)} wtd`
-							: `${rollup.incomeClass === "growth" ? "growth" : "income"} · ${pct1(rollup.rate)}`}
+							? `${rollup.members.length} holdings · ${formatRate(rollup.rate)} wtd`
+							: `${rollup.incomeClass === "growth" ? "growth" : "income"} · ${formatRate(rollup.rate)}`}
 					</p>
 				</div>
 				<Stat label="value" value={fmt(rollup.value)} />
@@ -637,9 +641,7 @@ function HoldingCard({
 				<ul className="flex flex-col divide-y divide-border border-border border-t">
 					{rollup.members.map((m) => {
 						const d = daysUntil(m.maturityDate);
-						const monthly =
-							m.expectedMonthlyInterest ??
-							((m.currentValue ?? 0) * (m.annualRate ?? 0)) / 12;
+						const monthly = m.monthly;
 						return (
 							<li
 								key={m.id}
@@ -665,7 +667,7 @@ function HoldingCard({
 									{fmt(m.currentValue ?? 0)}
 								</span>
 								<span className="tnum w-12 text-right text-muted-foreground">
-									{pct1(m.annualRate)}
+									{formatRate(m.annualRate)}
 								</span>
 								<span
 									className="tnum w-20 text-right"

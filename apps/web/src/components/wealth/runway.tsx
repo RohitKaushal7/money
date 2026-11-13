@@ -15,6 +15,7 @@ import {
 	YAxis,
 } from "recharts";
 import { useMoney } from "@/lib/currency";
+import { formatRate } from "@/lib/format";
 import { useRunwayAssumptions } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -245,9 +246,7 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 						on={returnsOn}
 						onClick={() => setReturnsOn(!returnsOn)}
 						label={
-							returnsOn
-								? `earning ${((w.avgRoi ?? 0) * 100).toFixed(1)}%`
-								: "no growth"
+							returnsOn ? `earning ${formatRate(w.avgRoi ?? 0)}` : "no growth"
 						}
 						title="Let the remaining balance keep compounding at your blended portfolio return"
 					/>
