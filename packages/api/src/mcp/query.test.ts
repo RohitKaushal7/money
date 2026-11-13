@@ -64,6 +64,7 @@ describe("query tool", () => {
 			"v_category_monthly",
 			"axio_expenses",
 			"information_schema.columns",
+			"one SELECT (or WITH … SELECT) statement",
 			"INR",
 			"500",
 			"10 s",

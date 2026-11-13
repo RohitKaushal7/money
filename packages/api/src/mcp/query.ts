@@ -24,7 +24,7 @@ const inputSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			"DuckDB SQL. Read-only: SELECT / WITH (several `;`-separated statements return the last one's rows).",
+			"One DuckDB SELECT (or WITH … SELECT) statement. FROM t, VALUES, DESCRIBE t and SHOW TABLES count as SELECTs.",
 		),
 });
 
@@ -44,9 +44,9 @@ function scrub(message: string, dbPath: string): string {
 
 /**
  * Run Claude's SQL against the caller's own analytics DuckDB, in `@money/analytics`'s sandbox (read-only,
- * no file/network/extension access, settings locked, 500 rows, 10 s). Every failure — a refused statement,
- * a syntax error, a timeout — comes back as a tool error carrying DuckDB's message; an unknown table or
- * column also carries the schema, so the next try can be right.
+ * one SELECT, in its own process, no file/network/extension access, settings locked, 500 rows, 10 s). Every
+ * failure (a refused statement, a syntax error, a timeout, a crashed sandbox) comes back as a tool error
+ * carrying its message; an unknown table or column also carries the schema, so the next try can be right.
  */
 export async function runQuery(
 	ctx: McpCallContext,
@@ -82,13 +82,13 @@ export async function runQuery(
 }
 
 const DESCRIPTION = [
-	"Answer an open question by running read-only DuckDB SQL over this person's own analytics data — the bank statements they imported, categorised. Use it when no other tool already gives the answer.",
+	"Answer an open question by running one SELECT (or WITH … SELECT) statement, in DuckDB SQL, over this person's own analytics data — the bank statements they imported, categorised. Use it when no other tool already gives the answer.",
 	"Main tables: `transactions` — one row per bank-statement posting: txn_id, account_id, txn_date, narration, amount (signed INR: credit/money in +, debit/money out −), balance, month ('YYYY-MM'), fy ('FY2026-27', Indian FY April–March).",
 	"`transaction_splits` — how each transaction is categorised: one or more rows per txn_id (seq), amount (signed, sums to the transaction), kind (active_income | passive_income | expense | investment | transfer), category_key → `categories`.key (label, kind). Uncategorised postings are kind 'transfer', category 'uncategorized'. Total by category from the splits, not the transactions.",
 	"Views: `v_monthly_kpi` (month, passive_income_cash, expenses as a positive number), `v_coverage_ratio` (the same plus ratio = passive income ÷ expenses, the north-star number), `v_category_monthly` (month, category_key, kind, amount, n).",
 	"`axio_expenses` is a separate, advisory spend ledger from the Axio app (amount is a positive magnitude, drcr 'DR'/'CR', its own category labels): never add it to `transactions` — that double-counts. `import_batches` lists the imported files. Holdings are not here (use plan_investments); investment_cashflows and investment_valuations are empty.",
 	"For the exact columns run `SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'main' ORDER BY table_name, ordinal_position`.",
-	`Limits: at most ${QUERY_MAX_ROWS} rows come back (\`truncated: true\` when there were more — aggregate or add LIMIT), and a query is stopped after ${QUERY_TIMEOUT_MS / 1000} s. Files, network, ATTACH, extensions, settings and writes are all refused. The result is { columns, rows, truncated }; dates are ISO strings.`,
+	`Limits: at most ${QUERY_MAX_ROWS} rows come back (\`truncated: true\` when there were more — aggregate or add LIMIT), and a query is stopped after ${QUERY_TIMEOUT_MS / 1000} s. Several statements, CALL, EXPLAIN, SET, files, network, ATTACH, extensions and writes are all refused. The result is { columns, rows, truncated }; dates are ISO strings.`,
 ].join(" ");
 
 const [, json] = new ZodToJsonSchemaConverter().convert(inputSchema, {

@@ -1,96 +1,144 @@
-import { DuckDBInstance } from "@duckdb/node-api";
-import { normalizeRow } from "./duckdb";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import type {
+	SandboxRequest,
+	SandboxResponse,
+	SandboxResult,
+} from "./sandboxed-query-worker";
 
 /**
- * Untrusted, read-only SQL over one analytics DB — for SQL an AI wrote (the MCP `query` tool).
+ * Untrusted, read-only SQL over one analytics DB, for SQL an AI wrote (the MCP `query` tool).
  *
- * The sandbox is DuckDB's own, set when the instance is created and then locked:
- * - `access_mode: read_only` — no table, view or row can be written;
- * - `enable_external_access: false` — no file reads or writes (`read_csv`, `COPY … TO`, `glob`), no
- *   `ATTACH`, no `INSTALL`/`LOAD` of extensions;
- * - `autoinstall_known_extensions` / `autoload_known_extensions: false` — no extension pulled in implicitly;
- * - `temp_directory: ""` and `memory_limit` — nothing spilled to disk next to the DB, bounded working memory;
- * - `lock_configuration: true` — no `SET`/`RESET` can loosen any of the above afterwards.
- * Rows are bounded by streaming only as many as are needed, and time by interrupting the connection.
- * Every call opens and closes its own instance, so one query can't see or affect another.
+ * Two layers. Each query runs in a fresh child process (`sandboxed-query-worker.ts`) with its own DuckDB
+ * instance, sandboxed and locked (see that file). The child accepts one SELECT statement only, caps rows by
+ * streaming, and interrupts itself at the timeout. This process only spawns the child, kills it if it
+ * outlives the timeout, and turns any failure, including a crash that aborts the child, into a rejection.
+ * No query can take the server down or leave anything running after it.
  */
-const SANDBOX: Record<string, string> = {
-	// Options are applied in key order. `temp_directory` must come before `enable_external_access`
-	// (DuckDB refuses to change it once external access is off), and `lock_configuration` last.
-	temp_directory: "",
-	access_mode: "read_only",
-	enable_external_access: "false",
-	autoinstall_known_extensions: "false",
-	autoload_known_extensions: "false",
-	memory_limit: "1GB",
-	lock_configuration: "true",
-};
 
 export const QUERY_MAX_ROWS = 500;
 export const QUERY_TIMEOUT_MS = 10_000;
+/** How long past its timeout a child gets to interrupt itself and report before it is killed. */
+const KILL_GRACE_MS = 2_000;
+
+const WORKER_PATH = fileURLToPath(
+	new URL("./sandboxed-query-worker.ts", import.meta.url),
+);
+
+export const SANDBOX_CRASHED = "Query crashed the sandbox and was stopped";
+const TOO_LARGE = "Query result is too large; select fewer or narrower columns";
+/** A 500-row answer is far below this; a bigger one is stopped rather than buffered. */
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 export interface SandboxedQueryOptions {
 	/** Most rows returned (default 500); more are reported as `truncated`. */
 	maxRows?: number;
-	/** Interrupt the query after this long (default 10 000 ms). */
+	/** Stop the query after this long (default 10 000 ms). */
 	timeoutMs?: number;
 }
 
-export interface SandboxedQueryResult {
-	columns: string[];
-	rows: Record<string, unknown>[];
-	/** True when the query had more rows than `maxRows`. */
-	truncated: boolean;
+export type SandboxedQueryResult = SandboxResult;
+
+const timedOut = (timeoutMs: number) =>
+	new Error(`Query timed out after ${timeoutMs / 1000}s`);
+
+/**
+ * Run `request` in a child process running `workerPath`, and kill it after `killAfterMs`. Resolves with the
+ * child's result. Rejects with the child's error message; "Query timed out after Ns" if it had to be
+ * killed; a too-large error if its answer passes 32 MB; or {@link SANDBOX_CRASHED} if it exited abnormally
+ * or wrote no valid response. Never throws anything else. Exported for tests, which point it at stub workers.
+ */
+export function runInSandboxProcess(
+	workerPath: string,
+	request: SandboxRequest,
+	killAfterMs: number,
+): Promise<SandboxedQueryResult> {
+	return new Promise((resolve, reject) => {
+		// Through `sh` only to turn core dumps off: a child that aborts must not write a core file per query.
+		// The child needs no secrets, so it gets an empty environment, not the server's.
+		const child = spawn(
+			"/bin/sh",
+			["-c", 'ulimit -c 0; exec "$0" "$1"', process.execPath, workerPath],
+			{ env: {}, stdio: ["pipe", "pipe", "pipe"] },
+		);
+		const stdout: Buffer[] = [];
+		let stdoutBytes = 0;
+		let stderr = "";
+		let failure: Error | undefined;
+		const stop = (error: Error) => {
+			failure ??= error;
+			child.kill("SIGKILL");
+		};
+		const timer = setTimeout(
+			() => stop(timedOut(request.timeoutMs)),
+			killAfterMs,
+		);
+
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdoutBytes += chunk.length;
+			if (stdoutBytes > MAX_RESPONSE_BYTES) {
+				stop(new Error(TOO_LARGE));
+				return;
+			}
+			stdout.push(chunk);
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr = (stderr + chunk.toString()).slice(-2000);
+		});
+		// A child that exits before reading its request makes these error; its exit status says why.
+		child.stdin.on("error", () => {});
+		child.on("error", (e) => stop(e));
+		child.on("close", (code, signal) => {
+			clearTimeout(timer);
+			if (failure) return reject(failure);
+			let response: SandboxResponse | undefined;
+			if (code === 0) {
+				try {
+					response = JSON.parse(
+						Buffer.concat(stdout).toString("utf8"),
+					) as SandboxResponse;
+				} catch {
+					response = undefined;
+				}
+			}
+			if (!response || typeof response !== "object" || !("ok" in response)) {
+				console.error(
+					`[analytics] sandboxed query exited abnormally (code ${code}, signal ${signal}):`,
+					stderr,
+				);
+				return reject(new Error(SANDBOX_CRASHED));
+			}
+			if (!response.ok) return reject(new Error(response.error));
+			resolve(response.result);
+		});
+
+		child.stdin.end(JSON.stringify(request));
+	});
 }
 
 /**
- * Run one (or several `;`-separated) statement(s) against `dbPath` in the sandbox and return the last
- * statement's rows. Rejects with DuckDB's own error for anything the sandbox refuses, and with
- * `Query timed out after Ns` when the timeout interrupts it. Never creates `dbPath`.
+ * Run ONE SELECT statement (or `WITH … SELECT`) against `dbPath` in an isolated, sandboxed child process.
+ * Returns at most `maxRows` rows, with `truncated` set when there were more. Rejects with DuckDB's own
+ * error for anything the sandbox refuses, "query accepts one SELECT …" for anything that is not a single
+ * SELECT, "Query timed out after Ns" at the timeout, and {@link SANDBOX_CRASHED} if the query brought the
+ * child down. Never creates `dbPath`.
  */
 export async function runSandboxedQuery(
 	dbPath: string,
 	sql: string,
 	opts: SandboxedQueryOptions = {},
 ): Promise<SandboxedQueryResult> {
-	const maxRows = opts.maxRows ?? QUERY_MAX_ROWS;
 	const timeoutMs = opts.timeoutMs ?? QUERY_TIMEOUT_MS;
-
-	const instance = await DuckDBInstance.create(dbPath, SANDBOX);
-	try {
-		const connection = await instance.connect();
-		let timedOut = false;
-		const timer = setTimeout(() => {
-			timedOut = true;
-			connection.interrupt();
-		}, timeoutMs);
-		try {
-			// Streams chunk by chunk and stops once there is one row past the cap, so an unbounded result
-			// is never read in full (at most one ~2048-row chunk beyond it).
-			const reader = await connection.streamAndReadUntil(sql, maxRows + 1);
-			const rows = reader.getRowObjectsJS();
-			return {
-				columns: reader.deduplicatedColumnNames(),
-				rows: rows.slice(0, maxRows).map((r) => normalizeRow(r)),
-				truncated: rows.length > maxRows,
-			};
-		} catch (e) {
-			if (timedOut) {
-				throw new Error(`Query timed out after ${timeoutMs / 1000}s`);
-			}
-			throw e;
-		} finally {
-			clearTimeout(timer);
-			connection.disconnectSync();
-		}
-	} finally {
-		instance.closeSync();
-	}
+	return runInSandboxProcess(
+		WORKER_PATH,
+		{ dbPath, sql, maxRows: opts.maxRows ?? QUERY_MAX_ROWS, timeoutMs },
+		timeoutMs + KILL_GRACE_MS,
+	);
 }
 
 /**
- * Every table and view in the DB with its columns and types, one per line —
- * `transactions: txn_id VARCHAR, txn_date DATE, …`, views marked `(view)`. Read through the same sandbox.
+ * Every table and view in the DB with its columns and types, one per line:
+ * `transactions: txn_id VARCHAR, txn_date DATE, …`, with views marked `(view)`. Read through the same sandbox.
  */
 export async function describeSchema(dbPath: string): Promise<string> {
 	const { rows } = await runSandboxedQuery(
