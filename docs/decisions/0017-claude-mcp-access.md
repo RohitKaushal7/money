@@ -34,13 +34,18 @@ Code conversation that goes through the app's own validation, with a record of w
   limit, then hard-killed. This keeps hard rules 1 to 3 intact: the API still never opens DuckDB read-write.
   At most two such processes run at once across the server (later queries wait up to 30 s, then fail as
   busy), and a query takes the same per-user lock as ingests, since DuckDB refuses a read-write open while a
-  reader holds the file.
+  reader holds the file. A query waits at most 30 s for that lock too, then fails as busy; an ingest waits as
+  long as it takes, so a waiting query never fails an import. A query is tied to its HTTP request: once the
+  client disconnects, a query still waiting (for the lock or a slot) never starts and a running one is
+  killed, so an abandoned call holds neither.
 - **Shared exchange-rate writes are admin-only.** `currency.upsert`, `setRate` and `refresh` write to
   `control.db`, which every user shares; they move to `adminProcedure`, in the app and through Claude alike.
 - **OAuth is deferred.** Claude chat connectors need OAuth for a personal account (static header auth there
   is a limited beta for organisation Owners, and tokens in URLs are forbidden). Claude Code accepts a bearer
   header, so tokens serve it today. OAuth can be added later as a second way of producing the same request
-  context.
+  context. Until then the OAuth discovery paths (`/.well-known/oauth-*`, `/.well-known/openid-configuration`)
+  and anything under `/mcp/` answer a plain 404, so a client probing for OAuth learns it isn't offered
+  instead of getting the web app's `index.html` with a 200.
 
 ## Consequences
 

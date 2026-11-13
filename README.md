@@ -138,6 +138,11 @@ claude mcp add --transport http money https://your-origin/mcp \
   --header "Authorization: Bearer money_pat_..."
 ```
 
+Claude Code connects from the machine it runs on, so that machine must be able to reach the app at that
+address: a public HTTPS origin behind your reverse proxy works from anywhere, a LAN or VPN address (e.g.
+`http://192.168.1.20:3000`, a Tailscale name) only from inside that network. The command uses the address
+you opened Settings on; if Claude Code should use another, change it in the command.
+
 The token is shown once and can be revoked at any time. Changes made through Claude are listed, with undo for
 holdings and recurring expenses, in the same tab. See `docs/decisions/0017-claude-mcp-access.md`.
 
