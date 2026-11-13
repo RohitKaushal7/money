@@ -3,3 +3,4 @@
  * is imported. The handler imports this file, so a tool module is live once it is imported here.
  */
 import "./update-holdings";
+import "./query";

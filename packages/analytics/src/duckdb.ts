@@ -36,7 +36,9 @@ function normalize(value: unknown): unknown {
 	return value;
 }
 
-function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
+export function normalizeRow(
+	row: Record<string, unknown>,
+): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const key of Object.keys(row)) out[key] = normalize(row[key]);
 	return out;
