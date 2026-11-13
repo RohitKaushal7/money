@@ -1,9 +1,9 @@
 import { transactionManualSplits } from "@money/db";
-import { CATEGORY_BY_KEY } from "@money/shared";
 import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
+import { categoryKinds } from "../category-kinds";
 import { protectedProcedure } from "../index";
 
 /**
@@ -46,7 +46,7 @@ export const splitsRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Replace all manual split lines of one transaction, e.g. to divide a maturity payout into interest and principal. Input: `txnId` and `lines` (at least one): each `{ amount (signed INR, same sign convention as the transaction), categoryKey (the line's kind is looked up in the built-in category taxonomy only: a custom, user-created category key silently gets kind transfer, which can misclassify income or expense after a re-tag, so use built-in keys and tell the owner when a custom category is needed), cashflowType (optional: contribution, coupon, dividend, redemption or maturity), note (optional) }`. The lines must add up to the transaction's amount within 0.01, otherwise it is refused saying the expected sum; an unknown transaction is refused. Returns `{ ok, lines }`. These lines replace the default split at the next re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+					"Replace all manual split lines of one transaction, e.g. to divide a maturity payout into interest and principal. Input: `txnId` and `lines` (at least one): each `{ amount (signed INR, same sign convention as the transaction), categoryKey (a key from the owner's categories, built-in or custom, as the category list shows; the line's kind is that category's kind in the owner's categories), cashflowType (optional: contribution, coupon, dividend, redemption or maturity), note (optional) }`. The lines must add up to the transaction's amount within 0.01, otherwise it is refused saying the expected sum; an unknown transaction or category key is refused, and a refused call writes nothing. Returns `{ ok, lines }`. These lines replace the default split at the next re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
 			},
 		})
 		.input(
@@ -56,6 +56,11 @@ export const splitsRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
+			// Before anything is written: an unknown key refuses the whole call.
+			const kindOf = await categoryKinds(
+				context.appDb,
+				input.lines.map((l) => l.categoryKey),
+			);
 			if (analyticsReady(context.uid)) {
 				const [txn] = await withReader(context.uid, (reader) =>
 					reader.query<{ amount: number }>(
@@ -83,7 +88,7 @@ export const splitsRouter = {
 						txnId: input.txnId,
 						seq: i,
 						amount: l.amount,
-						kind: CATEGORY_BY_KEY.get(l.categoryKey)?.kind ?? "transfer",
+						kind: kindOf(l.categoryKey),
 						categoryKey: l.categoryKey,
 						cashflowType: l.cashflowType ?? null,
 						note: l.note ?? null,
