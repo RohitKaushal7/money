@@ -58,6 +58,7 @@ export function contextFor(ctx: McpCallContext): Context {
 		unlockToken: null,
 		via: ctx.via,
 		batchId: undefined,
+		entityLockHeld: false,
 	};
 }
 

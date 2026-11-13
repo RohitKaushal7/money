@@ -15,6 +15,7 @@ const { changeLog, investments } = await import("@money/db");
 const { eq } = await import("drizzle-orm");
 const { appRouter } = await import("../routers/index");
 const { appDbFor, controlDb } = await import("../db");
+const { withEntityLock } = await import("../change-log");
 const { extraTools } = await import("./tools");
 const { planHoldingUpdates, UPDATE_HOLDINGS, updateHoldings } = await import(
 	"./update-holdings"
@@ -488,5 +489,119 @@ describe("update_holdings tool", () => {
 		]);
 		expect(out.missing.map((m) => m.name)).toEqual(["Beta Bond"]);
 		expect(out.summary).toContain("Beta Bond");
+	});
+	// State here: Alpha 1000 @ 0.1, Beta 2100 @ 0.093 (deleted above), Gamma 3000 @ 0.094.
+	test("an app edit that holds the entity lock lands before the apply's check, so the apply refuses it", async () => {
+		const args = {
+			changes: [
+				{ id: ids["Alpha Bond"], set: { annualRate: 0.101 } },
+				{ id: ids["Gamma Bond"], set: {} },
+			],
+		};
+		const preview = await run(args);
+		expect(preview.previewId).toBeString();
+		let applying: Promise<unknown> = Promise.resolve();
+		// Stand in for an app write: it holds the user's entity lock while it edits Gamma.
+		await withEntityLock(uid, async () => {
+			applying = run({
+				...args,
+				apply: true,
+				previewId: preview.previewId,
+			}).catch((e: unknown) => e);
+			// Long enough for an apply that doesn't wait on the lock to read and pass its stamp check.
+			await Bun.sleep(30);
+			await appDbFor(uid)
+				.update(investments)
+				.set({ principal: 4321, updatedAt: new Date(Date.now() + 60_000) })
+				.where(eq(investments.id, ids["Gamma Bond"] ?? 0));
+		});
+		const err = await applying;
+		expect(err).toBeInstanceOf(ORPCError);
+		expect((err as Error).message).toContain("Gamma Bond");
+		const rows = await rowsNow();
+		expect(rows.find((r) => r.name === "Alpha Bond")?.annualRate).toBe(0.1);
+	});
+
+	test("an apply holds the entity lock from its check through its last write", async () => {
+		const args = {
+			changes: [
+				{ id: ids["Alpha Bond"], set: { annualRate: 0.102 } },
+				{ id: ids["Gamma Bond"], set: { annualRate: 0.095 } },
+			],
+		};
+		const preview = await run(args);
+		expect(preview.previewId).toBeString();
+		let appEdit: Promise<unknown> | undefined;
+		let appEditDone = false;
+		let doneDuringApply: boolean | undefined;
+		await updateHoldings(
+			ctx,
+			{ ...args, apply: true, previewId: preview.previewId },
+			async (client, input) => {
+				if (!appEdit) {
+					// The app edits Gamma while the apply is midway; it must wait for the whole apply.
+					appEdit = app.plan
+						.updateInvestment({ id: ids["Gamma Bond"] ?? 0, principal: 777 })
+						.then(() => {
+							appEditDone = true;
+						});
+					await Bun.sleep(30);
+				}
+				const out = await client.plan.updateInvestment(input);
+				doneDuringApply = appEditDone;
+				return out;
+			},
+		);
+		expect(doneDuringApply).toBe(false);
+		await appEdit;
+		const rows = await rowsNow();
+		const gamma = rows.find((r) => r.name === "Gamma Bond");
+		expect(gamma?.annualRate).toBe(0.095);
+		expect(gamma?.principal).toBe(777);
+	});
+
+	test("another user's previewId is refused without using it up", async () => {
+		const other = {
+			uid: "holdings-other",
+			user: {
+				id: "holdings-other",
+				email: "o@x.test",
+				name: "o",
+				role: "user",
+			},
+			via,
+		};
+		await provisionUserApp(other.uid);
+		const args = {
+			changes: [{ id: ids["Alpha Bond"], set: { annualRate: 0.103 } }],
+		};
+		const preview = await run(args);
+		await expect(
+			tool().run(other, { ...args, apply: true, previewId: preview.previewId }),
+		).rejects.toThrow(/preview/i);
+		await run({ ...args, apply: true, previewId: preview.previewId });
+		const rows = await rowsNow();
+		expect(rows.find((r) => r.name === "Alpha Bond")?.annualRate).toBe(0.103);
+	});
+
+	test("a user keeps at most 20 previews; a new one evicts their oldest", async () => {
+		const args = (rate: number) => ({
+			changes: [{ id: ids["Alpha Bond"], set: { annualRate: rate } }],
+		});
+		const made: string[] = [];
+		for (let i = 0; i < 21; i++) {
+			const p = await run(args(0.2 + i / 1000));
+			made.push(p.previewId as string);
+		}
+		await expect(
+			run({ ...args(0.2), apply: true, previewId: made[0] }),
+		).rejects.toThrow(/No live preview/);
+		await run({ ...args(0.201), apply: true, previewId: made[1] });
+		const rows = await rowsNow();
+		expect(rows.find((r) => r.name === "Alpha Bond")?.annualRate).toBe(0.201);
+	});
+
+	test("the description says previews don't survive a server restart", () => {
+		expect(tool().description).toMatch(/restart/);
 	});
 });

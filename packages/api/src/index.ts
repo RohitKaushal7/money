@@ -34,13 +34,6 @@ const requireAuth = o.middleware(async ({ context, next }) => {
 });
 
 /**
- * Signed in, but NOT past the screen lock.
- *
- * Only the lock router itself may use this — it has to be reachable while locked in order to unlock. Every
- * other procedure uses {@link protectedProcedure}, so the lock is opt-*out*: a router added later is
- * covered by default, and forgetting is a compile-time choice rather than a silent hole.
- */
-/**
  * What an access token (MCP) may call — default-deny, on the procedure itself rather than only at `/mcp`:
  * only a procedure offered to Claude (it has `mcp` meta and isn't excluded), and under a `read` token only
  * one whose kind is `read`. Everything else — the tokens router above all, so Claude can never mint or
@@ -68,6 +61,13 @@ const requireTokenAccess = o.middleware(
 	},
 );
 
+/**
+ * Signed in, but NOT past the screen lock.
+ *
+ * Only the lock router itself may use this — it has to be reachable while locked in order to unlock. Every
+ * other procedure uses {@link protectedProcedure}, so the lock is opt-*out*: a router added later is
+ * covered by default, and forgetting is a compile-time choice rather than a silent hole.
+ */
 export const authedProcedure = publicProcedure
 	.use(requireAuth)
 	.use(requireTokenAccess);
@@ -105,7 +105,9 @@ const requireUnlocked = o.middleware(async ({ context, next }) => {
  * handler to the after-read and the log insert, so two writes to the same user's holdings or expenses —
  * parallel MCP calls, or the app and Claude at once — can't interleave and log each other's rows. The
  * handler of such a write must not call another entity write for the same user (the lock isn't
- * re-entrant).
+ * re-entrant). Code that must hold the lock across several writes — update_holdings' apply, from its
+ * stale-row check through its last write — takes it itself and calls the writes through a router client
+ * whose context has `entityLockHeld: true`, so they run inside its hold instead of queueing behind it.
  *
  * Recording is best-effort: once the write has succeeded, a failed audit insert is logged and swallowed
  * rather than failing the request, since the caller would otherwise retry a write that already happened.
@@ -196,7 +198,11 @@ const logWrites = os
 			return result;
 		};
 
-		return target ? withEntityLock(context.uid, writeAndLog) : writeAndLog();
+		// A caller that already holds the lock for this whole call (`entityLockHeld`, see Context) gets
+		// serialised by it; taking it again here would wait on itself.
+		return target && !context.entityLockHeld
+			? withEntityLock(context.uid, writeAndLog)
+			: writeAndLog();
 	});
 
 export const protectedProcedure = authedProcedure

@@ -36,6 +36,10 @@ export async function createContext({ context }: CreateContextOptions) {
 		via: undefined as TokenVia | undefined,
 		// Set by bulk applies so one apply shares a change-log batch.
 		batchId: undefined as string | undefined,
+		// True only on a router client built by code that already holds this user's entity lock
+		// (`withEntityLock`) for the whole time the client is used — update_holdings' apply. The change log
+		// then doesn't take that lock again, which would wait on itself forever (it isn't re-entrant).
+		entityLockHeld: false as boolean,
 	};
 }
 

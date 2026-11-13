@@ -4,6 +4,7 @@ import { createRouterClient, ORPCError, type RouterClient } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { z } from "zod";
 
+import { withEntityLock } from "../change-log";
 import { appDbFor } from "../db";
 import { appRouter } from "../routers/index";
 import {
@@ -264,10 +265,34 @@ interface Preview {
 	/** Each matched holding's name and `updated_at` (ms) when previewed. */
 	stamps: Map<number, { name: string; at: number }>;
 }
+/** Kept in memory only: a server restart drops every preview. Insertion order is age order. */
 const previews = new Map<string, Preview>();
+/** Live previews one user may hold; a newer one evicts their oldest, so a loop can't grow the map. */
+const MAX_PREVIEWS_PER_USER = 20;
 
 function sweep(now: number) {
 	for (const [id, p] of previews) if (p.expiresAt <= now) previews.delete(id);
+}
+
+function storePreview(id: string, preview: Preview) {
+	const mine = [...previews].filter(([, p]) => p.uid === preview.uid);
+	const excess = mine.length - (MAX_PREVIEWS_PER_USER - 1);
+	for (const [oldId] of mine.slice(0, Math.max(0, excess))) {
+		previews.delete(oldId);
+	}
+	previews.set(id, preview);
+}
+
+/**
+ * The caller's live preview with this id, used up. Another user's preview is not theirs to see or spend:
+ * it is left in place and reads as absent.
+ */
+function takePreview(id: string | undefined, uid: string): Preview | undefined {
+	if (!id) return undefined;
+	const preview = previews.get(id);
+	if (!preview || preview.uid !== uid) return undefined;
+	previews.delete(id);
+	return preview;
 }
 
 /** JSON with object keys sorted, so the same payload always hashes the same. */
@@ -325,14 +350,12 @@ export async function updateHoldings(
 	const input = parsed.data;
 	const now = Date.now();
 	sweep(now);
-
-	const current = await appDbFor(ctx.uid).select().from(investments);
-	const plan = planHoldingUpdates(current, input);
-	const summary = summarise(plan);
 	const hash = payloadHash(input);
-	const rowById = new Map(current.map((r) => [r.id, r]));
 
 	if (!input.apply) {
+		const current = await appDbFor(ctx.uid).select().from(investments);
+		const plan = planHoldingUpdates(current, input);
+		const summary = summarise(plan);
 		if (!isClean(plan)) {
 			return {
 				previewId: null,
@@ -340,8 +363,9 @@ export async function updateHoldings(
 				...plan,
 			};
 		}
+		const rowById = new Map(current.map((r) => [r.id, r]));
 		const previewId = randomUUID();
-		previews.set(previewId, {
+		storePreview(previewId, {
 			uid: ctx.uid,
 			hash,
 			expiresAt: now + PREVIEW_TTL_MS,
@@ -361,11 +385,10 @@ export async function updateHoldings(
 	}
 
 	// Apply: only what was previewed, exactly as previewed, and only if nothing moved since.
-	const preview = input.previewId ? previews.get(input.previewId) : undefined;
-	if (input.previewId) previews.delete(input.previewId);
-	if (!preview || preview.uid !== ctx.uid) {
+	const preview = takePreview(input.previewId, ctx.uid);
+	if (!preview) {
 		throw refuse(
-			"No live preview for this previewId. Call update_holdings without `apply` first, check its result, then apply with the previewId it returns (previews last 15 minutes and are single-use).",
+			"No live preview for this previewId. Call update_holdings without `apply` first, check its result, then apply with the previewId it returns (previews last 15 minutes, are single-use, and don't survive a server restart).",
 		);
 	}
 	if (preview.hash !== hash) {
@@ -373,6 +396,24 @@ export async function updateHoldings(
 			"These changes differ from the previewed ones. Preview this exact payload, then apply it with the new previewId.",
 		);
 	}
+	// The user's entity lock is held from reading the rows for the stale check through the last write, so no
+	// other holding write (the app, another tool call, an undo) can land between the check and the writes.
+	return withEntityLock(ctx.uid, () =>
+		applyPreview(ctx, input, preview, write),
+	);
+}
+
+async function applyPreview(
+	ctx: McpCallContext,
+	input: z.infer<typeof inputSchema>,
+	preview: Preview,
+	write: HoldingWriter,
+) {
+	const current = await appDbFor(ctx.uid).select().from(investments);
+	const plan = planHoldingUpdates(current, input);
+	const summary = summarise(plan);
+	const rowById = new Map(current.map((r) => [r.id, r]));
+
 	// Edits since the preview come first, so the refusal names them even when they also break the total.
 	const moved = [...preview.stamps]
 		.filter(([id, { at }]) => rowById.get(id)?.updatedAt.getTime() !== at)
@@ -402,8 +443,9 @@ export async function updateHoldings(
 	}
 
 	const batchId = randomUUID();
+	// This call holds the entity lock already, so the writes must not take it again (see Context).
 	const client = createRouterClient(appRouter, {
-		context: { ...contextFor(ctx), batchId },
+		context: { ...contextFor(ctx), batchId, entityLockHeld: true },
 	});
 	const toWrite = plan.rows.filter(changed);
 	const written: Array<{ id: number; name: string }> = [];
@@ -450,7 +492,7 @@ export async function updateHoldings(
 const DESCRIPTION = [
 	"Change several holdings (investments) at once, safely — e.g. to correct them from a portfolio screenshot. Two calls:",
 	"1) Preview: send `changes` (and ideally `expectedTotalValue`) without `apply`. Nothing is written. The result shows each matched holding's `before`/`after`, any `unmatched` or `ambiguous` entries, `errors`, the `total` check, a one-line `summary`, and a `previewId` (null when something must be fixed first).",
-	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. All writes share one change-log batch, returned as `batchId` with the `written` holdings. There is no batch undo: to undo an apply, call changes_list, take the `id` of every change whose `batchId` matches, and undo each with changes_undo. If a write fails partway, the error says which holdings were already written (they stay written; undo them the same way) and which failed or were not attempted.",
+	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. Previews are kept in the server's memory only, so a server restart drops them all; each owner keeps at most their 20 newest previews, a newer one dropping the oldest. All writes share one change-log batch, returned as `batchId` with the `written` holdings. There is no batch undo: to undo an apply, call changes_list, take the `id` of every change whose `batchId` matches, and undo each with changes_undo. If a write fails partway, the error says which holdings were already written (they stay written; undo them the same way) and which failed or were not attempted.",
 	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (interest per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.), `maturityDate` (YYYY-MM-DD) and `active`.",
 	"When using `expectedTotalValue`, send EVERY holding the screenshot shows, unchanged ones included (with an empty `set`): the total is the sum of today's value across the holdings sent, after the changes, and must be within ±1 per holding sent. All those holdings must share one currency.",
 ].join(" ");
