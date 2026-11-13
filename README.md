@@ -127,6 +127,20 @@ docker compose exec money bun scripts/create-user.ts \
   --email you@example.com --name "Your Name" --admin --password 'choose-a-strong-password'
 ```
 
+### Connect Claude Code (optional)
+
+The app can serve an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` so Claude Code can read and
+update your data through the app's own rules. In **Settings → Claude**, create a token (choose `read` for
+analysis or `read_write` to let Claude make changes), then run the command shown there, which looks like:
+
+```bash
+claude mcp add --transport http money https://your-origin/mcp \
+  --header "Authorization: Bearer money_pat_..."
+```
+
+The token is shown once and can be revoked at any time. Changes made through Claude are listed, with undo for
+holdings and recurring expenses, in the same tab. See `docs/decisions/0017-claude-mcp-access.md`.
+
 ### Updating & backups
 
 ```bash

@@ -21,6 +21,8 @@ note (see 0011, revised 2026-07-19 before the KPI shipped).
 | [0013](0013-idempotent-ingest-and-ui-import.md) | Idempotent ingest (deterministic txn_id); UI import via the ingest runner |
 | [0014](0014-plan-vs-actuals.md) | Plan vs Actuals: two-scene architecture (SQLite plan drives the KPI; statement is actuals) |
 | [0015](0015-coverage-ladder-and-wealth.md) | Coverage ladder (cash ⊆ fixed ⊆ total) + investment grouping, payout tiers, auto-expiry, wealth rollup — *revises 0011* |
+| [0016](0016-runway-model.md) | Runway is modelled (return and inflation), not divided |
+| [0017](0017-claude-mcp-access.md) | Claude access: MCP endpoint inside the API, personal access tokens, sandboxed read-only SQL, OAuth deferred |
 
 These ADRs are the durable design record — the *why* behind every hard rule in `CLAUDE.md`. See
 `docs/roadmap.md` for phasing.
