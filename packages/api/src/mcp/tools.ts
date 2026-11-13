@@ -103,7 +103,29 @@ export function buildProcedureTools(router: AnyRouter = appRouter): ToolDef[] {
 			},
 		});
 	}
+	return assertUniqueNames(tools);
+}
+
+/** Two tools with one name would shadow each other silently, so a duplicate fails loudly instead. */
+function assertUniqueNames(tools: ToolDef[]): ToolDef[] {
+	const seen = new Set<string>();
+	for (const { name } of tools) {
+		if (seen.has(name)) {
+			throw new Error(
+				`MCP tool ${name} is defined more than once — give one of them a different \`mcp.name\``,
+			);
+		}
+		seen.add(name);
+	}
 	return tools;
+}
+
+/** Every tool the server offers: the procedure tools, then the extras, refusing any name used twice. */
+export function mergeTools(
+	procedureTools: readonly ToolDef[],
+	extras: readonly ToolDef[],
+): ToolDef[] {
+	return assertUniqueNames([...procedureTools, ...extras]);
 }
 
 const extras: ToolDef[] = [];

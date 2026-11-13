@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { controlDb } from "../db";
@@ -22,6 +23,11 @@ export const tokensRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
+			if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "The expiry date is in the past — pick a later date.",
+				});
+			}
 			const { token, row } = await createToken(controlDb(), context.uid, input);
 			const { tokenHash: _hash, ...safe } = row;
 			return { token, row: safe };

@@ -10,8 +10,13 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createControlDb, user, apiTokens } = await import("@money/db");
-const { runControlMigrations } = await import("@money/db/migrate");
+const { runControlMigrations, provisionUserApp } = await import(
+	"@money/db/migrate"
+);
 const { eq } = await import("drizzle-orm");
+const { createRouterClient } = await import("@orpc/server");
+const { controlDb } = await import("./db");
+const { tokensRouter } = await import("./routers/tokens");
 const { createToken, verifyToken, revokeToken, listTokens } = await import(
 	"./tokens"
 );
@@ -22,13 +27,8 @@ let db: ReturnType<typeof createControlDb>;
 beforeAll(async () => {
 	await runControlMigrations(url);
 	db = createControlDb(url);
-	for (const id of ["u1", "u2", "banned"]) {
-		await db.insert(user).values({
-			id,
-			name: id,
-			email: `${id}@x.test`,
-			banned: id === "banned",
-		});
+	for (const id of ["u1", "u2"]) {
+		await db.insert(user).values({ id, name: id, email: `${id}@x.test` });
 	}
 });
 
@@ -127,6 +127,9 @@ describe("personal access tokens", () => {
 		});
 		expect(await verifyToken(db, token)).not.toBeNull();
 		await db.delete(user).where(eq(user.id, "gone"));
+		expect(
+			await db.select().from(apiTokens).where(eq(apiTokens.userId, "gone")),
+		).toEqual([]);
 		expect(await verifyToken(db, token)).toBeNull();
 	});
 
@@ -152,5 +155,86 @@ describe("personal access tokens", () => {
 		});
 		expect(await revokeToken(db, "u2", row.id)).toBe(false);
 		expect(await verifyToken(db, token)).not.toBeNull();
+	});
+});
+
+describe("tokens router", () => {
+	// The router reads the process-wide controlDb(), which an earlier test file may have opened on its own
+	// DATA_DIR; the users and tokens below go wherever it points.
+	const clientFor = (uid: string) =>
+		createRouterClient(tokensRouter, {
+			context: {
+				session: { user: { id: uid, email: `${uid}@x.test`, name: uid } },
+				controlDb: controlDb(),
+				unlockToken: null,
+				via: undefined,
+				batchId: undefined,
+			},
+		});
+
+	beforeAll(async () => {
+		const live = (await controlDb().$client.execute("PRAGMA database_list"))
+			.rows[0]?.file;
+		await runControlMigrations(`file:${live}`);
+		for (const id of ["router-a", "router-b"]) {
+			await controlDb()
+				.insert(user)
+				.values({ id, name: id, email: `${id}@x.test` })
+				.onConflictDoNothing();
+			await provisionUserApp(id);
+		}
+	});
+
+	test("create returns the plaintext once, but never the hash", async () => {
+		const r = await clientFor("router-a").create({
+			name: "laptop",
+			scope: "read",
+		});
+		expect(r.token).toStartWith("money_pat_");
+		expect(r.row).not.toHaveProperty("tokenHash");
+		expect(JSON.stringify(r)).not.toMatch(/[0-9a-f]{64}/);
+	});
+
+	test("list never returns the hash or the plaintext", async () => {
+		const rows = await clientFor("router-a").list();
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(row).not.toHaveProperty("tokenHash");
+			expect(row).not.toHaveProperty("token");
+		}
+	});
+
+	test("create refuses an expiry in the past", async () => {
+		const client = clientFor("router-a");
+		const n = (await client.list()).length;
+		await expect(
+			client.create({
+				name: "stale",
+				scope: "read",
+				expiresAt: new Date(Date.now() - 60_000),
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(await client.list()).toHaveLength(n);
+		const future = await client.create({
+			name: "fresh",
+			scope: "read",
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+		expect(future.row.expiresAt).toBeInstanceOf(Date);
+	});
+
+	test("revoke refuses another user's token", async () => {
+		const { token, row } = await clientFor("router-a").create({
+			name: "theirs",
+			scope: "read_write",
+		});
+		expect(await clientFor("router-b").revoke({ id: row.id })).toEqual({
+			ok: false,
+		});
+		expect(await verifyToken(controlDb(), token)).not.toBeNull();
+		expect(await clientFor("router-a").revoke({ id: row.id })).toEqual({
+			ok: true,
+		});
+		expect(await verifyToken(controlDb(), token)).toBeNull();
 	});
 });

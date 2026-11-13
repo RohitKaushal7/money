@@ -12,7 +12,9 @@ process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 const { Hono } = await import("hono");
 const { RPCHandler } = await import("@orpc/server/fetch");
 const { auth } = await import("@money/auth");
-const { changeLog, investments } = await import("@money/db");
+const { apiTokens, changeLog, investments } = await import("@money/db");
+const { eq } = await import("drizzle-orm");
+const { os } = await import("@orpc/server");
 const { runControlMigrations } = await import("@money/db/migrate");
 const { appRouter } = await import("../routers/index");
 const { createContext } = await import("../context");
@@ -20,7 +22,9 @@ const { appDbFor, controlDb } = await import("../db");
 const { setPin } = await import("../lock");
 const { dataDir } = await import("../paths");
 const { createToken, revokeToken } = await import("../tokens");
-const { buildProcedureTools, extraTools, toolName } = await import("./tools");
+const { buildProcedureTools, extraTools, mergeTools, toolName } = await import(
+	"./tools"
+);
 const { handleMcp } = await import("./handler");
 
 const PASSWORD = "correct-horse-battery";
@@ -189,6 +193,36 @@ describe("procedure tools", () => {
 		const names = [...tools, ...extraTools()].map((t) => t.name);
 		expect(new Set(names).size).toBe(names.length);
 	});
+
+	test("two procedures with the same tool name are refused", () => {
+		const described = (name: string) =>
+			os
+				.$meta<{ mcp?: { description: string; kind: "read"; name?: string } }>(
+					{},
+				)
+				.meta({ mcp: { description: "d", kind: "read", name } })
+				.handler(() => null);
+		expect(() =>
+			buildProcedureTools({
+				a: { thing: described("same") },
+				b: { other: described("same") },
+			}),
+		).toThrow(/same.*more than once/);
+		expect(() =>
+			buildProcedureTools({
+				plan: { wealth: described("") },
+				planWealth: described(""),
+			}),
+		).toThrow(/plan_wealth.*more than once/);
+	});
+
+	test("a procedure tool and an extra tool with the same name are refused", () => {
+		const extra = { ...(tools[0] as (typeof tools)[number]) };
+		expect(() => mergeTools(tools, [extra])).toThrow(/more than once/);
+		expect(mergeTools(tools, extraTools())).toHaveLength(
+			tools.length + extraTools().length,
+		);
+	});
 });
 
 describe("/mcp authentication", () => {
@@ -213,6 +247,27 @@ describe("/mcp authentication", () => {
 	test("a revoked token → 401", async () => {
 		const res = await mcp("tools/list", {}, bearer(revoked));
 		expect(res.status).toBe(401);
+	});
+
+	test("a GET with a valid token is 405 and does not count as a use of the token", async () => {
+		const { token, row } = await createToken(controlDb(), owner.uid, {
+			name: "probe",
+			scope: "read",
+		});
+		const res = await handleMcp(
+			new Request("http://localhost:3000/mcp", {
+				method: "GET",
+				headers: bearer(token),
+			}),
+			{ version: "9.9.9" },
+		);
+		expect(res.status).toBe(405);
+		expect(res.headers.get("Allow")).toBe("POST");
+		const [stored] = await controlDb()
+			.select()
+			.from(apiTokens)
+			.where(eq(apiTokens.id, row.id));
+		expect(stored?.lastUsedAt).toBeNull();
 	});
 
 	test("a malformed or unknown token → 401", async () => {

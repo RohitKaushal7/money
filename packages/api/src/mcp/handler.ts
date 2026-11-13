@@ -17,14 +17,18 @@ import {
 	buildProcedureTools,
 	extraTools,
 	type McpCallContext,
+	mergeTools,
 	type ToolDef,
 } from "./tools";
 
-let procedureTools: ToolDef[] | undefined;
-function allTools(): ToolDef[] {
-	procedureTools ??= buildProcedureTools();
-	return [...procedureTools, ...extraTools()];
-}
+/**
+ * Built when the server imports this module, after `./extra-tools` has registered the extras, so a
+ * duplicate tool name stops the server at startup rather than surfacing on the first call.
+ */
+const TOOLS: readonly ToolDef[] = mergeTools(
+	buildProcedureTools(),
+	extraTools(),
+);
 
 function unauthorized(error?: "invalid_token"): Response {
 	return Response.json(
@@ -94,7 +98,7 @@ function createServer(ctx: McpCallContext, version: string): Server {
 		{ name: "money", version },
 		{ capabilities: { tools: {} }, instructions: MCP_INSTRUCTIONS },
 	);
-	const tools = allTools();
+	const tools = TOOLS;
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: tools.map((t) => ({
@@ -136,17 +140,18 @@ export async function handleMcp(
 	request: Request,
 	opts: { version: string },
 ): Promise<Response> {
+	// Stateless: there is no server-to-client stream to open (GET) or session to end (DELETE). Checked
+	// before the token, so a probe that can't be served never counts as a use of it (`last_used_at`).
+	if (request.method !== "POST") {
+		return new Response(null, { status: 405, headers: { Allow: "POST" } });
+	}
+
 	const match = /^Bearer\s+(\S+)\s*$/i.exec(
 		request.headers.get("authorization") ?? "",
 	);
 	if (!match?.[1]) return unauthorized();
 	const verified = await verifyToken(controlDb(), match[1]);
 	if (!verified) return unauthorized("invalid_token");
-
-	// Stateless: there is no server-to-client stream to open (GET) or session to end (DELETE).
-	if (request.method !== "POST") {
-		return new Response(null, { status: 405, headers: { Allow: "POST" } });
-	}
 
 	const server = createServer(
 		{ uid: verified.user.id, user: verified.user, via: verified.via },
