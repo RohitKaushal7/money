@@ -6,7 +6,13 @@ import { fileURLToPath } from "node:url";
 import { DuckDBInstance } from "@duckdb/node-api";
 import { openConnection } from "./duckdb";
 import { describeSchema, runSandboxedQuery } from "./index";
-import { runInSandboxProcess, SANDBOX_CRASHED } from "./sandboxed-query";
+import {
+	MAX_CONCURRENT_QUERIES,
+	QUERY_BUSY,
+	QuerySlots,
+	runInSandboxProcess,
+	SANDBOX_CRASHED,
+} from "./sandboxed-query";
 import { ONE_SELECT, SANDBOX_OPTIONS } from "./sandboxed-query-worker";
 
 let dir: string;
@@ -263,10 +269,98 @@ describe("the sandbox process", () => {
 		).rejects.toThrow(/too large/);
 	});
 
+	test(`at most ${MAX_CONCURRENT_QUERIES} children run at once; a third waits for a slot, and its timeout starts when it does`, async () => {
+		expect(MAX_CONCURRENT_QUERIES).toBe(2);
+		const killAfter = 400;
+		const started = Date.now();
+		// Plain promise handlers, not `expect().rejects`, which would wait for each call in turn.
+		const runs = [1, 2, 3].map(() =>
+			runInSandboxProcess(
+				fixture("hang-worker.ts"),
+				request(100),
+				killAfter,
+			).then(
+				() => ({ error: "", at: Date.now() - started }),
+				(e: Error) => ({ error: e.message, at: Date.now() - started }),
+			),
+		);
+		const results = await Promise.all(runs);
+		for (const r of results) expect(r.error).toBe("Query timed out after 0.1s");
+		const [a = 0, b = 0, c = 0] = results.map((r) => r.at);
+		// The first two are killed together; the third only starts then, and gets its own full 400 ms.
+		expect(Math.abs(a - b)).toBeLessThan(200);
+		expect(c - Math.max(a, b)).toBeGreaterThanOrEqual(killAfter - 50);
+	});
+
 	test("a child that exits without a valid answer is reported as a crash", async () => {
 		await expect(
 			runInSandboxProcess(fixture("garbage-worker.ts"), request(), 10_000),
 		).rejects.toThrow(SANDBOX_CRASHED);
+	});
+});
+
+describe("QuerySlots", () => {
+	/** Whether `p` has settled yet, without waiting for it. */
+	async function settled(p: Promise<unknown>): Promise<boolean> {
+		let done = false;
+		p.then(
+			() => {
+				done = true;
+			},
+			() => {
+				done = true;
+			},
+		);
+		await Bun.sleep(0);
+		return done;
+	}
+
+	test("hands out up to max slots at once; the next waits until one is released", async () => {
+		const slots = new QuerySlots(2, 10_000);
+		const first = await slots.acquire();
+		await slots.acquire();
+		const third = slots.acquire();
+		expect(await settled(third)).toBe(false);
+		first();
+		expect(await settled(third)).toBe(true);
+		const fourth = slots.acquire();
+		expect(await settled(fourth)).toBe(false);
+	});
+
+	test("waiters are served in order", async () => {
+		const slots = new QuerySlots(1, 10_000);
+		const release = await slots.acquire();
+		const order: number[] = [];
+		const waits = [1, 2, 3].map((n) =>
+			slots.acquire().then((r) => {
+				order.push(n);
+				r();
+			}),
+		);
+		release();
+		await Promise.all(waits);
+		expect(order).toEqual([1, 2, 3]);
+	});
+
+	test("a waiter gives up after the queue wait with a 'busy' error, and does not take a slot later", async () => {
+		const slots = new QuerySlots(1, 50);
+		const release = await slots.acquire();
+		await expect(slots.acquire()).rejects.toThrow(QUERY_BUSY);
+		expect(QUERY_BUSY).toContain("try again");
+		release();
+		// The slot went back to the pool, not to the waiter that gave up.
+		const again = slots.acquire();
+		expect(await settled(again)).toBe(true);
+	});
+
+	test("releasing twice frees one slot, not two", async () => {
+		const slots = new QuerySlots(1, 10_000);
+		const release = await slots.acquire();
+		release();
+		release();
+		await slots.acquire();
+		const next = slots.acquire();
+		expect(await settled(next)).toBe(false);
 	});
 });
 

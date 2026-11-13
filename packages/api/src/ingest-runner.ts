@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
  * (not the `Bun` global) so `@money/api` type-checks under every consumer's tsconfig (web included).
  *
  * A PER-USER mutex serialises a user's runs (DuckDB is single-writer per file); different users run
- * concurrently (separate files).
+ * concurrently (separate files). The MCP `query` tool takes the same lock (see {@link withUserLock}): DuckDB
+ * refuses a read-write open while any other process holds the file, even read-only.
  */
 
 /** Repo root (trailing slash), resolved from this file at `packages/api/src/ingest-runner.ts`. */
@@ -37,7 +38,12 @@ interface ProcEvents {
 // Per-user serialisation: each user's run is chained after that user's previous run settles (success OR failure).
 const tails = new Map<string, Promise<unknown>>();
 
-function withLock<T>(uid: string, fn: () => Promise<T>): Promise<T> {
+/**
+ * Run `fn` once every earlier holder of `uid`'s lock has settled, success or failure. Everything that opens a
+ * user's analytics file from a separate process takes it — ingests, re-tags and the MCP `query` sandbox — so a
+ * query never makes an ingest fail with "Could not set lock on file", and vice versa.
+ */
+export function withUserLock<T>(uid: string, fn: () => Promise<T>): Promise<T> {
 	const prev = tails.get(uid) ?? Promise.resolve();
 	const run = prev.then(fn, fn);
 	tails.set(
@@ -50,7 +56,13 @@ function withLock<T>(uid: string, fn: () => Promise<T>): Promise<T> {
 	return run;
 }
 
-async function spawnIngest(uid: string, args: string[]): Promise<IngestResult> {
+/** Runs `scripts/ingest.ts` for one user with the given flags. A parameter of the run functions so tests can stub it. */
+export type IngestSpawner = (
+	uid: string,
+	args: string[],
+) => Promise<IngestResult>;
+
+const spawnIngest: IngestSpawner = async (uid, args) => {
 	const proc = spawn("bun", [INGEST_SCRIPT, "--user", uid, ...args], {
 		cwd: REPO_ROOT,
 	});
@@ -80,21 +92,31 @@ async function spawnIngest(uid: string, args: string[]): Promise<IngestResult> {
 		}
 	}
 	return { ok: exitCode === 0, result, stdout, stderr, exitCode };
-}
+};
 
 /** Full rebuild from the user's `raw/*.csv` (idempotent). */
-export function runRebuild(uid: string): Promise<IngestResult> {
-	return withLock(uid, () => spawnIngest(uid, []));
+export function runRebuild(
+	uid: string,
+	spawner: IngestSpawner = spawnIngest,
+): Promise<IngestResult> {
+	return withUserLock(uid, () => spawner(uid, []));
 }
 
 /** Cheap re-tag: re-derive splits from the user's SQLite rules/overrides, no CSV re-import (~0.3s). */
-export function runRetag(uid: string): Promise<IngestResult> {
-	return withLock(uid, () => spawnIngest(uid, ["--retag"]));
+export function runRetag(
+	uid: string,
+	spawner: IngestSpawner = spawnIngest,
+): Promise<IngestResult> {
+	return withUserLock(uid, () => spawner(uid, ["--retag"]));
 }
 
 /** Parse one CSV and report new/duplicate counts without writing (import preview). */
-export function runDryRun(uid: string, csvPath: string): Promise<IngestResult> {
-	return withLock(uid, () => spawnIngest(uid, ["--dry-run", csvPath]));
+export function runDryRun(
+	uid: string,
+	csvPath: string,
+	spawner: IngestSpawner = spawnIngest,
+): Promise<IngestResult> {
+	return withUserLock(uid, () => spawner(uid, ["--dry-run", csvPath]));
 }
 
 /** A short, user-facing error string distilled from a failed run (last non-empty stderr/stdout line). */

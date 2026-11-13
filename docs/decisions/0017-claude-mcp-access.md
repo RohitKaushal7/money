@@ -31,6 +31,9 @@ Code conversation that goes through the app's own validation, with a record of w
 - **`query` is read-only SQL, sandboxed.** One `SELECT` per call, run in an isolated child process with
   DuckDB opened read-only, external access off, configuration locked, two threads, 500 rows and a 10 s
   limit, then hard-killed. This keeps hard rules 1 to 3 intact: the API still never opens DuckDB read-write.
+  At most two such processes run at once across the server (later queries wait up to 30 s, then fail as
+  busy), and a query takes the same per-user lock as ingests, since DuckDB refuses a read-write open while a
+  reader holds the file.
 - **Shared exchange-rate writes are admin-only.** `currency.upsert`, `setRate` and `refresh` write to
   `control.db`, which every user shares; they move to `adminProcedure`, in the app and through Claude alike.
 - **OAuth is deferred.** Claude chat connectors need OAuth for a personal account (static header auth there
