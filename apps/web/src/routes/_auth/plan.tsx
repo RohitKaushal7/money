@@ -64,7 +64,8 @@ interface InvestmentDraft {
 	platform?: string;
 	currentValue?: number;
 	annualRate?: number;
-	expectedMonthlyInterest?: number;
+	/** `null` clears a stored figure (an edit whose field was emptied). */
+	expectedMonthlyInterest?: number | null;
 	maturityDate?: string;
 	currency?: string;
 }
@@ -1272,6 +1273,10 @@ function InvestmentForm({
 		if (cls === "income") {
 			d.payout = payout;
 			if (monthly) d.expectedMonthlyInterest = Number(monthly);
+			// Emptied on an edit: clear the stored figure, so income falls back to rate × value. A new holding
+			// with the field empty just omits it.
+			else if (initial?.expectedMonthlyInterest != null)
+				d.expectedMonthlyInterest = null;
 		}
 		onSubmit(d);
 	}
