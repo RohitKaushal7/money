@@ -180,6 +180,44 @@ describe("planHoldingUpdates", () => {
 		expect(noTotal.errors).toEqual([]);
 	});
 
+	test("a matched holding with no currentValue can't count towards an expected total; it is named", () => {
+		const blank = row({ name: "Blank Value", currentValue: null });
+		const plan = planHoldingUpdates([...all, blank], {
+			changes: [
+				{ id: a.id, set: {} },
+				{ id: blank.id, set: { annualRate: 0.09 } },
+			],
+			expectedTotalValue: 1000,
+		});
+		expect(plan.errors.join("\n")).toContain(`"Blank Value" (id ${blank.id})`);
+		expect(plan.errors.join("\n")).toContain("currentValue");
+		expect(plan.total).toBeUndefined();
+
+		// Setting its value in the same change is enough.
+		const valued = planHoldingUpdates([...all, blank], {
+			changes: [
+				{ id: a.id, set: {} },
+				{ id: blank.id, set: { currentValue: 500 } },
+			],
+			expectedTotalValue: 1500,
+		});
+		expect(valued.errors).toEqual([]);
+		expect(valued.total?.ok).toBe(true);
+
+		// Without an expected total a missing value doesn't matter.
+		const noTotal = planHoldingUpdates([...all, blank], {
+			changes: [{ id: blank.id, set: { annualRate: 0.09 } }],
+		});
+		expect(noTotal.errors).toEqual([]);
+	});
+
+	test("a rate of -1 or less is refused as a percent too", () => {
+		const plan = planHoldingUpdates(all, {
+			changes: [{ id: a.id, set: { annualRate: -5 } }],
+		});
+		expect(plan.errors.join("\n")).toContain("-0.05");
+	});
+
 	test("a rate above 1 is refused as a percent, not a fraction", () => {
 		const plan = planHoldingUpdates(all, {
 			changes: [{ id: a.id, set: { annualRate: 11.75 } }],
@@ -257,6 +295,28 @@ describe("update_holdings tool", () => {
 		// How to undo an apply: find the batch's changes in changes_list by batchId, undo each one.
 		expect(tool().description).toContain("changes_list");
 		expect(tool().description).toContain("changes_undo");
+	});
+
+	test("the description covers negative rates and the result's `missing`", () => {
+		expect(tool().description).toContain("1 or more, or -1 or less");
+		expect(tool().description).toContain("`missing`");
+	});
+
+	test("a negative currentValue or expectedMonthlyInterest is refused; null still clears the monthly figure", async () => {
+		for (const set of [
+			{ currentValue: -1 },
+			{ expectedMonthlyInterest: -0.01 },
+		]) {
+			await expect(
+				run({ changes: [{ id: ids["Alpha Bond"], set }] }),
+			).rejects.toThrow(/Input validation failed/);
+		}
+		const ok = await run({
+			changes: [
+				{ id: ids["Alpha Bond"], set: { expectedMonthlyInterest: null } },
+			],
+		});
+		expect(ok.previewId).toBeString();
 	});
 
 	test("apply without a preview is refused", async () => {

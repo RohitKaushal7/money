@@ -50,3 +50,46 @@ describe("plan.updateRecurring", () => {
 		expect(added.cadence).toBe("monthly");
 	});
 });
+
+describe("plan investment amounts", () => {
+	const base = { name: "Bond", type: "bond", incomeClass: "income" } as const;
+
+	test("a negative currentValue or expectedMonthlyInterest is refused, on add and on edit", async () => {
+		await expect(
+			client.plan.addInvestment({ ...base, currentValue: -1 }),
+		).rejects.toThrow(/Input validation failed/);
+		await expect(
+			client.plan.addInvestment({ ...base, expectedMonthlyInterest: -5 }),
+		).rejects.toThrow(/Input validation failed/);
+		const added = await client.plan.addInvestment({ ...base, currentValue: 0 });
+		await expect(
+			client.plan.updateInvestment({ id: Number(added.id), currentValue: -10 }),
+		).rejects.toThrow(/Input validation failed/);
+		await expect(
+			client.plan.updateInvestment({
+				id: Number(added.id),
+				expectedMonthlyInterest: -0.5,
+			}),
+		).rejects.toThrow(/Input validation failed/);
+	});
+
+	test("null still clears expectedMonthlyInterest", async () => {
+		const added = await client.plan.addInvestment({
+			...base,
+			expectedMonthlyInterest: 90,
+		});
+		const cleared = await client.plan.updateInvestment({
+			id: Number(added.id),
+			expectedMonthlyInterest: null,
+		});
+		expect(cleared?.expectedMonthlyInterest).toBeUndefined();
+	});
+
+	test("the list description gives the same fallback as the edit tools", async () => {
+		const { mcpMetaOf } = await import("./mcp/meta");
+		const list = mcpMetaOf(appRouter.plan.investments)?.description ?? "";
+		expect(list).toContain(
+			"coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12",
+		);
+	});
+});

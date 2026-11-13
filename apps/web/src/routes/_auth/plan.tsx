@@ -1353,6 +1353,7 @@ function InvestmentForm({
 				<Field label="Value">
 					<Input
 						type="number"
+						min={0}
 						value={value}
 						onChange={(e) => setValue(e.target.value)}
 						className="tnum"
@@ -1373,6 +1374,7 @@ function InvestmentForm({
 					<Field label="…or ₹ interest / mo">
 						<Input
 							type="number"
+							min={0}
 							value={monthly}
 							onChange={(e) => setMonthly(e.target.value)}
 							className="tnum"

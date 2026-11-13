@@ -121,13 +121,13 @@ const investmentInput = z.object({
 	payout: z.enum(["cash", "accrue"]).optional(),
 	principal: z.number().nonnegative().optional(),
 	annualRate: z.number().optional(),
-	expectedMonthlyInterest: z.number().nullable().optional(),
+	expectedMonthlyInterest: z.number().nonnegative().nullable().optional(),
 	interestCadence: z.enum(CADENCES).optional(),
 	principalCadence: z.enum(CADENCES).optional(),
 	startDate: z.string().optional(),
 	maturityDate: z.string().optional(),
 	actionOnMaturity: z.enum(["reinvest", "withdraw", "auto_renew"]).optional(),
-	currentValue: z.number().optional(),
+	currentValue: z.number().nonnegative().optional(),
 	currency: z.string().optional(),
 	status: z.enum(["active", "matured", "closed"]).optional(),
 	isPassiveIncomeSource: z.boolean().optional(),
@@ -291,7 +291,7 @@ export const planRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"List every holding (investment) in the owner's plan, including inactive and matured ones. Takes no input. Each holding has: `id` (string; pass it as a number to the edit and delete tools), `name`, `type`, `incomeClass` (income | growth), `valuationSource`, `isPassiveIncomeSource`, `active`, `platform`, `group`, `payout` (cash | accrue), `principal` (amount originally invested), `currentValue` (worth today, not the amount invested), `annualRate` (pre-tax fraction, 0.1175 = 11.75%), `expectedMonthlyInterest` (when set it overrides principal/currentValue × annualRate ÷ 12), `interestCadence`, `principalCadence`, `startDate`, `maturityDate` (YYYY-MM-DD), `actionOnMaturity`, `status` (active | matured | closed) and `currency`; money amounts are in that `currency` (INR unless stated). Absent fields are omitted.",
+					"List every holding (investment) in the owner's plan, including inactive and matured ones. Takes no input. Each holding has: `id` (string; pass it as a number to the edit and delete tools), `name`, `type`, `incomeClass` (income | growth), `valuationSource`, `isPassiveIncomeSource`, `active`, `platform`, `group`, `payout` (cash | accrue), `principal` (amount originally invested), `currentValue` (worth today, not the amount invested), `annualRate` (pre-tax fraction, 0.1175 = 11.75%), `expectedMonthlyInterest` (interest expected per month; when set it overrides the rate-based figure, and when absent the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12), `interestCadence`, `principalCadence`, `startDate`, `maturityDate` (YYYY-MM-DD), `actionOnMaturity`, `status` (active | matured | closed) and `currency`; money amounts are in that `currency` (INR unless stated). Absent fields are omitted.",
 			},
 		})
 		.handler(({ context }) => listInvestments(context.appDb)),

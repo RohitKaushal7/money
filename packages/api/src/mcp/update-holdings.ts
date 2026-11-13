@@ -28,12 +28,14 @@ const setSchema = z
 			.optional(),
 		currentValue: z
 			.number()
+			.nonnegative()
 			.describe(
 				"What the holding is worth today, in its own currency — not the amount invested.",
 			)
 			.optional(),
 		expectedMonthlyInterest: z
 			.number()
+			.nonnegative()
 			.nullable()
 			.describe(
 				"Interest expected per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.",
@@ -196,20 +198,29 @@ export function planHoldingUpdates(
 				`The holdings are in more than one currency (${currencies.join(", ")}), so they can't be checked against one expectedTotalValue. Send one currency's holdings per call.`,
 			);
 		} else {
-			const actual = round2(
-				matched.reduce((sum, r, i) => {
-					const after = plan.rows[i]?.after.currentValue;
-					return sum + (after ?? r.currentValue ?? 0);
-				}, 0),
+			// Today's value of each matched holding after the changes; a holding without one can't be summed.
+			const values = matched.map(
+				(r, i) => plan.rows[i]?.after.currentValue ?? r.currentValue,
 			);
-			const tolerance = input.changes.length;
-			plan.total = {
-				expected: input.expectedTotalValue,
-				actual,
-				tolerance,
-				ok: Math.abs(actual - input.expectedTotalValue) <= tolerance,
-				currency: currencies[0] ?? "INR",
-			};
+			const unvalued = matched.filter((_, i) => values[i] == null);
+			for (const r of unvalued) {
+				plan.errors.push(
+					`"${r.name}" (id ${r.id}) has no currentValue, so it can't count towards expectedTotalValue. Set its currentValue in this change.`,
+				);
+			}
+			if (unvalued.length === 0) {
+				const actual = round2(
+					values.reduce<number>((sum, v) => sum + (v ?? 0), 0),
+				);
+				const tolerance = input.changes.length;
+				plan.total = {
+					expected: input.expectedTotalValue,
+					actual,
+					tolerance,
+					ok: Math.abs(actual - input.expectedTotalValue) <= tolerance,
+					currency: currencies[0] ?? "INR",
+				};
+			}
 		}
 	}
 	return plan;
@@ -492,9 +503,9 @@ async function applyPreview(
 const DESCRIPTION = [
 	"Change several holdings (investments) at once, safely — e.g. to correct them from a portfolio screenshot. Two calls:",
 	"1) Preview: send `changes` (and ideally `expectedTotalValue`) without `apply`. Nothing is written. The result shows each matched holding's `before`/`after`, any `unmatched` or `ambiguous` entries, `errors`, the `total` check, a one-line `summary`, and a `previewId` (null when something must be fixed first).",
-	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. Previews are kept in the server's memory only, so a server restart drops them all; each owner keeps at most their 20 newest previews, a newer one dropping the oldest. All writes share one change-log batch, returned as `batchId` with the `written` holdings. There is no batch undo: to undo an apply, call changes_list, take the `id` of every change whose `batchId` matches, and undo each with changes_undo. If a write fails partway, the error says which holdings were already written (they stay written; undo them the same way) and which failed or were not attempted.",
-	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (interest per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.), `maturityDate` (YYYY-MM-DD) and `active`.",
-	"When using `expectedTotalValue`, send EVERY holding the screenshot shows, unchanged ones included (with an empty `set`): the total is the sum of today's value across the holdings sent, after the changes, and must be within ±1 per holding sent. All those holdings must share one currency.",
+	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. Previews are kept in the server's memory only, so a server restart drops them all; each owner keeps at most their 20 newest previews, a newer one dropping the oldest. All writes share one change-log batch, returned as `batchId` with the `written` holdings (and `missing`: any holding that no longer existed when its turn to be written came, so was not written). There is no batch undo: to undo an apply, call changes_list, take the `id` of every change whose `batchId` matches, and undo each with changes_undo. If a write fails partway, the error says which holdings were already written (they stay written; undo them the same way) and which failed or were not attempted.",
+	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more, or -1 or less, is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (interest per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.), `maturityDate` (YYYY-MM-DD) and `active`.",
+	"When using `expectedTotalValue`, send EVERY holding the screenshot shows, unchanged ones included (with an empty `set`): the total is the sum of today's value across the holdings sent, after the changes, and must be within ±1 per holding sent. All those holdings must share one currency, and each must have a `currentValue` after the change — one without is an error naming it, so set it in that holding's change.",
 ].join(" ");
 
 const [, json] = new ZodToJsonSchemaConverter().convert(inputSchema, {
