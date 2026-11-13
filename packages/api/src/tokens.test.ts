@@ -74,35 +74,60 @@ describe("personal access tokens", () => {
 		expect(await verifyToken(db, "garbage")).toBeNull();
 	});
 
-	test("rejects revoked tokens without stamping", async () => {
+	test("rejects revoked tokens and leaves last_used_at alone", async () => {
 		const { token, row } = await createToken(db, "u1", {
 			name: "r",
 			scope: "read",
 		});
+		const t1 = new Date(Date.now() + 1000);
+		expect(await verifyToken(db, token, t1)).not.toBeNull();
+		expect(await lastUsed(row.id)).toEqual(t1);
 		expect(await revokeToken(db, "u1", row.id)).toBe(true);
-		expect(await verifyToken(db, token)).toBeNull();
-		expect(await lastUsed(row.id)).toBeNull();
+		expect(
+			await verifyToken(db, token, new Date(t1.getTime() + 1000)),
+		).toBeNull();
+		expect(await lastUsed(row.id)).toEqual(t1);
 	});
 
-	test("rejects expired tokens without stamping", async () => {
+	test("rejects expired tokens and leaves last_used_at alone", async () => {
+		const t1 = new Date(Date.now() + 1000);
 		const { token, row } = await createToken(db, "u1", {
 			name: "e",
 			scope: "read",
-			expiresAt: new Date(Date.now() + 1000),
+			expiresAt: new Date(t1.getTime() + 1000),
 		});
+		expect(await verifyToken(db, token, t1)).not.toBeNull();
+		expect(await lastUsed(row.id)).toEqual(t1);
 		expect(
-			await verifyToken(db, token, new Date(Date.now() + 5000)),
+			await verifyToken(db, token, new Date(t1.getTime() + 5000)),
 		).toBeNull();
-		expect(await lastUsed(row.id)).toBeNull();
+		expect(await lastUsed(row.id)).toEqual(t1);
 	});
 
-	test("rejects banned users without stamping", async () => {
-		const { token, row } = await createToken(db, "banned", {
+	test("rejects banned users and leaves last_used_at alone", async () => {
+		await db.insert(user).values({ id: "later", name: "l", email: "l@x.test" });
+		const { token, row } = await createToken(db, "later", {
 			name: "b",
 			scope: "read",
 		});
+		const t1 = new Date(Date.now() + 1000);
+		expect(await verifyToken(db, token, t1)).not.toBeNull();
+		await db.update(user).set({ banned: true }).where(eq(user.id, "later"));
+		expect(
+			await verifyToken(db, token, new Date(t1.getTime() + 1000)),
+		).toBeNull();
+		expect(await lastUsed(row.id)).toEqual(t1);
+	});
+
+	test("rejects tokens of a deleted user (FK cascade removes the token row)", async () => {
+		await db.insert(user).values({ id: "gone", name: "g", email: "g@x.test" });
+		const { token } = await createToken(db, "gone", {
+			name: "g",
+			scope: "read",
+		});
+		expect(await verifyToken(db, token)).not.toBeNull();
+		await db.delete(user).where(eq(user.id, "gone"));
 		expect(await verifyToken(db, token)).toBeNull();
-		expect(await lastUsed(row.id)).toBeNull();
 	});
 
 	test("a ban that has expired no longer blocks", async () => {
