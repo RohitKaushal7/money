@@ -16,9 +16,10 @@ const { eq } = await import("drizzle-orm");
 const { appRouter } = await import("../routers/index");
 const { appDbFor, controlDb } = await import("../db");
 const { extraTools } = await import("./tools");
-const { planHoldingUpdates, UPDATE_HOLDINGS } = await import(
+const { planHoldingUpdates, UPDATE_HOLDINGS, updateHoldings } = await import(
 	"./update-holdings"
 );
+const { ORPCError } = await import("@orpc/server");
 await import("./extra-tools");
 
 type Row = typeof investments.$inferSelect;
@@ -355,5 +356,127 @@ describe("update_holdings tool", () => {
 		});
 		expect(preview.previewId).toBeNull();
 		expect(preview.unmatched).toHaveLength(1);
+	});
+
+	// State here: Alpha 1000 @ 0.11, Beta 2100 @ 0.08, Gamma 3000 @ 0.12.
+	const rowsNow = () => appDbFor(uid).select().from(investments);
+	const logNow = async () =>
+		(await appDbFor(uid).select().from(changeLog)).length;
+
+	test("an app edit to the value of an unchanged holding is named, even though it breaks the total", async () => {
+		const args = {
+			changes: [
+				{ id: ids["Alpha Bond"], set: { annualRate: 0.115 } },
+				{ id: ids["Beta Bond"], set: {} },
+				{ id: ids["Gamma Bond"], set: {} },
+			],
+			expectedTotalValue: 6100,
+		};
+		const preview = await run(args);
+		expect(preview.previewId).toBeString();
+		await Bun.sleep(5);
+		await app.plan.updateInvestment({
+			id: ids["Gamma Bond"] ?? 0,
+			currentValue: 3500,
+		});
+		const before = await logNow();
+		await expect(
+			run({ ...args, apply: true, previewId: preview.previewId }),
+		).rejects.toThrow(/Gamma Bond/);
+		expect(await logNow()).toBe(before);
+		await app.plan.updateInvestment({
+			id: ids["Gamma Bond"] ?? 0,
+			currentValue: 3000,
+		});
+	});
+
+	test("a write failing partway reports what was written, what failed and what was not attempted", async () => {
+		const args = {
+			changes: [
+				{ id: ids["Alpha Bond"], set: { annualRate: 0.09 } },
+				{ id: ids["Beta Bond"], set: { annualRate: 0.091 } },
+				{ id: ids["Gamma Bond"], set: { annualRate: 0.092 } },
+			],
+			expectedTotalValue: 6100,
+		};
+		const preview = await run(args);
+		expect(preview.previewId).toBeString();
+		const before = await logNow();
+		let calls = 0;
+		const err = await updateHoldings(
+			ctx,
+			{ ...args, apply: true, previewId: preview.previewId },
+			async (client, input) => {
+				calls++;
+				if (calls === 2)
+					throw new ORPCError("BAD_REQUEST", { message: "boom" });
+				return client.plan.updateInvestment(input);
+			},
+		).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ORPCError);
+		const e = err as InstanceType<typeof ORPCError>;
+		expect(e.message).toContain("Beta Bond");
+		expect(e.message).toContain("1 of 3");
+		const data = e.data as {
+			batchId: string;
+			written: Array<{ id: number; name: string }>;
+			failedAt: { id: number; name: string };
+			error: string;
+			notAttempted: Array<{ id: number; name: string }>;
+		};
+		expect(data.written).toEqual([
+			{ id: ids["Alpha Bond"] ?? 0, name: "Alpha Bond" },
+		]);
+		expect(data.failedAt).toEqual({
+			id: ids["Beta Bond"] ?? 0,
+			name: "Beta Bond",
+		});
+		expect(data.error).toContain("boom");
+		expect(data.notAttempted).toEqual([
+			{ id: ids["Gamma Bond"] ?? 0, name: "Gamma Bond" },
+		]);
+		const log = (await appDbFor(uid).select().from(changeLog)).slice(before);
+		expect(log).toHaveLength(1);
+		expect(log[0]?.batchId).toBe(data.batchId);
+		const rows = await rowsNow();
+		expect(rows.find((r) => r.name === "Alpha Bond")?.annualRate).toBe(0.09);
+		expect(rows.find((r) => r.name === "Beta Bond")?.annualRate).toBe(0.08);
+	});
+
+	test("a holding that vanishes mid-batch is reported as missing, not counted as written", async () => {
+		const args = {
+			changes: [
+				{ id: ids["Alpha Bond"], set: { annualRate: 0.1 } },
+				{ id: ids["Beta Bond"], set: { annualRate: 0.093 } },
+				{ id: ids["Gamma Bond"], set: { annualRate: 0.094 } },
+			],
+			expectedTotalValue: 6100,
+		};
+		const preview = await run(args);
+		expect(preview.previewId).toBeString();
+		const out = (await updateHoldings(
+			ctx,
+			{ ...args, apply: true, previewId: preview.previewId },
+			async (client, input) => {
+				if (input.id === ids["Beta Bond"]) {
+					await appDbFor(uid)
+						.delete(investments)
+						.where(eq(investments.id, input.id));
+				}
+				return client.plan.updateInvestment(input);
+			},
+		)) as {
+			updated: number;
+			written: Array<{ name: string }>;
+			missing: Array<{ name: string }>;
+			summary: string;
+		};
+		expect(out.updated).toBe(2);
+		expect(out.written.map((w) => w.name)).toEqual([
+			"Alpha Bond",
+			"Gamma Bond",
+		]);
+		expect(out.missing.map((m) => m.name)).toEqual(["Beta Bond"]);
+		expect(out.summary).toContain("Beta Bond");
 	});
 });

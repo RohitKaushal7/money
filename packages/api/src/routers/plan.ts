@@ -165,7 +165,7 @@ const INVESTMENT_FIELDS = [
 	"`principal` (amount originally invested);",
 	"`currentValue` (what the holding is worth today — not the amount invested);",
 	"`annualRate` (expected annual return as a pre-tax fraction: 0.1175 = 11.75%);",
-	"`expectedMonthlyInterest` (interest expected per month; when given it overrides the computed principal × annualRate ÷ 12; `null` clears it, so the return falls back to annualRate × currentValue ÷ 12);",
+	"`expectedMonthlyInterest` (interest expected per month, overriding the rate-based figure; `null` clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.);",
 	"`interestCadence` / `principalCadence` (how often interest / principal is paid: daily | weekly | monthly | quarterly | half_yearly | yearly | maturity | none);",
 	"`startDate` / `maturityDate` (YYYY-MM-DD);",
 	"`actionOnMaturity` (reinvest | withdraw | auto_renew);",

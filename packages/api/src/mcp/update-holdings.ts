@@ -35,7 +35,7 @@ const setSchema = z
 			.number()
 			.nullable()
 			.describe(
-				"Interest expected per month; overrides currentValue × annualRate ÷ 12. null clears it.",
+				"Interest expected per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.",
 			)
 			.optional(),
 		maturityDate: z
@@ -261,8 +261,8 @@ interface Preview {
 	uid: string;
 	hash: string;
 	expiresAt: number;
-	/** Each matched holding's `updated_at` (ms) when previewed. */
-	stamps: Map<number, number>;
+	/** Each matched holding's name and `updated_at` (ms) when previewed. */
+	stamps: Map<number, { name: string; at: number }>;
 }
 const previews = new Map<string, Preview>();
 
@@ -294,7 +294,27 @@ const payloadHash = (input: z.infer<typeof inputSchema>) =>
 const refuse = (message: string, data?: unknown) =>
 	new ORPCError("CONFLICT", { message, data });
 
-async function run(ctx: McpCallContext, args: unknown) {
+/** One holding write. A seam for tests, which need a write to fail partway through a batch. */
+export type HoldingWriter = (
+	client: ReturnType<typeof createRouterClient<typeof appRouter>>,
+	input: { id: number } & HoldingSet,
+) => Promise<unknown>;
+
+const writeHolding: HoldingWriter = (client, input) =>
+	client.plan.updateInvestment(input);
+
+/** What Claude is told about a write that failed: an oRPC error's message, never an internal one. */
+function failureMessage(e: unknown): string {
+	if (e instanceof ORPCError) return `${e.code}: ${e.message}`;
+	console.error("[mcp] update_holdings write failed:", e);
+	return "Internal server error";
+}
+
+export async function updateHoldings(
+	ctx: McpCallContext,
+	args: unknown,
+	write: HoldingWriter = writeHolding,
+) {
 	const parsed = inputSchema.safeParse(args ?? {});
 	if (!parsed.success) {
 		throw new ORPCError("BAD_REQUEST", {
@@ -328,7 +348,7 @@ async function run(ctx: McpCallContext, args: unknown) {
 			stamps: new Map(
 				plan.rows.map((r) => [
 					r.id,
-					rowById.get(r.id)?.updatedAt.getTime() ?? 0,
+					{ name: r.name, at: rowById.get(r.id)?.updatedAt.getTime() ?? 0 },
 				]),
 			),
 		});
@@ -353,21 +373,31 @@ async function run(ctx: McpCallContext, args: unknown) {
 			"These changes differ from the previewed ones. Preview this exact payload, then apply it with the new previewId.",
 		);
 	}
+	// Edits since the preview come first, so the refusal names them even when they also break the total.
+	const moved = [...preview.stamps]
+		.filter(([id, { at }]) => rowById.get(id)?.updatedAt.getTime() !== at)
+		.map(([id, { name }]) =>
+			rowById.has(id)
+				? `"${name}" (id ${id})`
+				: `"${name}" (id ${id}, deleted)`,
+		);
+	if (moved.length > 0) {
+		throw refuse(
+			`Changed in the app since the preview: ${moved.join(", ")}. Nothing was written; preview again.`,
+		);
+	}
 	if (!isClean(plan)) {
 		throw refuse(
-			`The holdings no longer match the preview: ${summary}. Preview again.`,
+			`The holdings no longer match the preview: ${summary}. Nothing was written; preview again.`,
 			plan,
 		);
 	}
-	const moved = plan.rows.filter(
-		(r) =>
-			!preview.stamps.has(r.id) ||
-			rowById.get(r.id)?.updatedAt.getTime() !== preview.stamps.get(r.id),
-	);
-	if (moved.length > 0 || plan.rows.length !== preview.stamps.size) {
-		const names = moved.map((r) => `"${r.name}" (id ${r.id})`).join(", ");
+	if (
+		plan.rows.length !== preview.stamps.size ||
+		plan.rows.some((r) => !preview.stamps.has(r.id))
+	) {
 		throw refuse(
-			`Changed since the preview: ${names || "the set of matched holdings"}. Nothing was applied; preview again.`,
+			"The changes now match different holdings than the preview did. Nothing was written; preview again.",
 		);
 	}
 
@@ -376,17 +406,42 @@ async function run(ctx: McpCallContext, args: unknown) {
 		context: { ...contextFor(ctx), batchId },
 	});
 	const toWrite = plan.rows.filter(changed);
-	for (const r of toWrite) {
-		await client.plan.updateInvestment({
-			id: r.id,
-			...(r.after as HoldingSet),
-		});
+	const written: Array<{ id: number; name: string }> = [];
+	const missing: Array<{ id: number; name: string }> = [];
+	for (const [i, r] of toWrite.entries()) {
+		let result: unknown;
+		try {
+			result = await write(client, { id: r.id, ...(r.after as HoldingSet) });
+		} catch (e) {
+			const error = failureMessage(e);
+			const notAttempted = toWrite
+				.slice(i + 1)
+				.map(({ id, name }) => ({ id, name }));
+			throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				message: `Applied partway: ${written.length} of ${toWrite.length} holdings were written before "${r.name}" (id ${r.id}) failed (${error}). The written ones stay written; undo them with change log batch ${batchId}, or preview the rest again.`,
+				data: {
+					batchId,
+					written,
+					failedAt: { id: r.id, name: r.name },
+					error,
+					notAttempted,
+					missing,
+				},
+			});
+		}
+		if (result == null) missing.push({ id: r.id, name: r.name });
+		else written.push({ id: r.id, name: r.name });
 	}
+	const gone = missing.length
+		? ` ${missing.length} not written because the holding no longer exists: ${missing.map((m) => `"${m.name}" (id ${m.id})`).join(", ")}.`
+		: "";
 	return {
 		applied: true,
 		batchId,
-		updated: toWrite.length,
-		summary: `${summary}; ${toWrite.length} updated. Undo with the change log batch ${batchId}.`,
+		updated: written.length,
+		written,
+		missing,
+		summary: `${summary}; ${written.length} written.${gone} Undo with change log batch ${batchId}.`,
 		rows: plan.rows,
 		total: plan.total,
 	};
@@ -395,8 +450,8 @@ async function run(ctx: McpCallContext, args: unknown) {
 const DESCRIPTION = [
 	"Change several holdings (investments) at once, safely — e.g. to correct them from a portfolio screenshot. Two calls:",
 	"1) Preview: send `changes` (and ideally `expectedTotalValue`) without `apply`. Nothing is written. The result shows each matched holding's `before`/`after`, any `unmatched` or `ambiguous` entries, `errors`, the `total` check, a one-line `summary`, and a `previewId` (null when something must be fixed first).",
-	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. All writes share one change-log batch, returned as `batchId`.",
-	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (overrides currentValue × annualRate ÷ 12; null clears it so the return falls back to that), `maturityDate` (YYYY-MM-DD) and `active`.",
+	"2) Apply: send the identical `changes` and `expectedTotalValue` again with `apply: true` and that `previewId`. It is refused if the payload differs, the preview expired (15 minutes) or was already used, or any of the holdings was edited since the preview (it names which). A refused apply writes nothing and uses up the preview: preview again, then apply with the new previewId. All writes share one change-log batch, returned as `batchId` with the `written` holdings. If a write fails partway, the error says which holdings were already written (they stay written; undo them via that change-log batch) and which failed or were not attempted.",
+	"Each change finds its holding by `id`, or by `match.name` (case-insensitive, exact, active holdings only) narrowed by `match.platform`; a name two holdings share is ambiguous — use the `id` from plan_investments. `set` may hold `annualRate` (pre-tax fraction: 0.1175 = 11.75%; a value of 1 or more is refused as a percent), `currentValue` (worth today in the holding's own currency, not the amount invested), `expectedMonthlyInterest` (interest per month, overriding the rate-based figure; null clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.), `maturityDate` (YYYY-MM-DD) and `active`.",
 	"When using `expectedTotalValue`, send EVERY holding the screenshot shows, unchanged ones included (with an empty `set`): the total is the sum of today's value across the holdings sent, after the changes, and must be within ±1 per holding sent. All those holdings must share one currency.",
 ].join(" ");
 
@@ -409,5 +464,5 @@ registerExtraTool({
 	description: DESCRIPTION,
 	inputSchema: json as JSONSchema,
 	kind: "write",
-	run,
+	run: (ctx, args) => updateHoldings(ctx, args),
 });
