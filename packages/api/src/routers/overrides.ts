@@ -12,12 +12,27 @@ import { protectedProcedure } from "../index";
  */
 export const overridesRouter = {
 	/** All current overrides (txnId → category/kind). */
-	list: protectedProcedure.handler(({ context }) =>
-		context.appDb.select().from(transactionOverrides),
-	),
+	list: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"All per-transaction category overrides the owner has set (a manual pin that beats the rules). Takes no input. Each has txnId, overrideCategoryKey, overrideKind and note. Read-only.",
+			},
+		})
+		.handler(({ context }) =>
+			context.appDb.select().from(transactionOverrides),
+		),
 
 	/** Pin a transaction to a category (kind derived from the taxonomy). Upserts on txnId. */
 	set: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Pin one bank transaction to a category, overriding the rules; replaces any existing override for it. Input: `txnId` (from the transactions tool), `categoryKey` (a category key; the kind is taken from that category, and null if the key is unknown), `note` (optional text). Returns `{ ok: true }`. The transactions tool shows the override immediately, but spending totals only change after a re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(
 			z.object({
 				txnId: z.string().min(1),
@@ -48,6 +63,13 @@ export const overridesRouter = {
 
 	/** Remove a transaction's override (revert to the rule-assigned category). */
 	clear: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Remove a transaction's category override so it reverts to whatever the rules give it. Input: `txnId`. Returns `{ ok: true }` even if there was none. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb

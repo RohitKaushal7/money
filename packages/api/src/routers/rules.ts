@@ -31,15 +31,30 @@ const ruleInput = z.object({
 
 export const rulesRouter = {
 	/** All rules in match order (priority asc, id asc). */
-	list: protectedProcedure.handler(({ context }) =>
-		context.appDb
-			.select()
-			.from(rules)
-			.orderBy(asc(rules.priority), asc(rules.id)),
-	),
+	list: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The owner's categorisation rules in match order (priority ascending; the first matching active rule wins when statements are tagged). Takes no input. Each rule has id, priority, pattern, matchType, assignKind, assignCategoryKey, assignInvestmentId, minAmount, maxAmount and active. Read-only.",
+			},
+		})
+		.handler(({ context }) =>
+			context.appDb
+				.select()
+				.from(rules)
+				.orderBy(asc(rules.priority), asc(rules.id)),
+		),
 
 	/** Add a rule at the end of the list (lowest match priority). */
 	create: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Add a categorisation rule at the end of the list (lowest priority, so earlier rules win). Input: `pattern` (text to look for in a transaction narration), `matchType` (substring or regex), `assignKind` (active_income, passive_income, expense, investment or transfer), `assignCategoryKey` (a category key from the category list), `assignInvestmentId` (optional holding id to link, or null), `minAmount` and `maxAmount` (optional INR bounds on the transaction amount magnitude, or null), `active` (default true). Returns the new rule. It takes effect on spending data only after a re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(ruleInput)
 		.handler(async ({ context, input }) => {
 			const [maxRow] = await context.appDb
@@ -64,6 +79,13 @@ export const rulesRouter = {
 
 	/** Edit a rule (partial). */
 	update: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Edit a rule; send only the fields to change. Input: `id` plus any of `pattern`, `matchType`, `assignKind`, `assignCategoryKey`, `assignInvestmentId`, `minAmount`, `maxAmount`, `active` (same meaning as when creating). Errors if the id is unknown or no field is given. Returns the updated rule. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(ruleInput.partial().extend({ id: z.number().int() }))
 		.handler(async ({ context, input }) => {
 			const { id, ...rest } = input;
@@ -85,6 +107,13 @@ export const rulesRouter = {
 
 	/** Delete a rule. */
 	remove: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Permanently delete a rule. Input: `id`. Returns `{ deleted: id }` even if no such rule existed. Transactions it tagged keep their category until the next re-tag, which then re-derives them without it. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ id: z.number().int() }))
 		.handler(async ({ context, input }) => {
 			await context.appDb.delete(rules).where(eq(rules.id, input.id));
@@ -93,6 +122,13 @@ export const rulesRouter = {
 
 	/** Renumber priorities from a top-to-bottom ordering of rule ids (position = priority). */
 	reorder: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Change which rules win by renumbering priorities from a top-to-bottom list. Input: `orderedIds` \u2014 rule ids in the desired match order (priority 1 for the first); pass every rule id, since omitted rules keep their old priority and may clash. Returns `{ reordered: count }`. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))
 		.handler(async ({ context, input }) => {
 			let priority = 1;

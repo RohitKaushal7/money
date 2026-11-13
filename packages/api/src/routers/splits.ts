@@ -24,6 +24,13 @@ const lineSchema = z.object({
 export const splitsRouter = {
 	/** The manual split lines for a transaction (empty = uses the default rule-derived split). */
 	get: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The manual split lines for one transaction (how a mixed payout is divided, e.g. interest vs principal). Input: `txnId`. Returns lines in order with seq, amount (signed INR), kind, categoryKey, cashflowType and note; an empty list means the transaction uses its default single rule-derived split. Read-only.",
+			},
+		})
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(({ context, input }) =>
 			context.appDb
@@ -35,6 +42,13 @@ export const splitsRouter = {
 
 	/** Replace all manual lines for a transaction. Lines must sum to the transaction's gross amount. */
 	set: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Replace all manual split lines of one transaction, e.g. to divide a maturity payout into interest and principal. Input: `txnId` and `lines` (at least one): each `{ amount (signed INR, same sign convention as the transaction), categoryKey, cashflowType (optional: contribution, coupon, dividend, redemption or maturity), note (optional) }`. The lines must add up to the transaction's amount within 0.01, otherwise it is refused saying the expected sum; an unknown transaction is refused. Returns `{ ok, lines }`. These lines replace the default split at the next re-tag. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(
 			z.object({
 				txnId: z.string().min(1),
@@ -78,6 +92,13 @@ export const splitsRouter = {
 
 	/** Remove all manual lines (revert to the default rule-derived split at the next re-tag). */
 	clear: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Delete all manual split lines for one transaction so it goes back to its default rule-derived split. Input: `txnId`. Returns `{ ok: true }`. Spending figures and `query` read the rebuilt data, so call the re-tag tool afterwards for this to show up there. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ txnId: z.string().min(1) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb

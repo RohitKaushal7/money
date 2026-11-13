@@ -13,17 +13,12 @@ const { createRouterClient } = await import("@orpc/server");
 const { provisionUserApp } = await import("@money/db/migrate");
 const { appRouter } = await import("../routers/index");
 const { controlDb } = await import("../db");
-const { mcpMetaOf, walkProcedures } = await import("./meta");
-
-const WEALTH_ROUTERS = [
-	"plan",
-	"networth",
-	"currency",
-	"tax",
-	"reconcile",
-	"cards",
-	"accounts",
-];
+const {
+	MCP_EXCLUDED_PROCEDURES,
+	MCP_EXCLUDED_ROUTERS,
+	mcpMetaOf,
+	walkProcedures,
+} = await import("./meta");
 
 const PLAN_WRITES: Record<string, { entity: string; operation: string }> = {
 	"plan.addInvestment": { entity: "investments", operation: "insert" },
@@ -34,18 +29,20 @@ const PLAN_WRITES: Record<string, { entity: string; operation: string }> = {
 	"plan.deleteRecurring": { entity: "recurring_expenses", operation: "delete" },
 };
 
-const wealth = walkProcedures(appRouter).filter(({ path }) =>
-	WEALTH_ROUTERS.includes(path[0] ?? ""),
-);
+const all = walkProcedures(appRouter);
+const isExcluded = (path: string[]) =>
+	(MCP_EXCLUDED_ROUTERS as readonly string[]).includes(path[0] ?? "") ||
+	(MCP_EXCLUDED_PROCEDURES as readonly string[]).includes(path.join("."));
+const inScope = all.filter(({ path }) => !isExcluded(path));
+const excluded = all.filter(({ path }) => isExcluded(path));
 
-describe("wealth-side MCP descriptions", () => {
-	test("the walk finds procedures in every wealth router", () => {
-		for (const r of WEALTH_ROUTERS) {
-			expect(wealth.some(({ path }) => path[0] === r)).toBe(true);
-		}
+describe("MCP descriptions", () => {
+	test("the walk finds procedures in every router", () => {
+		expect(inScope.length).toBeGreaterThan(50);
+		expect(excluded.length).toBeGreaterThan(0);
 	});
 
-	for (const { path, procedure } of wealth) {
+	for (const { path, procedure } of inScope) {
 		const name = path.join(".");
 		test(`${name} is described`, () => {
 			const meta = mcpMetaOf(procedure);
@@ -61,6 +58,12 @@ describe("wealth-side MCP descriptions", () => {
 				expect(meta?.entity).toBeUndefined();
 				expect(meta?.operation).toBeUndefined();
 			}
+		});
+	}
+
+	for (const { path, procedure } of excluded) {
+		test(`${path.join(".")} is excluded and carries no mcp meta`, () => {
+			expect(mcpMetaOf(procedure)).toBeUndefined();
 		});
 	}
 });

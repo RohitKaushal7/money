@@ -11,37 +11,52 @@ import { protectedProcedure } from "../index";
  */
 export const formatsRouter = {
 	/** All saved formats, each with its account name + how many raw files use it. */
-	list: protectedProcedure.handler(async ({ context }) => {
-		const [formats, bindings, accts] = await Promise.all([
-			context.appDb
-				.select()
-				.from(statementFormats)
-				.orderBy(asc(statementFormats.system), asc(statementFormats.name)),
-			context.appDb
-				.select({ formatId: importFiles.formatId })
-				.from(importFiles),
-			context.appDb.select().from(accounts),
-		]);
-		const acctById = new Map(accts.map((a) => [a.id, a]));
-		const useCount = new Map<number, number>();
-		for (const b of bindings) {
-			useCount.set(b.formatId, (useCount.get(b.formatId) ?? 0) + 1);
-		}
-		return formats.map((f) => ({
-			id: f.id,
-			name: f.name,
-			system: f.system,
-			builtin: f.builtin,
-			amountMode: f.amountMode,
-			anchor: f.anchor,
-			accountId: f.accountId,
-			accountName: acctById.get(f.accountId)?.name ?? null,
-			files: useCount.get(f.id) ?? 0,
-		}));
-	}),
+	list: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The owner's saved bank-statement formats (how each statement CSV is parsed). Takes no input. Each has id, name, system (built-in), builtin, amountMode, anchor, accountId, accountName and `files` (how many imported files use it). Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const [formats, bindings, accts] = await Promise.all([
+				context.appDb
+					.select()
+					.from(statementFormats)
+					.orderBy(asc(statementFormats.system), asc(statementFormats.name)),
+				context.appDb
+					.select({ formatId: importFiles.formatId })
+					.from(importFiles),
+				context.appDb.select().from(accounts),
+			]);
+			const acctById = new Map(accts.map((a) => [a.id, a]));
+			const useCount = new Map<number, number>();
+			for (const b of bindings) {
+				useCount.set(b.formatId, (useCount.get(b.formatId) ?? 0) + 1);
+			}
+			return formats.map((f) => ({
+				id: f.id,
+				name: f.name,
+				system: f.system,
+				builtin: f.builtin,
+				amountMode: f.amountMode,
+				anchor: f.anchor,
+				accountId: f.accountId,
+				accountName: acctById.get(f.accountId)?.name ?? null,
+				files: useCount.get(f.id) ?? 0,
+			}));
+		}),
 
 	/** Delete a custom format. Blocked for system rows and when raw files still reference it. */
 	remove: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Permanently delete a custom statement format. Input: `id`. Refused for built-in formats and for formats still used by imported files (the error gives the count). Returns `{ deleted: id }`. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ id: z.number().int() }))
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb

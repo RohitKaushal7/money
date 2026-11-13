@@ -35,42 +35,65 @@ export interface TransactionRow {
 
 export const analyticsRouter = {
 	/** Whether an ingest has produced an analytical DB yet. */
-	status: protectedProcedure.handler(({ context }) => ({
-		ready: analyticsReady(context.uid),
-	})),
+	status: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Whether the owner's analytical spending database has been built yet (it is created by importing bank statements). Takes no input. Returns `{ ready }`; when false, every spending, transaction and export read returns empty results. Read-only.",
+			},
+		})
+		.handler(({ context }) => ({
+			ready: analyticsReady(context.uid),
+		})),
 
 	/** Headline totals + the uncategorised backlog (the review signal). */
-	summary: protectedProcedure.handler(async ({ context }) => {
-		if (!analyticsReady(context.uid)) {
-			return {
-				ready: false,
-				transactions: 0,
-				uncategorized: 0,
-				months: [] as string[],
-			};
-		}
-		return withReader(context.uid, async (reader) => {
-			const [txns] = await reader.query<{ n: number }>(
-				"SELECT count(*) AS n FROM transactions",
-			);
-			const [uncat] = await reader.query<{ n: number }>(
-				"SELECT count(*) AS n FROM transaction_splits WHERE category_key = 'uncategorized'",
-			);
-			const months = await reader.query<{ month: string }>(
-				"SELECT DISTINCT month FROM transactions ORDER BY month",
-			);
-			return {
-				ready: true,
-				transactions: txns?.n ?? 0,
-				uncategorized: uncat?.n ?? 0,
-				months: months.map((m) => m.month),
-			};
-		});
-	}),
+	summary: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Headline counts of the owner's imported bank transactions. Takes no input. Returns `{ ready, transactions, uncategorized, months }`: `transactions` is the total row count, `uncategorized` the number of transaction splits still in the 'uncategorized' category (the backlog needing review), `months` the list of YYYY-MM months that have data. Zeros and an empty list when nothing is imported. Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			if (!analyticsReady(context.uid)) {
+				return {
+					ready: false,
+					transactions: 0,
+					uncategorized: 0,
+					months: [] as string[],
+				};
+			}
+			return withReader(context.uid, async (reader) => {
+				const [txns] = await reader.query<{ n: number }>(
+					"SELECT count(*) AS n FROM transactions",
+				);
+				const [uncat] = await reader.query<{ n: number }>(
+					"SELECT count(*) AS n FROM transaction_splits WHERE category_key = 'uncategorized'",
+				);
+				const months = await reader.query<{ month: string }>(
+					"SELECT DISTINCT month FROM transactions ORDER BY month",
+				);
+				return {
+					ready: true,
+					transactions: txns?.n ?? 0,
+					uncategorized: uncat?.n ?? 0,
+					months: months.map((m) => m.month),
+				};
+			});
+		}),
 
 	/** The north-star KPI per month (cash-basis; imputed drawdown wiring is later, ADR-0011). */
-	coverageRatio: protectedProcedure.handler(
-		async ({ context }): Promise<CoverageRatioPoint[]> => {
+	coverageRatio: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The owner's north-star KPI by month: what fraction of monthly expenses is covered by passive income, on a cash basis from bank statements. Takes no input. Returns one row per month `{ month (YYYY-MM), passiveIncomeCash, imputedDrawdown (always 0 here), expenses, ratio }`; amounts are INR magnitudes and `ratio` is a fraction (0.5 = passive income covers half of expenses). Empty when nothing is imported. Read-only.",
+			},
+		})
+		.handler(async ({ context }): Promise<CoverageRatioPoint[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
 				reader.query<CoverageRatioPoint>(
@@ -82,12 +105,18 @@ export const analyticsRouter = {
 				FROM v_coverage_ratio`,
 				),
 			);
-		},
-	),
+		}),
 
 	/** Category × month × kind breakdown (the old pivot / "where's my money"). */
-	categoryBreakdown: protectedProcedure.handler(
-		async ({ context }): Promise<CategoryRow[]> => {
+	categoryBreakdown: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Every month's total per category from imported bank statements, as the baked data stands after the last re-tag. Takes no input. Returns rows `{ month (YYYY-MM), categoryKey, kind, amount, n }` ordered by month, kind, category; `amount` is the INR sum of the signed statement amounts (credits positive, debits negative) and `n` the number of transactions. `kind` is one of active_income, passive_income, expense, investment, transfer. Empty when nothing is imported. Read-only.",
+			},
+		})
+		.handler(async ({ context }): Promise<CategoryRow[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
 				reader.query<CategoryRow>(
@@ -95,12 +124,18 @@ export const analyticsRouter = {
 				FROM v_category_monthly ORDER BY month, kind, category_key`,
 				),
 			);
-		},
-	),
+		}),
 
 	/** Most recent transactions with their primary split's category/kind. */
-	recentTransactions: protectedProcedure.handler(
-		async ({ context }): Promise<TransactionRow[]> => {
+	recentTransactions: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The 50 most recent bank transactions, newest first, each with its primary category. Takes no input. Returns `{ txnId, date, narration, amount, balance, kind, categoryKey }`; `amount` is signed INR (credits positive, debits negative), `balance` the account balance after it. Categories are as baked at the last re-tag, without the owner's unapplied overrides; use the transactions tool for filtering, paging and live overrides. Read-only.",
+			},
+		})
+		.handler(async ({ context }): Promise<TransactionRow[]> => {
 			if (!analyticsReady(context.uid)) return [];
 			return withReader(context.uid, (reader) =>
 				reader.query<TransactionRow>(
@@ -112,8 +147,7 @@ export const analyticsRouter = {
 				LIMIT 50`,
 				),
 			);
-		},
-	),
+		}),
 
 	/**
 	 * The **Transactions review** page (issue 002). A filtered, uncategorised-first page of transactions with
@@ -124,6 +158,13 @@ export const analyticsRouter = {
 	 * new category until the next re-tag.
 	 */
 	transactions: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Search and page through the owner's imported bank transactions, uncategorised first-class for review. Input (all optional): `month` (YYYY-MM), `kind` (one of active_income, passive_income, expense, investment, transfer), `uncategorizedOnly` (true = only rows still uncategorised), `search` (case-insensitive substring of the narration), `dateFrom` and `dateTo` (YYYY-MM-DD, inclusive), `limit` (1-500, default 100), `offset` (rows to skip, default 0). Newest first. Returns `{ transactions, total, pendingRetag }`: each transaction has txnId, date, narration, signed INR amount (credits positive), balance, and its category and kind with the owner's current overrides and manual splits already overlaid; `total` is the match count before paging. Filters run against the baked categories, so a just-overridden row keeps its old category in filtering until a re-tag. `pendingRetag` counts overrides or splits not yet baked in. Read-only.",
+			},
+		})
 		.input(
 			z.object({
 				month: z.string().optional(),

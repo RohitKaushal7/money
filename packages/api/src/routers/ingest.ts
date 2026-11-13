@@ -9,16 +9,24 @@ import { ingestErrorMessage, runRetag } from "../ingest-runner";
  * opens DuckDB read-write; it shells out to the sanctioned script (see `../ingest-runner`).
  */
 export const ingestRouter = {
-	retag: protectedProcedure.handler(async ({ context }) => {
-		const r = await runRetag(context.uid);
-		if (!r.ok) {
-			throw new ORPCError("INTERNAL_SERVER_ERROR", {
-				message: `Re-tag failed: ${ingestErrorMessage(r)}`,
-			});
-		}
-		return {
-			transactions: Number(r.result?.transactions ?? 0),
-			uncategorized: Number(r.result?.uncategorized ?? 0),
-		};
-	}),
+	retag: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Rebuild the owner's analytical spending data from the current rules, overrides and manual splits, without re-importing statements (about a second). Run this after changing rules, overrides or splits (or category kinds): spending, transactions, coverage and `query` read the rebuilt data and will not reflect those edits until it runs. Takes no input. Returns `{ transactions, uncategorized }` counts after the rebuild. Fails with the reason if the rebuild fails, leaving old data. Changes derived data only, not the owner's rules or plan; it can be re-run any time.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const r = await runRetag(context.uid);
+			if (!r.ok) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", {
+					message: `Re-tag failed: ${ingestErrorMessage(r)}`,
+				});
+			}
+			return {
+				transactions: Number(r.result?.transactions ?? 0),
+				uncategorized: Number(r.result?.uncategorized ?? 0),
+			};
+		}),
 };

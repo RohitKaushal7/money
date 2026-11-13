@@ -38,28 +38,43 @@ async function axioReady(uid: string): Promise<boolean> {
 
 export const axioRouter = {
 	/** Has any Axio export been imported, and what span does it cover? */
-	status: protectedProcedure.handler(async ({ context }) => {
-		if (!(await axioReady(context.uid)))
-			return { ready: false, rowCount: 0, minMonth: null, maxMonth: null };
-		const rows = await withReader(context.uid, (r) =>
-			r.query<{ n: number; lo: string | null; hi: string | null }>(
-				"SELECT count(*) AS n, min(month) AS lo, max(month) AS hi FROM axio_expenses",
-			),
-		);
-		const row = rows[0];
-		return {
-			ready: true,
-			rowCount: Number(row?.n ?? 0),
-			minMonth: row?.lo ?? null,
-			maxMonth: row?.hi ?? null,
-		};
-	}),
+	status: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Whether an Axio spends export has been imported and what it covers. Axio is an advisory ledger of card spending kept apart from the bank statements. Takes no input. Returns `{ ready, rowCount, minMonth, maxMonth }` (months as YYYY-MM, null when none). Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			if (!(await axioReady(context.uid)))
+				return { ready: false, rowCount: 0, minMonth: null, maxMonth: null };
+			const rows = await withReader(context.uid, (r) =>
+				r.query<{ n: number; lo: string | null; hi: string | null }>(
+					"SELECT count(*) AS n, min(month) AS lo, max(month) AS hi FROM axio_expenses",
+				),
+			);
+			const row = rows[0];
+			return {
+				ready: true,
+				rowCount: Number(row?.n ?? 0),
+				minMonth: row?.lo ?? null,
+				maxMonth: row?.hi ?? null,
+			};
+		}),
 
 	/**
 	 * Aggregated spend (month × category × account) for the window, plus the statement's `card_bill` per
 	 * month. All reshaping (granularity, scope, top-N, cross-check) happens client-side in `@money/shared`.
 	 */
 	overview: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Card spending from the imported Axio ledger, plus the bank statements' card-bill payments for cross-checking. Input (optional): `from`, `to` (YYYY-MM-DD; only the YYYY-MM part is used, inclusive). Returns `{ spend, cardBillByMonth }`: `spend` rows `{ month, category, account, amount (INR), n }` for expense rows, and `cardBillByMonth` rows `{ month, amount }` of positive INR paid as card bills in the statements. Empty when no Axio export was imported. Read-only.",
+			},
+		})
 		.input(
 			z
 				.object({ from: z.string().optional(), to: z.string().optional() })
@@ -98,6 +113,13 @@ export const axioRouter = {
 
 	/** Parse a pasted/uploaded Axio CSV and report totals + a sample, writing nothing. */
 	previewImport: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Check an Axio spends CSV and see its totals and a sample, without saving or changing anything. Input: `csv` \u2014 the full CSV text of the export (non-empty; can be large). Returns the parse summary. Does not import; importing is done by the owner in the app.",
+			},
+		})
 		.input(z.object({ csv: z.string().min(1, "Upload an Axio export first.") }))
 		.handler(async ({ context, input }) => {
 			const tmp = join(

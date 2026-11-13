@@ -60,6 +60,13 @@ export interface CategoryTxn {
 export const spendingRouter = {
 	/** Category spend trends vs plan budget: movers table + totals + budgeted-but-unspent footnote. */
 	overview: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Where the owner's money goes: expense categories by month versus the plan's recurring budget, with biggest movers, totals and budgeted-but-unspent items. Input (optional): `from` and `to` (YYYY-MM-DD; only their YYYY-MM part is used, inclusive); at most the latest 24 months in the range are used. Statement actuals are INR from the baked data and the plan budget is converted to INR. Returns the trends structure computed from both. Read-only.",
+			},
+		})
 		.input(
 			z
 				.object({
@@ -100,6 +107,13 @@ export const spendingRouter = {
 	 * Same windowing as {@link overview} — scope to the requested range, cap to the last 24 months.
 	 */
 	flow: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"How the owner's income is allocated, as a monthly-average flow: income to spent, invested and saved (or drawn from reserves). Input (optional): `from` and `to` (YYYY-MM-DD; only their YYYY-MM part is used, inclusive); at most the latest 24 months. Uses income, expense and investment categories plus matured-investment redemptions netted off investments; amounts are INR per month. Returns the flow structure behind the Sankey chart. Read-only.",
+			},
+		})
 		.input(
 			z
 				.object({
@@ -127,6 +141,13 @@ export const spendingRouter = {
 
 	/** Drill-in: the individual expense transactions filed under one category (newest first). */
 	categoryTransactions: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"The individual expense transactions filed under one category, newest first. Input: `categoryKey` (a category key from the category list). Returns `{ txnId, date, narration, amount (positive INR spent), month }` for every expense debit in that category, across all history. Reads the baked data, so unapplied overrides are not reflected. Read-only.",
+			},
+		})
 		.input(z.object({ categoryKey: z.string().min(1) }))
 		.handler(async ({ context, input }): Promise<CategoryTxn[]> => {
 			if (!analyticsReady(context.uid)) return [];

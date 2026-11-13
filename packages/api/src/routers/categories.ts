@@ -67,20 +67,35 @@ const createInput = z.object({
 
 export const categoriesRouter = {
 	/** All categories (sort order), each with a reference count for the delete-UX. */
-	list: protectedProcedure.handler(async ({ context }) => {
-		const rows = await context.appDb
-			.select()
-			.from(categories)
-			.orderBy(asc(categories.sortOrder), asc(categories.id));
-		const counts = await refCounts(context.appDb);
-		return rows.map((c) => {
-			const rc = counts.get(c.key) ?? { rules: 0, txns: 0 };
-			return { ...c, refRules: rc.rules, refTxns: rc.txns };
-		});
-	}),
+	list: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"All of the owner's spending categories in picker order. Takes no input. Returns each category's id, key, label, kind (active_income, passive_income, expense, investment or transfer), taxable flag, system flag (built-in, locked), active flag, sortOrder, colorSlot, plus `refRules` (rules using it) and `refTxns` (overrides and manual splits using it). Use `key` as the categoryKey in rules, overrides and splits. Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const rows = await context.appDb
+				.select()
+				.from(categories)
+				.orderBy(asc(categories.sortOrder), asc(categories.id));
+			const counts = await refCounts(context.appDb);
+			return rows.map((c) => {
+				const rc = counts.get(c.key) ?? { rules: 0, txns: 0 };
+				return { ...c, refRules: rc.rules, refTxns: rc.txns };
+			});
+		}),
 
 	/** Add a custom category (fully editable). Key is slugged from the label, uniqueness-suffixed. */
 	create: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Add a custom category. Input: `label` (display name), `kind` (one of active_income, passive_income, expense, investment, transfer), `taxable` (optional boolean). The `key` is generated from the label as snake_case, with _2, _3 added if taken, and the category goes to the end of the list. Returns the new row. Existing transactions are not affected until a rule, override or split uses it. The change can't be undone from the change log.",
+			},
+		})
 		.input(createInput)
 		.handler(async ({ context, input }) => {
 			const existing = await context.appDb
@@ -111,6 +126,13 @@ export const categoriesRouter = {
 
 	/** Edit a category. System rows accept label + `active` only; custom rows accept everything but the key. */
 	update: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Edit a category. Input: `id` (from the category list) and any of `label`, `active` (false hides it), `colorSlot` (1-5 pins a chart colour, null clears the pin), and for custom categories only `kind` and `taxable` (null clears it). Built-in (system) categories accept only label, active and colorSlot; changing their kind or taxable is refused. Errors if the id is unknown or nothing is given. Returns the updated row. A category's kind is re-applied to spending data at the next re-tag. The change can't be undone from the change log.",
+			},
+		})
 		.input(
 			z.object({
 				id: z.number().int(),
@@ -171,6 +193,13 @@ export const categoriesRouter = {
 
 	/** Delete a custom category. Blocked for system rows and when referenced. */
 	remove: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Permanently delete a custom category. Input: `id`. Refused for built-in categories (hide them with the update tool instead) and for categories still used by any rule, override or manual split (reassign those first; the error gives the counts). Returns `{ deleted: id }`. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ id: z.number().int() }))
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
@@ -200,6 +229,13 @@ export const categoriesRouter = {
 
 	/** Reorder categories (picker order) from a top-to-bottom id list. */
 	reorder: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "write",
+				description:
+					"Set the order categories appear in pickers. Input: `orderedIds` \u2014 every category id, top to bottom (at least one); each gets its position as sort order. Ids omitted keep their old order value, so pass the full list. Returns `{ reordered: count }`. Cosmetic only; spending figures are unaffected. The change can't be undone from the change log.",
+			},
+		})
 		.input(z.object({ orderedIds: z.array(z.number().int()).min(1) }))
 		.handler(async ({ context, input }) => {
 			let sortOrder = 0;

@@ -62,6 +62,13 @@ const EMPTY = { csv: "", rows: 0 };
  */
 export const exportRouter = {
 	transactions: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Export the owner's bank transactions as CSV text, newest first. Input (all optional): `month` (YYYY-MM), `kind` (active_income, passive_income, expense, investment or transfer), `uncategorizedOnly`, `search` (narration substring), `dateFrom`, `dateTo` (YYYY-MM-DD inclusive). No paging, so the whole match is returned; can be large. Returns `{ csv, rows }`, columns date, narration, amount (signed INR), balance, category label and kind, with the owner's current overrides applied. Empty csv when nothing is imported. Read-only: nothing is written or downloaded.",
+			},
+		})
 		.input(txnFilter)
 		.handler(async ({ context, input }) => {
 			if (!analyticsReady(context.uid)) return EMPTY;
@@ -118,47 +125,70 @@ export const exportRouter = {
 			});
 		}),
 
-	investments: protectedProcedure.handler(async ({ context }) => {
-		const invs = await context.appDb.select().from(investments);
-		const rows: InvestmentCsvRow[] = invs.map((i) => ({
-			name: i.name,
-			type: i.type,
-			incomeClass: i.incomeClass,
-			platform: i.platform,
-			group: i.group,
-			principal: i.principal,
-			currentValue: i.currentValue,
-			currency: i.currency,
-			annualRate: i.annualRate,
-			interestCadence: i.interestCadence,
-			payout: i.payout,
-			startDate: i.startDate,
-			maturityDate: i.maturityDate,
-			status: i.status,
-			isPassiveIncomeSource: i.isPassiveIncomeSource,
-		}));
-		return { csv: toCsv(rows, INVESTMENT_CSV_COLUMNS), rows: rows.length };
-	}),
+	investments: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Export all of the owner's holdings as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, type, incomeClass, platform, group, principal (amount invested), currentValue (today's value), currency, annualRate (fraction, pre-tax: 0.1175 = 11.75%), interestCadence, payout, startDate, maturityDate, status, isPassiveIncomeSource. Amounts are in each row's currency. Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const invs = await context.appDb.select().from(investments);
+			const rows: InvestmentCsvRow[] = invs.map((i) => ({
+				name: i.name,
+				type: i.type,
+				incomeClass: i.incomeClass,
+				platform: i.platform,
+				group: i.group,
+				principal: i.principal,
+				currentValue: i.currentValue,
+				currency: i.currency,
+				annualRate: i.annualRate,
+				interestCadence: i.interestCadence,
+				payout: i.payout,
+				startDate: i.startDate,
+				maturityDate: i.maturityDate,
+				status: i.status,
+				isPassiveIncomeSource: i.isPassiveIncomeSource,
+			}));
+			return { csv: toCsv(rows, INVESTMENT_CSV_COLUMNS), rows: rows.length };
+		}),
 
-	recurringExpenses: protectedProcedure.handler(async ({ context }) => {
-		const exps = await context.appDb.select().from(recurringExpenses);
-		const rows: RecurringExpenseCsvRow[] = exps.map((e) => ({
-			name: e.name,
-			category: e.category,
-			amount: e.amount,
-			currency: e.currency,
-			cadence: e.cadence,
-			active: e.active,
-			startDate: e.startDate,
-			endDate: e.endDate,
-		}));
-		return {
-			csv: toCsv(rows, RECURRING_EXPENSE_CSV_COLUMNS),
-			rows: rows.length,
-		};
-	}),
+	recurringExpenses: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Export the owner's recurring expenses (the plan's budget) as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, category, amount, currency, cadence, active, startDate, endDate. Amounts are per cadence in each row's currency. Read-only.",
+			},
+		})
+		.handler(async ({ context }) => {
+			const exps = await context.appDb.select().from(recurringExpenses);
+			const rows: RecurringExpenseCsvRow[] = exps.map((e) => ({
+				name: e.name,
+				category: e.category,
+				amount: e.amount,
+				currency: e.currency,
+				cadence: e.cadence,
+				active: e.active,
+				startDate: e.startDate,
+				endDate: e.endDate,
+			}));
+			return {
+				csv: toCsv(rows, RECURRING_EXPENSE_CSV_COLUMNS),
+				rows: rows.length,
+			};
+		}),
 
 	spendingByCategory: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Export monthly totals per category as CSV text from the baked bank-statement data. Input (optional): `dateFrom`, `dateTo` (YYYY-MM-DD; month granularity, inclusive). Returns `{ csv, rows }` with columns month, category (label), kind, amount (INR, signed sums), count. Empty when nothing is imported. Read-only.",
+			},
+		})
 		.input(monthRange)
 		.handler(async ({ context, input }) => {
 			if (!analyticsReady(context.uid)) return EMPTY;
@@ -191,6 +221,13 @@ export const exportRouter = {
 		}),
 
 	coverageHistory: protectedProcedure
+		.meta({
+			mcp: {
+				kind: "read",
+				description:
+					"Export the monthly passive-income coverage of expenses as CSV text. Input (optional): `dateFrom`, `dateTo` (YYYY-MM-DD; month granularity, inclusive). Returns `{ csv, rows }` with columns month, passiveIncome (INR cash), expenses (INR), ratio (fraction of expenses covered; 0.5 = half). Empty when nothing is imported. Read-only.",
+			},
+		})
 		.input(monthRange)
 		.handler(async ({ context, input }) => {
 			if (!analyticsReady(context.uid)) return EMPTY;
