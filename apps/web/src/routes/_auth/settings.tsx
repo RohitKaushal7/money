@@ -89,6 +89,23 @@ function TaxKpi() {
 	});
 	const enabled = q.data?.enabled ?? true;
 	const rate = q.data?.rate ?? 0.312;
+	const k = q.data;
+	// Where the rate comes from, so a fallback (an older profile, last year's rules, the default) isn't silent.
+	const basis =
+		k == null
+			? null
+			: k.source === "override"
+				? "Using your override."
+				: k.source === "default"
+					? "No tax profile to compute it from yet, so it uses 31.2%."
+					: [
+							k.profileFy === k.currentFy
+								? `From your ${k.profileFy} tax profile`
+								: `From your ${k.profileFy} tax profile (none saved for ${k.currentFy} yet)`,
+							k.rulesFy === k.currentFy
+								? "."
+								: `, using ${k.rulesFy} rules until ${k.currentFy} rules are added.`,
+						].join("");
 	const [draft, setDraft] = useState("");
 	const shown = draft === "" ? (rate * 100).toFixed(1) : draft;
 	const dirty = draft !== "" && Number(draft) > 0;
@@ -103,6 +120,7 @@ function TaxKpi() {
 					Net FD / bond / interest income by your marginal rate before the
 					coverage ratio. Rate follows your active-FY tax profile unless
 					overridden.
+					{basis && <span className="mt-1 block text-xs">{basis}</span>}
 				</p>
 				<button
 					type="button"

@@ -13,7 +13,7 @@ import {
 	type TaxInputs,
 } from "@money/shared";
 import { ORPCError } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { desc, eq, lte } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
@@ -129,34 +129,80 @@ async function loadProfile(
 	return row;
 }
 
-/** The marginal rate the after-tax KPI uses: override → active-FY profile → default 31.2%. */
-export async function loadKpiTaxRate(
+/** The after-tax KPI's marginal rate, and where it came from. */
+export interface KpiTaxRate {
+	/** A fraction: 0.312 = 31.2%. */
+	rate: number;
+	/** `override`: the owner's manual rate; `profile`: computed from a saved tax profile; `default`: 31.2%. */
+	source: "override" | "profile" | "default";
+	/** The FY of the profile the rate was computed from (`profile` only). */
+	profileFy: string | null;
+	/** The FY whose tax rules computed it (`profile` only): the current FY's, or the latest year's that has rules. */
+	rulesFy: string | null;
+	/** The FY today falls in (server clock). */
+	currentFy: string;
+}
+
+/**
+ * The marginal rate the after-tax KPI uses. An explicit override wins. Otherwise it is computed from the
+ * current FY's profile, or the most recent profile saved before it, under the current FY's rules — or, while
+ * those haven't been added yet (each 1 April until they are), the latest year's that has rules. Only with no
+ * saved profile at all (or one that can't be computed) is it the 31.2% default. `current` is for tests.
+ */
+export async function resolveKpiTaxRate(
 	appDb: AppDb,
 	uid: string,
-): Promise<number> {
+	current: string = currentFy(),
+): Promise<KpiTaxRate> {
+	const fallback: KpiTaxRate = {
+		rate: DEFAULT_MARGINAL_RATE,
+		source: "default",
+		profileFy: null,
+		rulesFy: null,
+		currentFy: current,
+	};
 	const [override] = await appDb
 		.select()
 		.from(settings)
 		.where(eq(settings.key, RATE_OVERRIDE_KEY));
 	if (typeof override?.value === "number" && override.value > 0) {
-		return override.value;
+		return { ...fallback, rate: override.value, source: "override" };
 	}
-	const fy = currentFy();
+	const rulesFy =
+		current in TAX_YEARS ? current : Object.keys(TAX_YEARS).sort().at(-1);
+	if (!rulesFy) return fallback;
 	try {
-		const row = await loadProfile(fy, appDb);
-		if (!row) return DEFAULT_MARGINAL_RATE;
-		const { rent } = await ledgerIncome(fy, uid);
-		const inputs = toInputs(row, rent);
-		if (row.otherIncome == null) {
-			inputs.otherIncome = (await ledgerIncome(fy, uid)).passive;
-		}
+		const [row] = await appDb
+			.select()
+			.from(taxProfiles)
+			.where(lte(taxProfiles.fy, current))
+			.orderBy(desc(taxProfiles.fy))
+			.limit(1);
+		if (!row) return fallback;
+		const ledger = await ledgerIncome(row.fy, uid);
+		const inputs = toInputs(row, ledger.rent);
+		if (row.otherIncome == null) inputs.otherIncome = ledger.passive;
 		const regime =
 			(row.regimeChoice as "old" | "new" | null) ??
-			compareRegimes(inputs, fy).recommended;
-		return marginalRate(inputs, regime, fy);
+			compareRegimes(inputs, rulesFy).recommended;
+		return {
+			rate: marginalRate(inputs, regime, rulesFy),
+			source: "profile",
+			profileFy: row.fy,
+			rulesFy,
+			currentFy: current,
+		};
 	} catch {
-		return DEFAULT_MARGINAL_RATE;
+		return fallback;
 	}
+}
+
+/** Just the rate from {@link resolveKpiTaxRate}, for the coverage figures. */
+export async function loadKpiTaxRate(
+	appDb: AppDb,
+	uid: string,
+): Promise<number> {
+	return (await resolveKpiTaxRate(appDb, uid)).rate;
 }
 
 /** Whether the after-tax KPI switch is on (default true). */
@@ -322,12 +368,12 @@ export const taxRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"The after-tax setting for the coverage KPI. Takes no input. Returns `enabled` (when true, income holdings' returns are reduced by tax before being compared to expenses) and `rate` (the marginal tax rate used, a fraction: 0.312 = 31.2%; taken from the manual override if set, else from the current year's tax profile, else 31.2%).",
+					"The after-tax setting for the coverage KPI. Takes no input. Returns `enabled` (when true, income holdings' returns are reduced by tax before being compared to expenses), `rate` (the marginal tax rate used, a fraction: 0.312 = 31.2%), `source` (override: the manual rate; profile: computed from the current year's tax profile, or the most recent one saved before it; default: 31.2%, used when no profile is saved), `profileFy` and `rulesFy` (for source profile: the profile's year, and the year whose tax rules computed it — the current year's, or while the app has no rules for it yet, the latest year's that it has; else null) and `currentFy`.",
 			},
 		})
 		.handler(async ({ context }) => ({
 			enabled: await loadAfterTaxEnabled(context.appDb),
-			rate: await loadKpiTaxRate(context.appDb, context.uid),
+			...(await resolveKpiTaxRate(context.appDb, context.uid)),
 		})),
 
 	/** Toggle the switch and/or set a manual rate override (null clears it). */
@@ -336,7 +382,7 @@ export const taxRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Change the after-tax setting for the coverage KPI. Input, both optional: `enabled` (true to net income holdings' returns of tax in the KPI, false for pre-tax) and `rateOverride` (marginal tax rate as a fraction, positive: 0.312 = 31.2%; null removes the override so the rate comes from the tax profile again; omit to leave unchanged). This changes the headline coverage numbers. Returns `{ enabled, rate }`.",
+					"Change the after-tax setting for the coverage KPI. Input, both optional: `enabled` (true to net income holdings' returns of tax in the KPI, false for pre-tax) and `rateOverride` (marginal tax rate as a fraction, positive: 0.312 = 31.2%; null removes the override so the rate comes from the tax profile again; omit to leave unchanged). This changes the headline coverage numbers. Returns the same fields as the after-tax setting read: `enabled`, `rate`, `source`, `profileFy`, `rulesFy`, `currentFy`.",
 			},
 		})
 		.input(
@@ -380,7 +426,7 @@ export const taxRouter = {
 			if (first) await context.appDb.batch([first, ...rest]);
 			return {
 				enabled: await loadAfterTaxEnabled(context.appDb),
-				rate: await loadKpiTaxRate(context.appDb, context.uid),
+				...(await resolveKpiTaxRate(context.appDb, context.uid)),
 			};
 		}),
 };

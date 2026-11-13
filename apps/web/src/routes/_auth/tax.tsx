@@ -110,6 +110,18 @@ function TaxForm({ fy }: { fy: string }) {
 		...orpc.tax.compute.queryOptions({ input: { fy } }),
 		enabled: hasRules,
 	});
+	// Only for the no-rules note: which year's rules the after-tax KPI falls back to meanwhile.
+	const kpi = useQuery({
+		...orpc.tax.getKpiConfig.queryOptions(),
+		enabled: !hasRules,
+	});
+	const kpiRulesFy =
+		!hasRules &&
+		kpi.data?.source === "profile" &&
+		kpi.data.currentFy === fy &&
+		kpi.data.rulesFy !== fy
+			? kpi.data.rulesFy
+			: null;
 	const upsert = useMutation(orpc.tax.upsert.mutationOptions());
 	const finalize = useMutation(orpc.tax.finalize.mutationOptions());
 
@@ -300,7 +312,7 @@ function TaxForm({ fy }: { fy: string }) {
 					</div>
 					<div className="mt-2 flex flex-col gap-2 border-border border-t pt-3">
 						<span className="text-muted-foreground text-xs">
-							HRA — exemption {money.fmtc(c?.hraExemption ?? 0)}
+							HRA — exemption {c ? money.fmtc(c.hraExemption) : "—"}
 						</span>
 						<div className="grid grid-cols-2 gap-3">
 							<Field label="Basic salary">
@@ -342,6 +354,8 @@ function TaxForm({ fy }: { fy: string }) {
 					The app doesn't have the tax rules for {fy} yet, so it can't compare
 					the regimes for it. What you enter here is saved, and the comparison
 					appears once the rules are added.
+					{kpiRulesFy &&
+						` Meanwhile the after-tax KPI uses ${kpiRulesFy} rules until ${fy} rules are added.`}
 				</p>
 			)}
 			{c && (
