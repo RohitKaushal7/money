@@ -1,5 +1,9 @@
-import { type AppDb, transactionOverrides } from "@money/db";
-import { reconcile, type StatementCredit } from "@money/shared";
+import { type AppDb, categories, transactionOverrides } from "@money/db";
+import {
+	CATEGORY_BY_KEY,
+	reconcile,
+	type StatementCredit,
+} from "@money/shared";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
@@ -64,22 +68,35 @@ function minusMonths(month: string, n: number): string {
 
 /**
  * Overlay manual overrides (issue 001) onto the fetched credits at read time — so a retag recategorises
- * instantly, before a full re-ingest bakes it into DuckDB via `ATTACH`. Pins category_key (+ derived kind).
+ * instantly, before a full re-ingest bakes it into DuckDB via `ATTACH`. Pins category_key and kind.
  */
-async function applyOverrides(
+export async function applyOverrides(
 	credits: StatementCredit[],
 	appDb: AppDb,
 ): Promise<StatementCredit[]> {
 	const rows = await appDb.select().from(transactionOverrides);
 	if (rows.length === 0) return credits;
 	const byTxn = new Map(rows.map((r) => [r.txnId, r]));
+	// An override saved before kinds were stored for custom categories has none: its kind is its category's,
+	// from the owner's categories (then the built-in taxonomy), never the rule-derived kind it replaces.
+	const kindByKey = new Map(
+		(
+			await appDb
+				.select({ key: categories.key, kind: categories.kind })
+				.from(categories)
+		).map((c) => [c.key, c.kind]),
+	);
 	return credits.map((c) => {
 		const o = byTxn.get(c.txnId);
 		if (!o?.overrideCategoryKey) return c;
 		return {
 			...c,
 			categoryKey: o.overrideCategoryKey,
-			kind: o.overrideKind ?? c.kind,
+			kind:
+				o.overrideKind ??
+				kindByKey.get(o.overrideCategoryKey) ??
+				CATEGORY_BY_KEY.get(o.overrideCategoryKey)?.kind ??
+				c.kind,
 		};
 	});
 }

@@ -11,7 +11,9 @@ process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createRouterClient } = await import("@orpc/server");
 const { provisionUserApp } = await import("@money/db/migrate");
-const { changeLog } = await import("@money/db");
+const { changeLog, transactionOverrides } = await import("@money/db");
+const { sql } = await import("drizzle-orm");
+const { applyOverrides } = await import("./routers/reconcile");
 const { appRouter } = await import("./routers/index");
 const { appDbFor, controlDb } = await import("./db");
 const { mcpMetaOf } = await import("./mcp/meta");
@@ -130,10 +132,101 @@ describe("descriptions", () => {
 	});
 });
 
-describe("categories.update description", () => {
-	test("doesn't promise a kind change reaches overrides or splits", () => {
+describe("changing a category's kind", () => {
+	const db = () => appDbFor(uid);
+	const overrideKind = async (txnId: string) =>
+		(await app.overrides.list()).find((o) => o.txnId === txnId)?.overrideKind;
+	const splitKinds = async (txnId: string) =>
+		(await app.splits.get({ txnId })).map((l) => [l.categoryKey, l.kind]);
+
+	/** A custom category with an override and a split line on it, plus an unrelated custom category's. */
+	async function setup(label: string) {
+		const cat = await app.categories.create({ label, kind: "expense" });
+		const other = await app.categories.create({
+			label: `${label} other`,
+			kind: "expense",
+		});
+		if (!cat || !other) throw new Error("create failed");
+		const tag = cat.key;
+		await app.overrides.set({ txnId: `O-${tag}`, categoryKey: cat.key });
+		await app.overrides.set({ txnId: `O2-${tag}`, categoryKey: other.key });
+		await app.splits.set({
+			txnId: `S-${tag}`,
+			lines: [
+				{ amount: 3, categoryKey: cat.key },
+				{ amount: 7, categoryKey: other.key },
+			],
+		});
+		return { cat, other, tag };
+	}
+
+	test("re-stamps the overrides and split lines that use it, and nothing else", async () => {
+		const { cat, other, tag } = await setup("Gig Work");
+		await app.categories.update({ id: cat.id, kind: "active_income" });
+		expect(await overrideKind(`O-${tag}`)).toBe("active_income");
+		expect(await overrideKind(`O2-${tag}`)).toBe("expense");
+		expect(await splitKinds(`S-${tag}`)).toEqual([
+			[cat.key, "active_income"],
+			[other.key, "expense"],
+		]);
+	});
+
+	test("is all-or-nothing: a failing re-stamp leaves the category, overrides and splits as they were", async () => {
+		const { cat, tag } = await setup("Tutoring");
+		await db().run(
+			sql.raw(
+				"create trigger test_boom before update on transaction_manual_splits begin select raise(abort, 'boom'); end",
+			),
+		);
+		try {
+			await expect(
+				app.categories.update({ id: cat.id, kind: "passive_income" }),
+			).rejects.toThrow();
+		} finally {
+			await db().run(sql.raw("drop trigger test_boom"));
+		}
+		const [row] = (await app.categories.list()).filter((c) => c.id === cat.id);
+		expect(row?.kind).toBe("expense");
+		expect(await overrideKind(`O-${tag}`)).toBe("expense");
+		expect((await splitKinds(`S-${tag}`))[0]).toEqual([cat.key, "expense"]);
+	});
+
+	test("the description says a kind change updates overrides and split lines", () => {
 		const d = mcpMetaOf(appRouter.categories.update)?.description ?? "";
 		expect(d).not.toContain("re-applied to spending data");
-		expect(d).toContain("keep the kind they were saved with");
+		expect(d).not.toContain("keep the kind they were saved with");
+		expect(d).toContain("overrides and manual split lines");
+		expect(d).toContain("re-tag");
+	});
+});
+
+describe("reconcile's override overlay", () => {
+	test("a legacy override saved without a kind takes its category's kind, not the rule's", async () => {
+		const cat = await app.categories.create({
+			label: "Legacy Interest",
+			kind: "passive_income",
+		});
+		if (!cat) throw new Error("create failed");
+		await appDbFor(uid).insert(transactionOverrides).values({
+			txnId: "R-legacy",
+			overrideCategoryKey: cat.key,
+			overrideKind: null,
+		});
+		const [credit] = await applyOverrides(
+			[
+				{
+					txnId: "R-legacy",
+					date: "2026-10-01",
+					narration: "NEFT CR",
+					amount: 500,
+					month: "2026-10",
+					kind: "transfer",
+					categoryKey: "uncategorized",
+				},
+			],
+			appDbFor(uid),
+		);
+		expect(credit?.categoryKey).toBe(cat.key);
+		expect(credit?.kind).toBe("passive_income");
 	});
 });

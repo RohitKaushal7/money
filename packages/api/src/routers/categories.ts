@@ -130,7 +130,7 @@ export const categoriesRouter = {
 			mcp: {
 				kind: "write",
 				description:
-					"Edit a category. Input: `id` (whole number, the category's id from the category list) and any of `label`, `active` (false hides it), `colorSlot` (1-5 pins a chart colour, null clears the pin), and for custom categories only `kind` and `taxable` (null clears it). Built-in (system) categories accept only label, active and colorSlot; changing their kind or taxable is refused. Errors if the id is unknown or nothing is given. Returns the updated row. Changing a custom category's kind does not re-file what already uses it: rules carry their own `assignKind`, and transaction overrides and manual split lines keep the kind they were saved with. To move those, edit the rules' assignKind and set the overrides or splits again, then re-tag. The change can't be undone from the change log.",
+					"Edit a category. Input: `id` (whole number, the category's id from the category list) and any of `label`, `active` (false hides it), `colorSlot` (1-5 pins a chart colour, null clears the pin), and for custom categories only `kind` and `taxable` (null clears it). Built-in (system) categories accept only label, active and colorSlot; changing their kind or taxable is refused. Errors if the id is unknown or nothing is given. Returns the updated row. Changing a custom category's kind also changes the kind of the transaction overrides and manual split lines that use it, at once; run the re-tag tool afterwards to apply it to spending figures and `query`. Rules are not changed: each rule carries its own `assignKind`. The change can't be undone from the change log.",
 			},
 		})
 		.input(
@@ -183,11 +183,29 @@ export const categoriesRouter = {
 			if (Object.keys(set).length === 0) {
 				throw new ORPCError("BAD_REQUEST", { message: "Nothing to update." });
 			}
-			const [updated] = await context.appDb
+			const update = context.appDb
 				.update(categories)
 				.set(set)
 				.where(eq(categories.id, input.id))
 				.returning();
+			const kind = row.system ? undefined : input.kind;
+			if (kind === undefined) {
+				const [updated] = await update;
+				return updated;
+			}
+			// A kind applies everywhere the category is used: the overrides and manual split lines on it store
+			// a kind, so they are re-stamped with the category, in one batch (one SQLite transaction).
+			const [[updated]] = await context.appDb.batch([
+				update,
+				context.appDb
+					.update(transactionOverrides)
+					.set({ overrideKind: kind })
+					.where(eq(transactionOverrides.overrideCategoryKey, row.key)),
+				context.appDb
+					.update(transactionManualSplits)
+					.set({ kind })
+					.where(eq(transactionManualSplits.categoryKey, row.key)),
+			]);
 			return updated;
 		}),
 
