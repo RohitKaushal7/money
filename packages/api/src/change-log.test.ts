@@ -11,10 +11,18 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { call, createRouterClient } = await import("@orpc/server");
-const { provisionUserApp } = await import("@money/db/migrate");
-const { categories, changeLog, investments, recurringExpenses } = await import(
-	"@money/db"
+const { provisionUserApp, runControlMigrations } = await import(
+	"@money/db/migrate"
 );
+const {
+	categories,
+	changeLog,
+	currencies,
+	investments,
+	recurringExpenses,
+	rules,
+	settings,
+} = await import("@money/db");
 const { eq, sql } = await import("drizzle-orm");
 const { appRouter } = await import("./routers/index");
 const { appDbFor, controlDb } = await import("./db");
@@ -452,6 +460,106 @@ describe("undo history", () => {
 	});
 });
 
+describe("undo re-checks the row as it writes", () => {
+	/** Let undo read the row, then change it before undo writes — the race its guarded write must catch. */
+	function raceAfterRead(change: () => Promise<unknown>) {
+		const read = changeLogModule.readEntityRow;
+		return spyOn(changeLogModule, "readEntityRow").mockImplementationOnce(
+			async (...args) => {
+				const row = await read(...args);
+				await change();
+				return row;
+			},
+		);
+	}
+
+	test("an edit landing between undo's read and its write refuses the undo and changes nothing", async () => {
+		const id = await addBond("Racy", 0.1);
+		await mcp.plan.updateInvestment({ id, annualRate: 0.2 });
+		const change = await latest();
+		const spy = raceAfterRead(() =>
+			db().run(
+				sql`update investments set annual_rate = 0.99, updated_at = updated_at + 1 where id = ${id}`,
+			),
+		);
+		try {
+			const r = await undoChange(db(), change?.id ?? 0);
+			expect(r).toEqual({
+				ok: false,
+				reason: `investments #${id} has changed since change #${change?.id}; undo refused`,
+			});
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await investmentRow(id))?.annualRate).toBe(0.99);
+		expect(
+			(await listChanges(db(), { limit: 50 })).find((c) => c.id === change?.id)
+				?.undoneAt,
+		).toBeNull();
+	});
+
+	test("a change marked undone after undo's read is refused as already undone, row untouched", async () => {
+		const id = await addBond("Racy twice", 0.1);
+		await mcp.plan.updateInvestment({ id, annualRate: 0.2 });
+		const change = await latest();
+		const spy = raceAfterRead(() =>
+			db()
+				.update(changeLog)
+				.set({ undoneAt: new Date() })
+				.where(eq(changeLog.id, change?.id ?? 0)),
+		);
+		try {
+			expect(await undoChange(db(), change?.id ?? 0)).toEqual({
+				ok: false,
+				reason: `change #${change?.id} was already undone`,
+			});
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await investmentRow(id))?.annualRate).toBe(0.2);
+	});
+
+	test("an add's undo refuses, rather than deleting, a row edited after its read", async () => {
+		const added = await mcp.plan.addRecurring({ name: "Racy add", amount: 5 });
+		const id = Number(added.id);
+		const change = await latest();
+		const spy = raceAfterRead(() =>
+			db().run(
+				sql`update recurring_expenses set amount = 6, updated_at = updated_at + 1 where id = ${id}`,
+			),
+		);
+		try {
+			expect((await undoChange(db(), change?.id ?? 0)).ok).toBe(false);
+		} finally {
+			spy.mockRestore();
+		}
+		const [row] = await db()
+			.select()
+			.from(recurringExpenses)
+			.where(eq(recurringExpenses.id, id));
+		expect(row?.amount).toBe(6);
+	});
+
+	test("a delete's undo refuses when a row with that id appears after its read", async () => {
+		const id = await addBond("Racy delete");
+		await mcp.plan.deleteInvestment({ id });
+		const change = await latest();
+		const spy = raceAfterRead(() =>
+			db()
+				.insert(investments)
+				.values({ id, name: "Late", type: "fd", incomeClass: "income" }),
+		);
+		try {
+			const r = await undoChange(db(), change?.id ?? 0);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.reason).toMatch(/exists again/);
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await investmentRow(id))?.name).toBe("Late");
+	});
+});
+
 describe("concurrent writes", () => {
 	test("parallel writes to one holding each log their own before and after", async () => {
 		const id = await addBond("Parallel", 0.1);
@@ -540,6 +648,122 @@ describe("multi-step writes are all-or-nothing", () => {
 		expect(after.map((c) => c.sortOrder)).toEqual(
 			before.map((c) => c.sortOrder),
 		);
+	});
+});
+
+describe("token contexts may call only procedures offered to Claude", () => {
+	test("procedures with no mcp meta are refused to any token, even read_write", async () => {
+		await expect(
+			mcp.tokens.create({ name: "self-minted", scope: "read_write" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(mcp.tokens.revoke({ id: 1 })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(mcp.tokens.list()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(mcp.lock.claim()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(mcp.privateData()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		const bare = protectedProcedure.handler(() => "ran");
+		await expect(
+			call(bare, undefined, { context: tokenContext }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	test("a browser session can still call them", async () => {
+		expect(await app.privateData()).toHaveProperty("message");
+		const bare = protectedProcedure.handler(() => "ran");
+		expect(await call(bare, undefined, { context: appContext })).toBe("ran");
+	});
+});
+
+describe("more multi-step writes are all-or-nothing", () => {
+	test("rules.reorder renumbers every rule or none", async () => {
+		const seeded = await db().select().from(rules).orderBy(rules.id).limit(3);
+		expect(seeded.length).toBeGreaterThanOrEqual(2);
+		const before = seeded.slice(0, 3);
+		await withFailingTrigger("rules", "update", "new.priority = 2", () =>
+			expect(
+				app.rules.reorder({ orderedIds: before.map((r) => r.id).reverse() }),
+			).rejects.toThrow(),
+		);
+		const after = await db()
+			.select()
+			.from(rules)
+			.orderBy(rules.id)
+			.limit(before.length);
+		expect(after.map((r) => r.priority)).toEqual(before.map((r) => r.priority));
+	});
+
+	test("tax.setKpiConfig saves the switch and the rate together or not at all", async () => {
+		await app.tax.setKpiConfig({ enabled: false, rateOverride: null });
+		const kpiSettings = () =>
+			db()
+				.select()
+				.from(settings)
+				.where(
+					sql`${settings.key} in ('after_tax_kpi', 'marginal_rate_override')`,
+				);
+		const before = await kpiSettings();
+		await withFailingTrigger(
+			"settings",
+			"insert",
+			"new.key = 'marginal_rate_override'",
+			() =>
+				expect(
+					app.tax.setKpiConfig({ enabled: true, rateOverride: 0.3 }),
+				).rejects.toThrow(),
+		);
+		expect(await kpiSettings()).toEqual(before);
+	});
+
+	test("currency.refresh saves every fetched rate or none", async () => {
+		// The shared control DB: wherever controlDb() points, migrated, with two foreign currencies.
+		const live = (await controlDb().$client.execute("PRAGMA database_list"))
+			.rows[0]?.file;
+		await runControlMigrations(`file:${live}`);
+		for (const code of ["USD", "EUR"]) {
+			await controlDb()
+				.insert(currencies)
+				.values({ code, symbol: code, rateToInr: 1 })
+				.onConflictDoNothing();
+		}
+		const rates = () =>
+			controlDb()
+				.select({ code: currencies.code, rate: currencies.rateToInr })
+				.from(currencies)
+				.orderBy(currencies.code);
+		const before = await rates();
+
+		// The first rate fetched is 80, every later one 90; saving a 90 fails.
+		let calls = 0;
+		const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async () =>
+			Response.json({
+				rates: { INR: calls++ === 0 ? 80 : 90 },
+			})) as unknown as typeof fetch);
+		const admin = createRouterClient(appRouter, {
+			context: {
+				...appContext,
+				session: { user: { id: "u", role: "admin" } },
+			} as unknown as Ctx,
+		});
+		await controlDb().run(
+			sql.raw(
+				"create trigger test_boom before update on currencies when new.rate_to_inr = 90 begin select raise(abort, 'boom'); end",
+			),
+		);
+		try {
+			await expect(admin.currency.refresh()).rejects.toThrow();
+		} finally {
+			fetchSpy.mockRestore();
+			await controlDb().run(sql.raw("drop trigger test_boom"));
+		}
+		expect(calls).toBeGreaterThanOrEqual(2);
+		expect(await rates()).toEqual(before);
 	});
 });
 

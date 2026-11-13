@@ -13,7 +13,7 @@ import type { Context } from "./context";
 import { appDbFor } from "./db";
 import { hasPin } from "./lock";
 import { isUnlocked } from "./lock-tokens";
-import { type McpMeta, mcpMetaOf, pinApplies } from "./mcp/meta";
+import { isMcpExcluded, type McpMeta, mcpMetaOf, pinApplies } from "./mcp/meta";
 
 export const o = os.$context<Context>().$meta<McpMeta>({});
 
@@ -40,7 +40,37 @@ const requireAuth = o.middleware(async ({ context, next }) => {
  * other procedure uses {@link protectedProcedure}, so the lock is opt-*out*: a router added later is
  * covered by default, and forgetting is a compile-time choice rather than a silent hole.
  */
-export const authedProcedure = publicProcedure.use(requireAuth);
+/**
+ * What an access token (MCP) may call — default-deny, on the procedure itself rather than only at `/mcp`:
+ * only a procedure offered to Claude (it has `mcp` meta and isn't excluded), and under a `read` token only
+ * one whose kind is `read`. Everything else — the tokens router above all, so Claude can never mint or
+ * revoke a token, but also the lock, admin and anything added later without a description — is refused
+ * before its handler runs, however the call got here (a router client built under a token context, as
+ * update_holdings does, included). Browser sessions have no `via` and are unaffected.
+ */
+const requireTokenAccess = o.middleware(
+	async ({ context, next, path, procedure }) => {
+		const via = context.via;
+		if (!via) return next();
+		const meta = mcpMetaOf(procedure);
+		const name = path.join(".") || "this procedure";
+		if (!meta || isMcpExcluded(path)) {
+			throw new ORPCError("FORBIDDEN", {
+				message: `${name} is not available to access tokens.`,
+			});
+		}
+		if (via.scope === "read" && meta.kind !== "read") {
+			throw new ORPCError("FORBIDDEN", {
+				message: `This access token is read-only (scope "read"): ${name} changes data, so it needs a token with scope "read_write". Nothing was changed.`,
+			});
+		}
+		return next();
+	},
+);
+
+export const authedProcedure = publicProcedure
+	.use(requireAuth)
+	.use(requireTokenAccess);
 
 const requireUnlocked = o.middleware(async ({ context, next }) => {
 	const uid = context.session?.user.id;
@@ -57,26 +87,6 @@ const requireUnlocked = o.middleware(async ({ context, next }) => {
 	}
 	return next();
 });
-
-/**
- * A read-only access token can't run a write. `/mcp` already refuses a write tool for such a token before
- * calling it; this is the same rule where every procedure call passes, so a write reached some other way
- * (a nested router client, a tool added later) is refused before its handler runs. Browser sessions have
- * no `via` and are unaffected.
- */
-const requireWriteScope = o.middleware(
-	async ({ context, next, path, procedure }) => {
-		if (
-			context.via?.scope === "read" &&
-			mcpMetaOf(procedure)?.kind === "write"
-		) {
-			throw new ORPCError("FORBIDDEN", {
-				message: `This access token is read-only (scope "read"): ${path.join(".")} changes data, so it needs a token with scope "read_write". Nothing was changed.`,
-			});
-		}
-		return next();
-	},
-);
 
 /**
  * Records every successful `kind: "write"` procedure in the user's change log — from the app and from
@@ -191,7 +201,6 @@ const logWrites = os
 
 export const protectedProcedure = authedProcedure
 	.use(requireUnlocked)
-	.use(requireWriteScope)
 	.use(logWrites);
 
 const requireAdmin = o.middleware(async ({ context, next }) => {

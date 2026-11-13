@@ -57,6 +57,14 @@ export const MCP_EXCLUDED_PROCEDURES = [
 	"privateData",
 ] as const;
 
+/** Whether a procedure (by path, e.g. `["tokens", "create"]`) is kept from Claude whatever its meta says. */
+export function isMcpExcluded(path: readonly string[]): boolean {
+	return (
+		(MCP_EXCLUDED_ROUTERS as readonly string[]).includes(path[0] ?? "") ||
+		(MCP_EXCLUDED_PROCEDURES as readonly string[]).includes(path.join("."))
+	);
+}
+
 /** Every procedure under a router tree, with its path (e.g. `["plan", "ladder"]`). */
 export function walkProcedures(
 	router: unknown,

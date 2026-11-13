@@ -272,6 +272,15 @@ describe("/mcp authentication", () => {
 		expect(stored?.lastUsedAt).toBeNull();
 	});
 
+	test("an unauthenticated GET is 405 too: the method is checked before the token", async () => {
+		const res = await handleMcp(
+			new Request("http://localhost:3000/mcp", { method: "GET" }),
+			{ version: "9.9.9" },
+		);
+		expect(res.status).toBe(405);
+		expect(res.headers.get("Allow")).toBe("POST");
+	});
+
 	test("a malformed or unknown token → 401", async () => {
 		expect((await mcp("tools/list", {}, bearer("nope"))).status).toBe(401);
 		expect(
@@ -371,13 +380,11 @@ describe("/mcp tools/call", () => {
 	});
 
 	test("a read token can call a read tool; the result is JSON text", async () => {
-		await appDbFor(owner.uid)
-			.insert(investments)
-			.values({
-				name: "Seen by a reader",
-				type: "bond",
-				incomeClass: "income",
-			});
+		await appDbFor(owner.uid).insert(investments).values({
+			name: "Seen by a reader",
+			type: "bond",
+			incomeClass: "income",
+		});
 		const result = await callTool(owner.read, "plan_investments");
 		expect(result.isError).toBeFalsy();
 		expect(result.content).toHaveLength(1);
@@ -415,17 +422,16 @@ describe("the screen-lock PIN guards browser sessions only", () => {
 		expect(r.code).toBe("LOCKED");
 	});
 
-	test("a token context has no session row, and code that reads one copes (never a fresh-session pass)", async () => {
+	test("a token context has no session row, and can't reach the lock router at all", async () => {
 		const tokenCtx = contextFor({
 			uid: pinned.uid,
 			user: { id: pinned.uid, email: "p", name: "p", role: "user" },
-			via: { kind: "token", tokenId: 0, name: "t", scope: "read" },
+			via: { kind: "token", tokenId: 0, name: "t", scope: "read_write" },
 		});
 		expect(tokenCtx.session?.session).toBeUndefined();
 		const client = createRouterClient(appRouter, { context: tokenCtx });
-		expect(await client.lock.claim()).toEqual({
-			configured: true,
-			token: null,
+		await expect(client.lock.claim()).rejects.toMatchObject({
+			code: "FORBIDDEN",
 		});
 	});
 

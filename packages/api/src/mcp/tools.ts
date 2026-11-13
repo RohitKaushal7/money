@@ -6,8 +6,7 @@ import { controlDb } from "../db";
 import { appRouter } from "../routers/index";
 import type { VerifiedUser } from "../tokens";
 import {
-	MCP_EXCLUDED_PROCEDURES,
-	MCP_EXCLUDED_ROUTERS,
+	isMcpExcluded,
 	type McpKind,
 	mcpMetaOf,
 	type TokenVia,
@@ -48,10 +47,6 @@ export function toolName(path: string[], explicit?: string): string {
 	return (explicit ? [explicit] : path).map(snake).join("_");
 }
 
-const isExcluded = (path: string[]) =>
-	(MCP_EXCLUDED_ROUTERS as readonly string[]).includes(path[0] ?? "") ||
-	(MCP_EXCLUDED_PROCEDURES as readonly string[]).includes(path.join("."));
-
 /**
  * The oRPC context a tool call runs under — what a signed-in browser has, plus `via`, minus the cookie.
  * There is no Better-Auth session row behind a token, so `session.session` is absent (see `ContextSession`).
@@ -76,7 +71,7 @@ export function buildProcedureTools(router: AnyRouter = appRouter): ToolDef[] {
 	const tools: ToolDef[] = [];
 	for (const { path, procedure } of walkProcedures(router)) {
 		const meta = mcpMetaOf(procedure);
-		if (!meta || isExcluded(path)) continue;
+		if (!meta || isMcpExcluded(path)) continue;
 		const name = toolName(path, meta.name);
 		const schema = procedure["~orpc"].inputSchema;
 		let inputSchema: JSONSchema = { type: "object", properties: {} };
