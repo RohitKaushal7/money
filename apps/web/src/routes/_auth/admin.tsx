@@ -12,9 +12,9 @@ import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/admin")({
 	component: AdminPage,
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		const role = (session.data?.user as { role?: string } | undefined)?.role;
+	beforeLoad: ({ context }) => {
+		// The parent `_auth` guard has already resolved the (cached) session into context.
+		const role = (context.session.user as { role?: string } | undefined)?.role;
 		if (role !== "admin") {
 			throw redirect({ to: "/" });
 		}

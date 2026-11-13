@@ -9,6 +9,14 @@ import { closeLock, unlockToken } from "@/lib/lock";
 
 export function createQueryClient() {
 	return new QueryClient({
+		defaultOptions: {
+			queries: {
+				// One owner's data, and every mutation invalidates what it changes, so hopping between pages
+				// needn't refetch everything on each mount. Cached data still shows instantly either way;
+				// this just stops each navigation queueing a wave of identical requests.
+				staleTime: 30_000,
+			},
+		},
 		queryCache: new QueryCache({
 			onError: (error, query) => {
 				// The screen lock closing mid-flight. Not an error to shout about — flip the UI to the lock

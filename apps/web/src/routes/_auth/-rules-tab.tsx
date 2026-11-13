@@ -82,7 +82,9 @@ export function RulesTab({
 	const [form, setForm] = useState<FormState>(EMPTY);
 
 	const rulesKey = orpc.rules.list.queryKey();
-	const invalidate = () => qc.invalidateQueries({ queryKey: rulesKey });
+	// Everything, not just the rule list: rules decide how transactions are categorised, so spending and
+	// transaction views read from them too.
+	const invalidate = () => qc.invalidateQueries();
 
 	// "Create rule from this transaction" → open the add-form pre-seeded, then consume the prefill.
 	useEffect(() => {

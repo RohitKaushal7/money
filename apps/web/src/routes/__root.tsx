@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
+import { NavProgress } from "@/components/nav-progress";
 import { ThemeProvider } from "@/components/theme-provider";
 import type { orpc } from "@/utils/orpc";
 
@@ -49,6 +50,7 @@ function RootComponent() {
 				disableTransitionOnChange
 				storageKey="vite-ui-theme"
 			>
+				<NavProgress />
 				<Outlet />
 				<Toaster richColors />
 			</ThemeProvider>

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Field, Section, TextInput } from "@/components/settings/section";
 import { authClient } from "@/lib/auth-client";
+import { signOutAndClear } from "@/lib/session";
 
 export function AccountTab() {
 	return (
@@ -142,9 +143,7 @@ function Sessions() {
 	});
 
 	const signOut = useMutation({
-		mutationFn: async () => {
-			await authClient.signOut();
-		},
+		mutationFn: () => signOutAndClear(qc),
 		onSuccess: () => navigate({ to: "/login" }),
 	});
 

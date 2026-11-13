@@ -9,12 +9,15 @@ import {
 	DropdownMenuTrigger,
 } from "@money/ui/components/dropdown-menu";
 import { Skeleton } from "@money/ui/components/skeleton";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 
 import { authClient } from "@/lib/auth-client";
+import { signOutAndClear } from "@/lib/session";
 
 export default function UserMenu() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { data: session, isPending } = authClient.useSession();
 
 	if (isPending) {
@@ -41,16 +44,9 @@ export default function UserMenu() {
 					<DropdownMenuItem>{session.user.email}</DropdownMenuItem>
 					<DropdownMenuItem
 						variant="destructive"
-						onClick={() => {
-							authClient.signOut({
-								fetchOptions: {
-									onSuccess: () => {
-										navigate({
-											to: "/",
-										});
-									},
-								},
-							});
+						onClick={async () => {
+							await signOutAndClear(queryClient);
+							navigate({ to: "/login" });
 						}}
 					>
 						Sign Out

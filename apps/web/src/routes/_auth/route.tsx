@@ -1,19 +1,15 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 import { LockGate, useLockHotkey } from "@/components/lock-screen";
 import { usePrivacyHotkey } from "@/components/privacy-toggle";
 import { MobileBar, Sidebar } from "@/components/sidebar";
-import { authClient } from "@/lib/auth-client";
+import { requireSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_auth")({
 	component: AuthLayout,
-	beforeLoad: async () => {
-		const session = await authClient.getSession();
-		if (!session.data) {
-			throw redirect({ to: "/login" });
-		}
-		return { session };
-	},
+	beforeLoad: async ({ context }) => ({
+		session: await requireSession(context.queryClient),
+	}),
 });
 
 function AuthLayout() {

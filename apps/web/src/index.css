@@ -208,3 +208,33 @@
 .font-display {
 	font-optical-sizing: auto;
 }
+
+/*
+ * The top-of-screen loading bar. It cannot know how long a load will take, so it runs toward 90% on a
+ * decelerating curve — moving fast early, so a click visibly registers, then crawling — and jumps to full
+ * and fades when the load ends. It never reaches the end on its own, so it never claims to be done early.
+ */
+@keyframes nav-progress-run {
+	from {
+		transform: scaleX(0);
+	}
+	to {
+		transform: scaleX(0.9);
+	}
+}
+.nav-progress-run {
+	animation: nav-progress-run 8s cubic-bezier(0.08, 0.8, 0.2, 1) forwards;
+}
+.nav-progress-done {
+	transform: scaleX(1);
+	opacity: 0;
+	transition: opacity 300ms ease-out 120ms;
+}
+/* No travel, just presence: a steady bar still says "loading" without moving. */
+@media (prefers-reduced-motion: reduce) {
+	.nav-progress-run {
+		animation: none;
+		transform: scaleX(1);
+		opacity: 0.6;
+	}
+}

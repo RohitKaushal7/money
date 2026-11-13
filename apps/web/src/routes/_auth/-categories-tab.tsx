@@ -46,8 +46,9 @@ export function CategoriesTab() {
 		}
 		return m;
 	}, [cats]);
+	// Everything, not just the list: a category's name and colour show up across spending and transactions.
 	const invalidate = () => {
-		qc.invalidateQueries({ queryKey: orpc.categories.list.queryKey() });
+		qc.invalidateQueries();
 	};
 
 	const [label, setLabel] = useState("");
