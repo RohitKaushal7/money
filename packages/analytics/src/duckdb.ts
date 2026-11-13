@@ -29,10 +29,20 @@ export interface DuckConnection {
 	close(): Promise<void>;
 }
 
-/** DuckDB's JS values are already native; make them JSON-safe (Date -> ISO string, bigint -> number). */
+/**
+ * DuckDB's JS values are already native; make them JSON-safe. A Date becomes an ISO string. A bigint (BIGINT,
+ * UBIGINT, HUGEINT: counts, sums of integers) becomes a number when it is a safe integer, which every real
+ * figure here is, and otherwise its exact decimal string, since a number would silently round it. DECIMAL
+ * columns arrive as JS numbers already (`getRowObjectsJS`), so one wider than ~15 significant digits is
+ * rounded before it gets here; DECIMAL(18,2) rupee amounts are exact up to ~₹90 trillion.
+ * Only top-level values are converted; a bigint inside a LIST or STRUCT is left as is.
+ */
 function normalize(value: unknown): unknown {
 	if (value instanceof Date) return value.toISOString();
-	if (typeof value === "bigint") return Number(value);
+	if (typeof value === "bigint") {
+		const n = Number(value);
+		return Number.isSafeInteger(n) ? n : value.toString();
+	}
 	return value;
 }
 

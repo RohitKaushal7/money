@@ -70,6 +70,16 @@ describe("runSandboxedQuery", () => {
 		]);
 	});
 
+	test("an integer past 2^53 comes back as its exact digits, at the top level and nested", async () => {
+		const result = await runSandboxedQuery(
+			dbPath,
+			"SELECT 9007199254740993::BIGINT AS big, [9007199254740993::BIGINT] AS list, 7::BIGINT AS small",
+		);
+		expect(result.rows).toEqual([
+			{ big: "9007199254740993", list: ["9007199254740993"], small: 7 },
+		]);
+	});
+
 	test("views are readable", async () => {
 		const result = await runSandboxedQuery(dbPath, "SELECT spent FROM v_spend");
 		expect(result.rows).toEqual([{ spent: 120.5 }]);
