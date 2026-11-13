@@ -9,7 +9,7 @@ import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -50,6 +50,13 @@ const version = appVersion();
 // Claude Code's MCP endpoint. Registered before the `/*` middleware below so a request here never builds a
 // cookie session or falls through to the SPA: /mcp authenticates with a Bearer access token and nothing else.
 app.all("/mcp", (c) => handleMcp(c.req.raw, { version }));
+
+// An MCP client probes for OAuth before it uses its Bearer token. /mcp has no OAuth, so those probes, and any
+// other path under /mcp, get a plain 404 here rather than the SPA's index.html with a 200 below.
+const notFound = (c: Context) => c.text("Not Found", 404);
+app.all("/.well-known/oauth-*", notFound);
+app.all("/.well-known/openid-configuration", notFound);
+app.all("/mcp/*", notFound);
 
 export const apiHandler = new OpenAPIHandler(appRouter, {
 	plugins: [

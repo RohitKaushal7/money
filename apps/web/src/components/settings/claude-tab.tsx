@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ArmedDelete } from "@/components/armed-delete";
 import { Field, Section, TextInput } from "@/components/settings/section";
+import { useIsAdmin } from "@/components/sidebar";
 import { useMoney } from "@/lib/currency";
 import { formatRate, formatRelativeTime } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -63,6 +64,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 function Tokens() {
 	const qc = useQueryClient();
 	const list = useQuery(orpc.tokens.list.queryOptions());
+	const isAdmin = useIsAdmin();
 
 	const [name, setName] = useState("");
 	const [scope, setScope] = useState<Scope>("read");
@@ -97,11 +99,20 @@ function Tokens() {
 
 	return (
 		<Section title="Tokens">
-			<p className="max-w-lg text-muted-foreground text-sm">
-				A token lets Claude Code read your data, and with write access change
-				your holdings and recurring expenses. Make one per tool, and revoke it
-				when you stop using it.
-			</p>
+			<div className="flex max-w-lg flex-col gap-2 text-muted-foreground text-sm">
+				<p>
+					A token lets Claude Code read your data. With write access it can
+					change anything you can change in the app. Only changes to holdings
+					and recurring expenses can be undone. Make one per tool, and revoke it
+					when you stop using it.
+				</p>
+				{isAdmin && (
+					<p>
+						You're an admin, so a write token can also change the currencies and
+						exchange rates that every user of this install shares.
+					</p>
+				)}
+			</div>
 
 			<form
 				className="flex flex-col gap-3"
@@ -185,7 +196,11 @@ function Tokens() {
 							type="button"
 							size="sm"
 							variant="ghost"
-							onClick={() => setFresh(null)}
+							onClick={() => {
+								setFresh(null);
+								// The mutation keeps its result too; drop it so the token is gone from memory.
+								create.reset();
+							}}
 						>
 							I've saved it
 						</Button>

@@ -59,7 +59,8 @@ const BASE =
 const INACTIVE = `${BASE} text-muted-foreground hover:bg-secondary/50 hover:text-foreground`;
 const ACTIVE = `${BASE} bg-secondary font-medium text-secondary-foreground`;
 
-function useIsAdmin() {
+/** Whether the signed-in user is an admin of this install. */
+export function useIsAdmin() {
 	const { data: session } = authClient.useSession();
 	return (session?.user as { role?: string } | undefined)?.role === "admin";
 }
