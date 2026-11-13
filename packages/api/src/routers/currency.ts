@@ -5,6 +5,7 @@ import {
 	type RateMap,
 	ratesOf,
 } from "@money/shared";
+import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { adminProcedure, protectedProcedure } from "../index";
@@ -114,7 +115,11 @@ export const currencyRouter = {
 				.select()
 				.from(currencies)
 				.where(eq(currencies.code, input.code));
-			if (!cur?.enabled) throw new Error("currency not enabled");
+			if (!cur?.enabled) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: `${input.code} is not enabled; only an enabled currency can be displayed`,
+				});
+			}
 			await context.appDb
 				.insert(settings)
 				.values({ key: DISPLAY_KEY, value: input.code })
@@ -174,7 +179,11 @@ export const currencyRouter = {
 		})
 		.input(codeInput.extend({ rateToInr: z.number().positive() }))
 		.handler(async ({ context, input }) => {
-			if (input.code === BASE_CURRENCY) throw new Error("INR is the base (=1)");
+			if (input.code === BASE_CURRENCY) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "INR is the base currency; its rate is always 1",
+				});
+			}
 			await context.controlDb
 				.update(currencies)
 				.set({ rateToInr: input.rateToInr })

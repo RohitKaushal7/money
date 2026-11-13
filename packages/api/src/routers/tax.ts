@@ -12,6 +12,7 @@ import {
 	TAX_YEARS,
 	type TaxInputs,
 } from "@money/shared";
+import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
@@ -36,10 +37,21 @@ const ZERO_CG: CapitalGains = {
 };
 const ZERO_DED: Deductions = { s80c: 0, s80d: 0, s80tta: 0, s80dd: 0, hra: 0 };
 
+const FY_LABEL = /^FY(\d{4})-\d{2}$/;
+
+/** A financial-year label as every tax procedure takes it. */
+const fyInput = z
+	.string()
+	.regex(FY_LABEL, 'must be a financial-year label like "FY2025-26"');
+
 /** Start calendar year of a "FY2025-26" label. */
 function fyStartYear(fy: string): number {
-	const m = /^FY(\d{4})-\d{2}$/.exec(fy);
-	if (!m) throw new Error(`bad FY label: ${fy}`);
+	const m = FY_LABEL.exec(fy);
+	if (!m) {
+		throw new ORPCError("BAD_REQUEST", {
+			message: `Bad financial-year label "${fy}"; use one like "FY2025-26"`,
+		});
+	}
 	return Number(m[1]);
 }
 
@@ -189,7 +201,7 @@ export const taxRouter = {
 					'Income figures for a financial year worked out from the owner\'s imported statements, to help fill in the tax profile. Input: `fy` (label like "FY2025-26"; the Indian financial year runs Apr 1 to Mar 31). Returns `{ fy, passive, salaryHint, rent, isCurrent }`: `passive` is the sum of taxable passive-income credits (e.g. interest) in INR, `salaryHint` the salary credits (a hint only, not authoritative), `rent` the rent paid, and `isCurrent` whether `fy` is the current year. All zero when no statements are imported. Read-only.',
 			},
 		})
-		.input(z.object({ fy: z.string() }))
+		.input(z.object({ fy: fyInput }))
 		.handler(async ({ context, input }) => {
 			const { passive, salary, rent } = await ledgerIncome(
 				input.fy,
@@ -213,7 +225,7 @@ export const taxRouter = {
 					'The owner\'s saved tax profile for one financial year, or null if none is saved. Input: `fy` (label like "FY2025-26"). Fields are INR amounts for that year: `salaryIncome`, `otherIncome`, `basicSalary`, `hraReceived`, `rentPaid`, `metro` (lives in a metro city, for HRA), `capitalGains` (equityStcg, equityLtcg, crypto, otherStcg, otherLtcg), `deductions` (s80c, s80d, s80tta, s80dd), `regimeChoice` (old | new | null when not yet chosen) and `notes`.',
 			},
 		})
-		.input(z.object({ fy: z.string() }))
+		.input(z.object({ fy: fyInput }))
 		.handler(
 			async ({ context, input }) =>
 				(await loadProfile(input.fy, context.appDb)) ?? null,
@@ -230,7 +242,7 @@ export const taxRouter = {
 		})
 		.input(
 			z.object({
-				fy: z.string(),
+				fy: fyInput,
 				regimeChoice: z.enum(["old", "new"]).nullish(),
 				salaryIncome: z.number().nullish(),
 				otherIncome: z.number().nullish(),
@@ -261,8 +273,13 @@ export const taxRouter = {
 					'Compare income tax under the old and new regimes for one financial year, from the saved profile plus passive income seen in statements. Input: `fy` (label like "FY2025-26"). Returns `old` and `new` (each regime\'s result, including `totalTax`), the `recommended` regime, `saving` (INR difference between the two), the `breakeven` deduction at which old would match new, `ltcgHeadroom` (equity long-term gains still within the exempt limit), `hraExemption` (INR) and `availableFys` (the years the app has tax rules for). Read-only; amounts are annual INR.',
 			},
 		})
-		.input(z.object({ fy: z.string() }))
+		.input(z.object({ fy: fyInput }))
 		.handler(async ({ context, input }) => {
+			if (!(input.fy in TAX_YEARS)) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: `The app has no tax rules for ${input.fy}; it has them for ${Object.keys(TAX_YEARS).join(", ")}`,
+				});
+			}
 			const [row, ledger] = await Promise.all([
 				loadProfile(input.fy, context.appDb),
 				ledgerIncome(input.fy, context.uid),
@@ -290,7 +307,7 @@ export const taxRouter = {
 					'Lock in the tax regime for a financial year so it stops following the recommendation. Input: `fy` (label like "FY2025-26") and `regimeChoice` (old | new). Only updates an existing profile; if none is saved for that year nothing changes and null is returned (save a profile first). Returns the profile.',
 			},
 		})
-		.input(z.object({ fy: z.string(), regimeChoice: z.enum(["old", "new"]) }))
+		.input(z.object({ fy: fyInput, regimeChoice: z.enum(["old", "new"]) }))
 		.handler(async ({ context, input }) => {
 			await context.appDb
 				.update(taxProfiles)
