@@ -167,6 +167,19 @@ describe("runSandboxedQuery", () => {
 		});
 	}
 
+	test("a refusal names the statement it got, with the right article", async () => {
+		const cases: Array<[string, string]> = [
+			["EXPLAIN SELECT 1", "got an EXPLAIN statement"],
+			["INSERT INTO numbers VALUES (1)", "got an INSERT statement"],
+			["CREATE TABLE t(a int)", "got a CREATE statement"],
+		];
+		for (const [sql, got] of cases) {
+			await expect(runSandboxedQuery(dbPath, sql)).rejects.toThrow(
+				`${ONE_SELECT}; ${got}`,
+			);
+		}
+	});
+
 	test("WITH … SELECT and DuckDB's SELECT shorthands are accepted", async () => {
 		for (const sql of [
 			"WITH a AS (SELECT 1 AS n) SELECT n FROM a",
@@ -190,7 +203,7 @@ describe("runSandboxedQuery", () => {
 		]);
 	});
 
-	test("file logging turned on from inside a SELECT can't take this process down", async () => {
+	test("a SELECT that turns on file logging stays inside its own sandbox process; the next query runs normally", async () => {
 		const sql =
 			"SELECT * FROM enable_logging(storage='file', storage_path='/tmp/zz', level='trace') UNION ALL SELECT NULL FROM range(100000)";
 		await runSandboxedQuery(dbPath, sql).catch((e: Error) => e);

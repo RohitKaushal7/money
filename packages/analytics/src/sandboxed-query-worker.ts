@@ -42,6 +42,7 @@ export interface SandboxRequest {
 export interface SandboxResult {
 	columns: string[];
 	rows: Record<string, unknown>[];
+	/** True when the query had more rows than `maxRows`; only the first `maxRows` are in `rows`. */
 	truncated: boolean;
 }
 
@@ -52,8 +53,11 @@ export type SandboxResponse =
 export const ONE_SELECT =
 	"query accepts one SELECT (or WITH … SELECT) statement";
 
-const typeName = (t: StatementType) =>
-	(StatementType[t] ?? "unknown").replaceAll("_", " ");
+/** "a CREATE statement", "an EXPLAIN statement": the statement type with its article. */
+const describeType = (t: StatementType) => {
+	const name = (StatementType[t] ?? "unknown").replaceAll("_", " ");
+	return `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name} statement`;
+};
 
 /** Run the request in this process. Rejects with DuckDB's message, a refusal, or a timeout. */
 export async function executeSandboxed(
@@ -77,7 +81,7 @@ export async function executeSandboxed(
 			try {
 				if (prepared.statementType !== StatementType.SELECT) {
 					throw new Error(
-						`${ONE_SELECT}; got a ${typeName(prepared.statementType)} statement`,
+						`${ONE_SELECT}; got ${describeType(prepared.statementType)}`,
 					);
 				}
 				// Streams chunk by chunk and stops once there is one row past the cap, so an unbounded
