@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,10 +11,12 @@ process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createRouterClient } = await import("@orpc/server");
 const { provisionUserApp } = await import("@money/db/migrate");
-const { marginalRate, TAX_YEARS } = await import("@money/shared");
+const shared = await import("@money/shared");
+const { fyLabelFor, marginalRate, TAX_YEARS } = shared;
 const { appRouter } = await import("./routers/index");
 const { appDbFor, controlDb } = await import("./db");
 const { resolveKpiTaxRate } = await import("./routers/tax");
+const { mcpMetaOf } = await import("./mcp/meta");
 
 /** A label past every year with rules: what the current FY looks like each 1 April until its rules land. */
 const UNRULED = "FY2099-00";
@@ -113,13 +115,57 @@ describe("the after-tax KPI rate when the current FY has no tax rules yet", () =
 	});
 
 	test("getKpiConfig says which year's rules and profile the rate came from", async () => {
-		const { client } = await user("kpi-config");
-		await client.tax.upsert({ fy: LATEST_RULED, ...PROFILE });
+		const { client, appDb } = await user("kpi-config");
+		// The server's own current FY, so this holds whether or not its rules have been added yet.
+		const now = new Date();
+		const today = fyLabelFor(now.getFullYear(), now.getMonth() + 1);
+		const rules = today in TAX_YEARS ? today : LATEST_RULED;
+		await client.tax.upsert({ fy: today, ...PROFILE });
 		const cfg = await client.tax.getKpiConfig();
-		expect(cfg.source).toBe("profile");
-		expect(cfg.profileFy).toBe(LATEST_RULED);
-		expect(cfg.rulesFy).toBe(LATEST_RULED);
-		expect(cfg.rate).toBe(expectedRate(LATEST_RULED));
-		expect(typeof cfg.currentFy).toBe("string");
+		expect(cfg).toEqual({
+			enabled: true,
+			rate: expectedRate(rules),
+			source: "profile",
+			profileFy: today,
+			rulesFy: rules,
+			currentFy: today,
+		});
+		expect(cfg).toEqual({
+			enabled: true,
+			...(await resolveKpiTaxRate(appDb, "kpi-config")),
+		});
+	});
+
+	test("a profile that can't be computed falls back to 31.2%, says so, and logs why", async () => {
+		const { client, appDb } = await user("kpi-compute-fails");
+		await client.tax.upsert({ fy: UNRULED, ...PROFILE });
+		const boom = spyOn(shared, "marginalRate").mockImplementation(() => {
+			throw new Error("DuckDB read failed");
+		});
+		const logged = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			expect(
+				await resolveKpiTaxRate(appDb, "kpi-compute-fails", UNRULED),
+			).toEqual({
+				rate: DEFAULT,
+				source: "fallback",
+				profileFy: UNRULED,
+				rulesFy: null,
+				currentFy: UNRULED,
+			});
+			expect(logged).toHaveBeenCalledWith(
+				"[tax] computing the after-tax KPI rate failed; using 31.2%:",
+				expect.objectContaining({ message: "DuckDB read failed" }),
+			);
+		} finally {
+			boom.mockRestore();
+			logged.mockRestore();
+		}
+	});
+
+	test("the getKpiConfig description explains the fallback source", () => {
+		const d = mcpMetaOf(appRouter.tax.getKpiConfig)?.description ?? "";
+		expect(d).toContain("fallback");
+		expect(d).toMatch(/couldn't be computed/);
 	});
 });

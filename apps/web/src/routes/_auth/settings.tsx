@@ -98,14 +98,16 @@ function TaxKpi() {
 				? "Using your override."
 				: k.source === "default"
 					? "No tax profile to compute it from yet, so it uses 31.2%."
-					: [
-							k.profileFy === k.currentFy
-								? `From your ${k.profileFy} tax profile`
-								: `From your ${k.profileFy} tax profile (none saved for ${k.currentFy} yet)`,
-							k.rulesFy === k.currentFy
-								? "."
-								: `, using ${k.rulesFy} rules until ${k.currentFy} rules are added.`,
-						].join("");
+					: k.source === "fallback"
+						? `Couldn't compute it from your ${k.profileFy ? `${k.profileFy} ` : ""}tax profile just now, so it uses 31.2% for the moment.`
+						: [
+								k.profileFy === k.currentFy
+									? `From your ${k.profileFy} tax profile`
+									: `From your ${k.profileFy} tax profile (none saved for ${k.currentFy} yet)`,
+								k.rulesFy === k.currentFy
+									? "."
+									: `, using ${k.rulesFy} rules until ${k.currentFy} rules are added.`,
+							].join("");
 	const [draft, setDraft] = useState("");
 	const shown = draft === "" ? (rate * 100).toFixed(1) : draft;
 	const dirty = draft !== "" && Number(draft) > 0;
@@ -118,8 +120,9 @@ function TaxKpi() {
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<p className="max-w-md text-muted-foreground text-sm">
 					Net FD / bond / interest income by your marginal rate before the
-					coverage ratio. Rate follows your active-FY tax profile unless
-					overridden.
+					coverage ratio. The rate is your override if you set one; otherwise
+					it's computed from this FY's tax profile or, without one, your most
+					recent saved profile; with no profile at all it's 31.2%.
 					{basis && <span className="mt-1 block text-xs">{basis}</span>}
 				</p>
 				<button
