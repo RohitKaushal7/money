@@ -139,13 +139,17 @@ const recurringInput = z.object({
 	category: z.string().optional(),
 	amount: z.number(),
 	currency: z.string().optional(),
-	cadence: z
-		.enum(["monthly", "quarterly", "half_yearly", "yearly"])
-		.default("monthly"),
+	cadence: z.enum(["monthly", "quarterly", "half_yearly", "yearly"]),
 	active: z.boolean().optional(),
 	startDate: z.string().optional(),
 	endDate: z.string().optional(),
 	source: z.enum(["manual", "seeded"]).optional(),
+});
+
+// The monthly default belongs to *adding* an expense only. Zod applies `.default()` even under
+// `.partial()`, so keeping it on the shared schema made a partial edit silently reset the cadence.
+const newRecurringInput = recurringInput.extend({
+	cadence: recurringInput.shape.cadence.default("monthly"),
 });
 
 const idInput = z.object({ id: z.coerce.number().int().positive() });
@@ -329,7 +333,7 @@ export const planRouter = {
 				description: `Add a recurring expense — a committed outflow the passive income has to cover — to the owner's plan. Returns the new expense with its id. ${RECURRING_FIELDS} Required: name, amount.`,
 			},
 		})
-		.input(recurringInput)
+		.input(newRecurringInput)
 		.handler(async ({ context, input }) => {
 			const [row] = await context.appDb
 				.insert(recurringExpenses)
