@@ -58,6 +58,26 @@ const requireUnlocked = o.middleware(async ({ context, next }) => {
 });
 
 /**
+ * A read-only access token can't run a write. `/mcp` already refuses a write tool for such a token before
+ * calling it; this is the same rule where every procedure call passes, so a write reached some other way
+ * (a nested router client, a tool added later) is refused before its handler runs. Browser sessions have
+ * no `via` and are unaffected.
+ */
+const requireWriteScope = o.middleware(
+	async ({ context, next, path, procedure }) => {
+		if (
+			context.via?.scope === "read" &&
+			mcpMetaOf(procedure)?.kind === "write"
+		) {
+			throw new ORPCError("FORBIDDEN", {
+				message: `This access token is read-only (scope "read"): ${path.join(".")} changes data, so it needs a token with scope "read_write". Nothing was changed.`,
+			});
+		}
+		return next();
+	},
+);
+
+/**
  * Records every successful `kind: "write"` procedure in the user's change log — from the app and from
  * MCP alike. A write whose meta names an `entity` and `operation` also gets the raw row before and after,
  * which is what makes it undoable.
@@ -154,11 +174,11 @@ const logWrites = os
 
 export const protectedProcedure = authedProcedure
 	.use(requireUnlocked)
+	.use(requireWriteScope)
 	.use(logWrites);
 
 const requireAdmin = o.middleware(async ({ context, next }) => {
-	const role = (context.session?.user as { role?: string } | undefined)?.role;
-	if (role !== "admin") {
+	if (context.session?.user.role !== "admin") {
 		throw new ORPCError("FORBIDDEN");
 	}
 	return next();

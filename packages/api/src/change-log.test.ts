@@ -313,6 +313,52 @@ describe("ids and operations come from validated input", () => {
 	});
 });
 
+describe("token scope is enforced on the procedure, not just at /mcp", () => {
+	const readContext = {
+		...tokenContext,
+		via: { kind: "token", tokenId: 2, name: "viewer", scope: "read" },
+	} as unknown as Ctx;
+	const readOnly = createRouterClient(appRouter, { context: readContext });
+
+	test("a read-scope token is refused a write before its handler runs: nothing written or logged", async () => {
+		const n = (await allChanges()).length;
+		let ran = false;
+		const write = protectedProcedure
+			.meta({ mcp: { description: "a write", kind: "write" } })
+			.handler(() => {
+				ran = true;
+				return "done";
+			});
+		await expect(
+			call(write, undefined, { context: readContext }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(ran).toBe(false);
+
+		const holdings = (await db().select().from(investments)).length;
+		await expect(
+			readOnly.plan.addInvestment({
+				name: "Refused",
+				type: "bond",
+				incomeClass: "income",
+				annualRate: 0.1,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(await db().select().from(investments)).toHaveLength(holdings);
+		expect(await allChanges()).toHaveLength(n);
+	});
+
+	test("a read-scope token can still read; a browser session and a read_write token can write", async () => {
+		expect(Array.isArray(await readOnly.plan.investments())).toBe(true);
+		const write = protectedProcedure
+			.meta({ mcp: { description: "a write", kind: "write" } })
+			.handler(() => "done");
+		expect(await call(write, undefined, { context: appContext })).toBe("done");
+		expect(await call(write, undefined, { context: tokenContext })).toBe(
+			"done",
+		);
+	});
+});
+
 describe("changes router", () => {
 	test("list returns newest first and honours the limit", async () => {
 		const list = await mcp.changes.list({ limit: 2 });

@@ -10,8 +10,22 @@ export type CreateContextOptions = {
 /** The screen-lock pass, carried per-request because the client only ever holds it in memory. */
 export const UNLOCK_HEADER = "x-unlock-token";
 
+type AuthSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
+
+/**
+ * Who is calling. A browser sign-in carries Better-Auth's whole session; a call made with an access token
+ * (MCP, see `contextFor`) carries only the token's user, and has no `session` row — no id, expiry or
+ * creation time — so anything that reads `session.session` has to handle its absence.
+ */
+export interface ContextSession {
+	user: Pick<AuthSession["user"], "id" | "email" | "name"> & {
+		role?: string | null;
+	};
+	session?: AuthSession["session"];
+}
+
 export async function createContext({ context }: CreateContextOptions) {
-	const session = await auth.api.getSession({
+	const session: ContextSession | null = await auth.api.getSession({
 		headers: context.req.raw.headers,
 	});
 	return {

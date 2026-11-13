@@ -22,9 +22,9 @@ const { appDbFor, controlDb } = await import("../db");
 const { setPin } = await import("../lock");
 const { dataDir } = await import("../paths");
 const { createToken, revokeToken } = await import("../tokens");
-const { buildProcedureTools, extraTools, mergeTools, toolName } = await import(
-	"./tools"
-);
+const { buildProcedureTools, contextFor, extraTools, mergeTools, toolName } =
+	await import("./tools");
+const { createRouterClient } = await import("@orpc/server");
 const { handleMcp } = await import("./handler");
 
 const PASSWORD = "correct-horse-battery";
@@ -399,6 +399,20 @@ describe("the screen-lock PIN guards browser sessions only", () => {
 	test("a cookie session with a PIN set and no unlock pass is LOCKED", async () => {
 		const r = await rpc("plan/investments", { Cookie: pinned.cookie });
 		expect(r.code).toBe("LOCKED");
+	});
+
+	test("a token context has no session row, and code that reads one copes (never a fresh-session pass)", async () => {
+		const tokenCtx = contextFor({
+			uid: pinned.uid,
+			user: { id: pinned.uid, email: "p", name: "p", role: "user" },
+			via: { kind: "token", tokenId: 0, name: "t", scope: "read" },
+		});
+		expect(tokenCtx.session?.session).toBeUndefined();
+		const client = createRouterClient(appRouter, { context: tokenCtx });
+		expect(await client.lock.claim()).toEqual({
+			configured: true,
+			token: null,
+		});
 	});
 
 	test("the same user's token is not behind the lock", async () => {

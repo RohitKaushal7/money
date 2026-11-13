@@ -52,10 +52,13 @@ const isExcluded = (path: string[]) =>
 	(MCP_EXCLUDED_ROUTERS as readonly string[]).includes(path[0] ?? "") ||
 	(MCP_EXCLUDED_PROCEDURES as readonly string[]).includes(path.join("."));
 
-/** The oRPC context a tool call runs under — what a signed-in browser has, plus `via`, minus the cookie. */
+/**
+ * The oRPC context a tool call runs under — what a signed-in browser has, plus `via`, minus the cookie.
+ * There is no Better-Auth session row behind a token, so `session.session` is absent (see `ContextSession`).
+ */
 export function contextFor(ctx: McpCallContext): Context {
 	return {
-		session: { user: ctx.user } as unknown as Context["session"],
+		session: { user: ctx.user },
 		controlDb: controlDb(),
 		unlockToken: null,
 		via: ctx.via,

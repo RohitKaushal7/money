@@ -43,7 +43,7 @@ export const lockRouter = {
 	claim: authedProcedure.handler(async ({ context }) => {
 		const uid = context.session?.user.id as string;
 		if (!(await hasPin(uid))) return { configured: false, token: null };
-		const fresh = isFreshSession(context.session?.session.createdAt);
+		const fresh = isFreshSession(context.session?.session?.createdAt);
 		return {
 			configured: true,
 			token: fresh ? grantToken(uid) : null,
