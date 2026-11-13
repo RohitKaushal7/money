@@ -570,6 +570,19 @@ describe("describeSchema", () => {
 		expect(await describeSchema(path, run)).toContain("transactions:");
 	});
 
+	test("passes the caller's signal to the sandbox, so a describe its caller gave up on is stopped", async () => {
+		const path = join(dir, "signalled.duckdb");
+		await buildFixture(path);
+		let seen: AbortSignal | undefined;
+		const run: Run = (dbPath, sql, opts) => {
+			seen = opts?.signal;
+			return runSandboxedQuery(dbPath, sql, opts);
+		};
+		const controller = new AbortController();
+		await describeSchema(path, run, { signal: controller.signal });
+		expect(seen).toBe(controller.signal);
+	});
+
 	test("lists each table and view with its columns and types", async () => {
 		const schema = await describeSchema(dbPath);
 		expect(schema).toBe(

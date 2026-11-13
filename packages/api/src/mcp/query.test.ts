@@ -12,7 +12,9 @@ const { userDuckdbPath } = await import("@money/analytics");
 const { ORPCError } = await import("@orpc/server");
 const { dataDir } = await import("../paths");
 const { extraTools } = await import("./tools");
-const { QUERY, QUERY_LOCK_WAIT_MS, runQuery } = await import("./query");
+const { QUERY, QUERY_LOCK_WAIT_MS, runQuery, scrubPaths } = await import(
+	"./query"
+);
 const { runRetag } = await import("../ingest-runner");
 await import("./extra-tools");
 
@@ -213,6 +215,81 @@ describe("query tool", () => {
 			"Catalog Error: Table with name txns does not exist!",
 		);
 		expect(msg).toContain("transactions: txn_id VARCHAR");
+	});
+
+	test("the schema hint is read under the caller's signal too", async () => {
+		seedFile("u-catalog3");
+		let seen: AbortSignal | undefined;
+		const deps: Deps = {
+			run: async () => {
+				throw new Error("Catalog Error: Table with name x does not exist!");
+			},
+			describe: async (_path, _run, opts) => {
+				seen = opts?.signal;
+				return "transactions: txn_id VARCHAR";
+			},
+		};
+		const controller = new AbortController();
+		await failure(
+			runQuery(
+				ctx("u-catalog3"),
+				{ sql: "SELECT * FROM x" },
+				deps,
+				controller.signal,
+			),
+		);
+		expect(seen).toBe(controller.signal);
+	});
+
+	describe("scrubPaths with a short data dir", () => {
+		const dir = "/data";
+		const db = "/data/users/u1/analytics.duckdb";
+
+		test("text that merely starts like the data dir is left alone", () => {
+			for (const text of [
+				"PAYMENT /database refund",
+				"UPI/123/data/x",
+				"/datastore",
+				"NEFT-/data-x",
+			]) {
+				expect(scrubPaths(text, db, dir)).toBe(text);
+			}
+		});
+
+		test("the data dir as a path, and the DB file, are still replaced", () => {
+			expect(
+				scrubPaths(
+					{
+						file: db,
+						wal: `${db}.wal`,
+						other: "/data/control.db",
+						quoted: 'IO Error: "/data/control.db"',
+						bare: "/data",
+						list: `[${db}.wal.recovery, /data/x]`,
+						nested: [{ k: "/data/y" }],
+					},
+					db,
+					dir,
+				),
+			).toEqual({
+				file: "<analytics.duckdb>",
+				wal: "<analytics.duckdb>.wal",
+				other: "<data dir>/control.db",
+				quoted: 'IO Error: "<data dir>/control.db"',
+				bare: "<data dir>",
+				list: "[<analytics.duckdb>.wal.recovery, <data dir>/x]",
+				nested: [{ k: "<data dir>/y" }],
+			});
+		});
+
+		test("a data dir given with a trailing slash is matched the same way", () => {
+			expect(scrubPaths("/data/control.db", db, "/data/")).toBe(
+				"<data dir>/control.db",
+			);
+			expect(scrubPaths("PAYMENT /database", db, "/data/")).toBe(
+				"PAYMENT /database",
+			);
+		});
 	});
 
 	test("a failure to describe the schema still reports the original error", async () => {

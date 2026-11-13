@@ -44,29 +44,49 @@ const LOCK_BUSY =
 
 const live: QueryDeps = { run: runSandboxedQuery, describe: describeSchema };
 
-/** `text` with the server's own paths replaced so they never reach Claude: the user's DB file, then the data dir. */
-function scrub(text: string, dbPath: string): string {
+/**
+ * An error message with the server's own paths replaced so they never reach Claude: the user's DB file, then
+ * the data dir anywhere it appears. An error only echoes paths and Claude's own SQL, so a blunt replace costs
+ * nothing there.
+ */
+function scrubError(text: string, dbPath: string): string {
 	return text
 		.replaceAll(dbPath, "<analytics.duckdb>")
 		.replaceAll(dataDir(), "<data dir>");
 }
 
 /**
- * {@link scrub} over every string in a result, nested ones included: DuckDB hands the file path back as
- * data (`PRAGMA database_list`, `duckdb_databases()`, `allowed_paths` in `duckdb_settings()`).
+ * `value` with the server's paths replaced in every string, nested ones and object keys included: DuckDB
+ * hands the file path back as data (`PRAGMA database_list`, `duckdb_databases()`, `allowed_paths` in
+ * `duckdb_settings()`). Unlike {@link scrubError} this is the owner's data too, so the data dir is replaced
+ * only where it is a whole path: not right after a path character (`UPI/123/data/x`) and followed by `/` or
+ * the end of the text — with `DATA_DIR=/data`, a narration like "PAYMENT /database refund" stays as it is.
  */
-function scrubValue(value: unknown, dbPath: string): unknown {
-	if (typeof value === "string") return scrub(value, dbPath);
-	if (Array.isArray(value)) return value.map((v) => scrubValue(v, dbPath));
-	if (value && typeof value === "object") {
-		return Object.fromEntries(
-			Object.entries(value).map(([k, v]) => [
-				scrub(k, dbPath),
-				scrubValue(v, dbPath),
-			]),
-		);
-	}
-	return value;
+export function scrubPaths(
+	value: unknown,
+	dbPath: string,
+	dir: string = dataDir(),
+): unknown {
+	// A DATA_DIR given with a trailing slash still names the same dir; `/` alone names nothing to hide.
+	const bare = dir.replace(/\/+$/, "");
+	const literal = bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const dirAsPath = bare
+		? new RegExp(`(?<![\\w./-])${literal}(?=/|$)`, "g")
+		: null;
+	const walk = (v: unknown): unknown => {
+		if (typeof v === "string") {
+			const s = v.replaceAll(dbPath, "<analytics.duckdb>");
+			return dirAsPath ? s.replace(dirAsPath, "<data dir>") : s;
+		}
+		if (Array.isArray(v)) return v.map(walk);
+		if (v && typeof v === "object") {
+			return Object.fromEntries(
+				Object.entries(v).map(([k, x]) => [walk(k), walk(x)]),
+			);
+		}
+		return v;
+	};
+	return walk(value);
 }
 
 /**
@@ -108,14 +128,17 @@ export async function runQuery(
 			const result = await deps.run(dbPath, sql, { signal });
 			return {
 				...result,
-				columns: result.columns.map((c) => scrub(c, dbPath)),
-				rows: scrubValue(result.rows, dbPath) as typeof result.rows,
+				columns: scrubPaths(result.columns, dbPath) as string[],
+				rows: scrubPaths(result.rows, dbPath) as typeof result.rows,
 			};
 		} catch (e) {
-			let message = scrub(e instanceof Error ? e.message : String(e), dbPath);
+			let message = scrubError(
+				e instanceof Error ? e.message : String(e),
+				dbPath,
+			);
 			if (message.startsWith("Catalog Error")) {
 				try {
-					message += `\n\nTables and columns:\n${await deps.describe(dbPath)}`;
+					message += `\n\nTables and columns:\n${await deps.describe(dbPath, undefined, { signal })}`;
 				} catch {
 					// The original error is what matters; the schema is only a hint.
 				}

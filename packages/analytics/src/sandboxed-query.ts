@@ -260,11 +260,13 @@ function fileVersion(dbPath: string): string {
  * Every table and view in the DB with its columns and types, one per line:
  * `transactions: txn_id VARCHAR, txn_date DATE, …`, with views marked `(view)`. Read through the same sandbox,
  * once per version of the file (see {@link fileVersion}): the schema only changes when an ingest rewrites it.
- * A failed read is not remembered. `run` is for tests.
+ * A failed read is not remembered. `run` is for tests; `opts.signal` is the caller's, as for
+ * {@link runSandboxedQuery}: once it aborts, the read never starts or is killed.
  */
 export async function describeSchema(
 	dbPath: string,
 	run: typeof runSandboxedQuery = runSandboxedQuery,
+	opts: { signal?: AbortSignal } = {},
 ): Promise<string> {
 	// Taken before the read, so a file that changes during it is read again next time.
 	const version = fileVersion(dbPath);
@@ -278,7 +280,7 @@ export async function describeSchema(
 			ON t.table_catalog = c.table_catalog AND t.table_schema = c.table_schema AND t.table_name = c.table_name
 		WHERE c.table_catalog = current_database() AND c.table_schema = 'main'
 		ORDER BY c.table_name, c.ordinal_position`,
-		{ maxRows: 10_000 },
+		{ maxRows: 10_000, signal: opts.signal },
 	);
 	const tables = new Map<string, { view: boolean; columns: string[] }>();
 	for (const row of rows) {
