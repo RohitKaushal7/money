@@ -3,7 +3,7 @@ import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
-import { categoryKinds } from "../category-kinds";
+import { categoryKinds, kindAtWrite } from "../category-kinds";
 import { protectedProcedure } from "../index";
 
 /**
@@ -56,7 +56,8 @@ export const splitsRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
-			// Before anything is written: an unknown key refuses the whole call.
+			// Before anything is written: an unknown key refuses the whole call. Each line's stored kind is read by
+			// the insert itself (`kindAtWrite`), so a kind change landing after this check isn't lost.
 			const kindOf = await categoryKinds(
 				context.appDb,
 				input.lines.map((l) => l.categoryKey),
@@ -88,7 +89,7 @@ export const splitsRouter = {
 						txnId: input.txnId,
 						seq: i,
 						amount: l.amount,
-						kind: kindOf(l.categoryKey),
+						kind: kindAtWrite(l.categoryKey, kindOf(l.categoryKey)),
 						categoryKey: l.categoryKey,
 						cashflowType: l.cashflowType ?? null,
 						note: l.note ?? null,

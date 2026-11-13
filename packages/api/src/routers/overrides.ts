@@ -1,7 +1,7 @@
 import { transactionOverrides } from "@money/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { categoryKinds } from "../category-kinds";
+import { categoryKinds, kindAtWrite } from "../category-kinds";
 import { protectedProcedure } from "../index";
 
 /**
@@ -42,8 +42,10 @@ export const overridesRouter = {
 			}),
 		)
 		.handler(async ({ context, input }) => {
+			// Refuses an unknown key before writing; the kind stored is read by the write itself (no lost race
+			// with a kind change).
 			const kindOf = await categoryKinds(context.appDb, [input.categoryKey]);
-			const kind = kindOf(input.categoryKey);
+			const kind = kindAtWrite(input.categoryKey, kindOf(input.categoryKey));
 			await context.appDb
 				.insert(transactionOverrides)
 				.values({

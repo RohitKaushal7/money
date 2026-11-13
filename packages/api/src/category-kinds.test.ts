@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,12 +11,15 @@ process.env.BETTER_AUTH_SECRET = "test-secret-test-secret-test-secret-0123";
 
 const { createRouterClient } = await import("@orpc/server");
 const { provisionUserApp } = await import("@money/db/migrate");
-const { changeLog, transactionOverrides } = await import("@money/db");
-const { sql } = await import("drizzle-orm");
+const { categories, changeLog, transactionOverrides } = await import(
+	"@money/db"
+);
+const { eq, sql } = await import("drizzle-orm");
 const { applyOverrides } = await import("./routers/reconcile");
 const { appRouter } = await import("./routers/index");
 const { appDbFor, controlDb } = await import("./db");
 const { mcpMetaOf } = await import("./mcp/meta");
+const categoryKindsModule = await import("./category-kinds");
 
 const uid = "category-kinds-u";
 const app = createRouterClient(appRouter, {
@@ -189,6 +192,79 @@ describe("changing a category's kind", () => {
 		expect(row?.kind).toBe("expense");
 		expect(await overrideKind(`O-${tag}`)).toBe("expense");
 		expect((await splitKinds(`S-${tag}`))[0]).toEqual([cat.key, "expense"]);
+	});
+
+	/** Let the handler look the kinds up, then change the category's kind before it writes — the race. */
+	function kindChangeAfterLookup(id: number, kind: "active_income") {
+		const lookup = categoryKindsModule.categoryKinds;
+		return spyOn(categoryKindsModule, "categoryKinds").mockImplementationOnce(
+			async (...args) => {
+				const kindOf = await lookup(...args);
+				await app.categories.update({ id, kind });
+				return kindOf;
+			},
+		);
+	}
+
+	test("an override stores the kind the category has as it is written, not as it was looked up", async () => {
+		const cat = await app.categories.create({
+			label: "Race Override",
+			kind: "expense",
+		});
+		if (!cat) throw new Error("create failed");
+		const spy = kindChangeAfterLookup(cat.id, "active_income");
+		try {
+			await app.overrides.set({ txnId: "O-race", categoryKey: cat.key });
+			expect(spy).toHaveBeenCalledTimes(1);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await overrideKind("O-race")).toBe("active_income");
+	});
+
+	test("split lines store the kind their category has as they are written, not as it was looked up", async () => {
+		const cat = await app.categories.create({
+			label: "Race Split",
+			kind: "expense",
+		});
+		if (!cat) throw new Error("create failed");
+		const spy = kindChangeAfterLookup(cat.id, "active_income");
+		try {
+			await app.splits.set({
+				txnId: "S-race",
+				lines: [
+					{ amount: 3, categoryKey: cat.key },
+					{ amount: 7, categoryKey: "rent" },
+				],
+			});
+			expect(spy).toHaveBeenCalledTimes(1);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await splitKinds("S-race")).toEqual([
+			[cat.key, "active_income"],
+			["rent", "expense"],
+		]);
+	});
+
+	test("a built-in key missing from the owner's table still gets its built-in kind", async () => {
+		const [seeded] = await db()
+			.select()
+			.from(categories)
+			.where(eq(categories.key, "rent"));
+		if (!seeded) throw new Error("rent is not seeded");
+		await db().delete(categories).where(eq(categories.key, "rent"));
+		try {
+			await app.overrides.set({ txnId: "O-unseeded", categoryKey: "rent" });
+			await app.splits.set({
+				txnId: "S-unseeded",
+				lines: [{ amount: 5, categoryKey: "rent" }],
+			});
+		} finally {
+			await db().insert(categories).values(seeded);
+		}
+		expect(await overrideKind("O-unseeded")).toBe("expense");
+		expect(await splitKinds("S-unseeded")).toEqual([["rent", "expense"]]);
 	});
 
 	test("the description says a kind change updates overrides and split lines", () => {

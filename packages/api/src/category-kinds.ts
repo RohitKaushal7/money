@@ -1,7 +1,7 @@
 import { type AppDb, categories } from "@money/db";
 import { CATEGORY_BY_KEY } from "@money/shared";
 import { ORPCError } from "@orpc/server";
-import { inArray } from "drizzle-orm";
+import { inArray, type SQL, sql } from "drizzle-orm";
 
 /**
  * Each category key's kind, from the owner's own categories (`app.db` — the built-ins are seeded there too,
@@ -39,4 +39,14 @@ export async function categoryKinds(
 			throw new Error(`category key "${key}" was not looked up`);
 		return kind;
 	};
+}
+
+/**
+ * A stored kind as an SQL value: `key`'s kind in the owner's categories at the moment the write runs, so a
+ * kind change committed between the {@link categoryKinds} check and the write can't leave the old kind behind
+ * (the `categories.update` re-stamp would already have run). `checked` — the kind `categoryKinds` gave — covers
+ * a key the owner's table lacks, i.e. a built-in that isn't seeded there.
+ */
+export function kindAtWrite(key: string, checked: string): SQL<string> {
+	return sql<string>`coalesce((select ${categories.kind} from ${categories} where ${categories.key} = ${key}), ${checked})`;
 }
