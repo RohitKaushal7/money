@@ -36,11 +36,29 @@ export interface QueryDeps {
 
 const live: QueryDeps = { run: runSandboxedQuery, describe: describeSchema };
 
-/** DuckDB's message, with the server's own paths replaced so they never reach Claude. */
-function scrub(message: string, dbPath: string): string {
-	return message
-		.replaceAll(dbPath, "analytics.duckdb")
+/** `text` with the server's own paths replaced so they never reach Claude: the user's DB file, then the data dir. */
+function scrub(text: string, dbPath: string): string {
+	return text
+		.replaceAll(dbPath, "<analytics.duckdb>")
 		.replaceAll(dataDir(), "<data dir>");
+}
+
+/**
+ * {@link scrub} over every string in a result, nested ones included: DuckDB hands the file path back as
+ * data (`PRAGMA database_list`, `duckdb_databases()`, `allowed_paths` in `duckdb_settings()`).
+ */
+function scrubValue(value: unknown, dbPath: string): unknown {
+	if (typeof value === "string") return scrub(value, dbPath);
+	if (Array.isArray(value)) return value.map((v) => scrubValue(v, dbPath));
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([k, v]) => [
+				scrub(k, dbPath),
+				scrubValue(v, dbPath),
+			]),
+		);
+	}
+	return value;
 }
 
 /**
@@ -74,7 +92,12 @@ export async function runQuery(
 	const { sql } = parsed.data;
 	return withUserLock(ctx.uid, async () => {
 		try {
-			return await deps.run(dbPath, sql);
+			const result = await deps.run(dbPath, sql);
+			return {
+				...result,
+				columns: result.columns.map((c) => scrub(c, dbPath)),
+				rows: scrubValue(result.rows, dbPath) as typeof result.rows,
+			};
 		} catch (e) {
 			let message = scrub(e instanceof Error ? e.message : String(e), dbPath);
 			if (message.startsWith("Catalog Error")) {

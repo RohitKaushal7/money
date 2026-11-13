@@ -140,6 +140,51 @@ describe("query tool", () => {
 		expect(msg).toContain("analytics.duckdb");
 	});
 
+	test("the server's paths in result values (PRAGMA database_list, duckdb_settings()) are replaced", async () => {
+		const path = seedFile("u-paths");
+		const dir = dataDir();
+		const deps: Deps = {
+			run: async () => ({
+				columns: ["name", "file", path],
+				rows: [
+					{
+						name: "analytics",
+						file: path,
+						allowed: `[${path}.wal.recovery, ${path}.wal.checkpoint]`,
+						other: `${dir}/control.db`,
+						nested: { list: [path, 3], keep: "Groceries" },
+						n: 7,
+						none: null,
+					},
+				],
+				truncated: false,
+			}),
+			describe: async () => "",
+		};
+		const result = await runQuery(
+			ctx("u-paths"),
+			{ sql: "PRAGMA database_list" },
+			deps,
+		);
+		expect(JSON.stringify(result)).not.toContain(dir);
+		expect(result).toEqual({
+			columns: ["name", "file", "<analytics.duckdb>"],
+			rows: [
+				{
+					name: "analytics",
+					file: "<analytics.duckdb>",
+					allowed:
+						"[<analytics.duckdb>.wal.recovery, <analytics.duckdb>.wal.checkpoint]",
+					other: "<data dir>/control.db",
+					nested: { list: ["<analytics.duckdb>", 3], keep: "Groceries" },
+					n: 7,
+					none: null,
+				},
+			],
+			truncated: false,
+		});
+	});
+
 	test("a timeout is reported as such", async () => {
 		seedFile("u-slow");
 		const deps: Deps = {
