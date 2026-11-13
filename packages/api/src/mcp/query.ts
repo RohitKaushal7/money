@@ -45,22 +45,13 @@ const LOCK_BUSY =
 const live: QueryDeps = { run: runSandboxedQuery, describe: describeSchema };
 
 /**
- * An error message with the server's own paths replaced so they never reach Claude: the user's DB file, then
- * the data dir anywhere it appears. An error only echoes paths and Claude's own SQL, so a blunt replace costs
- * nothing there.
- */
-function scrubError(text: string, dbPath: string): string {
-	return text
-		.replaceAll(dbPath, "<analytics.duckdb>")
-		.replaceAll(dataDir(), "<data dir>");
-}
-
-/**
- * `value` with the server's paths replaced in every string, nested ones and object keys included: DuckDB
- * hands the file path back as data (`PRAGMA database_list`, `duckdb_databases()`, `allowed_paths` in
- * `duckdb_settings()`). Unlike {@link scrubError} this is the owner's data too, so the data dir is replaced
- * only where it is a whole path: not right after a path character (`UPI/123/data/x`) and followed by `/` or
- * the end of the text — with `DATA_DIR=/data`, a narration like "PAYMENT /database refund" stays as it is.
+ * `value` with the server's own paths replaced so they never reach Claude, in every string, nested ones and
+ * object keys included. Used on results, where DuckDB hands the file path back as data (`PRAGMA
+ * database_list`, `duckdb_databases()`, `allowed_paths` in `duckdb_settings()`), and on error messages.
+ * The user's DB file is replaced anywhere. Both can also carry the owner's own text (a row value, or a
+ * conversion error echoing one), so the data dir is replaced only where it is a whole path: not right after
+ * a path character (`UPI/123/data/x`) and followed by `/` or the end of the text — with `DATA_DIR=/data`, a
+ * narration like "PAYMENT /database refund" stays as it is.
  */
 export function scrubPaths(
 	value: unknown,
@@ -132,10 +123,10 @@ export async function runQuery(
 				rows: scrubPaths(result.rows, dbPath) as typeof result.rows,
 			};
 		} catch (e) {
-			let message = scrubError(
+			let message = scrubPaths(
 				e instanceof Error ? e.message : String(e),
 				dbPath,
-			);
+			) as string;
 			if (message.startsWith("Catalog Error")) {
 				try {
 					message += `\n\nTables and columns:\n${await deps.describe(dbPath, undefined, { signal })}`;

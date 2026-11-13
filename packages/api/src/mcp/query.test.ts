@@ -241,6 +241,25 @@ describe("query tool", () => {
 		expect(seen).toBe(controller.signal);
 	});
 
+	test("an error echoing the owner's data keeps text that only looks like the data dir", async () => {
+		const path = seedFile("u-err-data");
+		const dir = dataDir();
+		const deps: Deps = {
+			run: async () => {
+				throw new Error(
+					`Conversion Error: Could not convert string '${dir}base refund' to INT32 in "${path}" (${dir}/x)`,
+				);
+			},
+			describe: async () => "",
+		};
+		const e = await failure(
+			runQuery(ctx("u-err-data"), { sql: "SELECT 1" }, deps),
+		);
+		expect((e as Error).message).toBe(
+			`Conversion Error: Could not convert string '${dir}base refund' to INT32 in "<analytics.duckdb>" (<data dir>/x)`,
+		);
+	});
+
 	describe("scrubPaths with a short data dir", () => {
 		const dir = "/data";
 		const db = "/data/users/u1/analytics.duckdb";
