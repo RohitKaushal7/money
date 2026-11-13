@@ -22,6 +22,7 @@ import { setupRouter } from "./setup";
 import { spendingRouter } from "./spending";
 import { splitsRouter } from "./splits";
 import { taxRouter } from "./tax";
+import { tokensRouter } from "./tokens";
 
 export const appRouter = {
 	healthCheck: publicProcedure.handler(() => {
@@ -54,6 +55,7 @@ export const appRouter = {
 	accounts: accountsRouter,
 	export: exportRouter,
 	setup: setupRouter,
+	tokens: tokensRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;
