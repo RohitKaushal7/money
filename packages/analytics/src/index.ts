@@ -44,6 +44,7 @@ export type {
 } from "./sandboxed-query";
 export {
 	describeSchema,
+	QUERY_CANCELLED,
 	QUERY_MAX_ROWS,
 	QUERY_TIMEOUT_MS,
 	runSandboxedQuery,

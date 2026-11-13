@@ -93,7 +93,15 @@ function errorResult(name: string, e: unknown): CallToolResult {
 	return text(lines.join("\n"), true);
 }
 
-function createServer(ctx: McpCallContext, version: string): Server {
+/**
+ * `requestSignal` is the HTTP request's: it aborts when the client disconnects. Each call also gets the SDK's
+ * own per-call signal (a `notifications/cancelled`), and a tool sees either one abort.
+ */
+function createServer(
+	ctx: McpCallContext,
+	version: string,
+	requestSignal: AbortSignal,
+): Server {
 	const server = new Server(
 		{ name: "money", version },
 		{ capabilities: { tools: {} }, instructions: MCP_INSTRUCTIONS },
@@ -109,7 +117,7 @@ function createServer(ctx: McpCallContext, version: string): Server {
 		})),
 	}));
 
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+	server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 		const { name, arguments: args } = request.params;
 		const tool = tools.find((t) => t.name === name);
 		if (!tool) {
@@ -122,7 +130,8 @@ function createServer(ctx: McpCallContext, version: string): Server {
 			);
 		}
 		try {
-			return text(toJson(await tool.run(ctx, args)));
+			const signal = AbortSignal.any([extra.signal, requestSignal]);
+			return text(toJson(await tool.run(ctx, args, signal)));
 		} catch (e) {
 			return errorResult(name, e);
 		}
@@ -156,6 +165,7 @@ export async function handleMcp(
 	const server = createServer(
 		{ uid: verified.user.id, user: verified.user, via: verified.via },
 		opts.version,
+		request.signal,
 	);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,

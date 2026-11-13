@@ -38,20 +38,71 @@ interface ProcEvents {
 // Per-user serialisation: each user's run is chained after that user's previous run settles (success OR failure).
 const tails = new Map<string, Promise<unknown>>();
 
+/** {@link withUserLock} waited its `maxWaitMs` and the lock was still held. */
+export class LockWaitTimeout extends Error {
+	constructor(maxWaitMs: number) {
+		super(`Waited ${maxWaitMs / 1000}s for this account's data to be free`);
+		this.name = "LockWaitTimeout";
+	}
+}
+
+export interface UserLockOptions {
+	/** Give up with {@link LockWaitTimeout} if the lock isn't free by then. Unset (ingests): wait as long as it takes. */
+	maxWaitMs?: number;
+	/** Give up, with the signal's reason, if it aborts before the lock is free: the caller is gone. */
+	signal?: AbortSignal;
+}
+
+const noop = () => undefined;
+
 /**
  * Run `fn` once every earlier holder of `uid`'s lock has settled, success or failure. Everything that opens a
  * user's analytics file from a separate process takes it — ingests, re-tags and the MCP `query` sandbox — so a
  * query never makes an ingest fail with "Could not set lock on file", and vice versa.
+ *
+ * A caller that gives up waiting (`maxWaitMs`, `signal`) never runs `fn`, and holders queued after it still
+ * wait for the ones before it. Once `fn` has started, neither option affects it.
  */
-export function withUserLock<T>(uid: string, fn: () => Promise<T>): Promise<T> {
-	const prev = tails.get(uid) ?? Promise.resolve();
-	const run = prev.then(fn, fn);
+export function withUserLock<T>(
+	uid: string,
+	fn: () => Promise<T>,
+	{ maxWaitMs, signal }: UserLockOptions = {},
+): Promise<T> {
+	const prev = (tails.get(uid) ?? Promise.resolve()).then(noop, noop);
+	const run = new Promise<T>((resolve, reject) => {
+		let waiting = true;
+		const giveUp = (error: unknown) => {
+			if (!waiting) return;
+			waiting = false;
+			stopWaiting();
+			reject(error);
+		};
+		const onAbort = () => giveUp(signal?.reason);
+		const timer =
+			maxWaitMs === undefined
+				? undefined
+				: setTimeout(() => giveUp(new LockWaitTimeout(maxWaitMs)), maxWaitMs);
+		const stopWaiting = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
+		};
+		if (signal?.aborted) return onAbort();
+		signal?.addEventListener("abort", onAbort, { once: true });
+		prev.then(() => {
+			if (!waiting) return;
+			waiting = false;
+			stopWaiting();
+			try {
+				fn().then(resolve, reject);
+			} catch (e) {
+				reject(e);
+			}
+		});
+	});
+	// The next holder waits for everything before this one, and for `fn` if it ran.
 	tails.set(
 		uid,
-		run.then(
-			() => undefined,
-			() => undefined,
-		),
+		prev.then(() => run.then(noop, noop)),
 	);
 	return run;
 }

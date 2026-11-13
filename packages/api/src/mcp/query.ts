@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
 	describeSchema,
+	QUERY_CANCELLED,
 	QUERY_MAX_ROWS,
 	QUERY_TIMEOUT_MS,
 	runSandboxedQuery,
@@ -10,7 +11,7 @@ import { ORPCError } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { z } from "zod";
 
-import { withUserLock } from "../ingest-runner";
+import { LockWaitTimeout, withUserLock } from "../ingest-runner";
 import { dataDir } from "../paths";
 import {
 	type JSONSchema,
@@ -32,7 +33,14 @@ const inputSchema = z.object({
 export interface QueryDeps {
 	run: typeof runSandboxedQuery;
 	describe: typeof describeSchema;
+	/** How long to wait for the user's lock; {@link QUERY_LOCK_WAIT_MS} when unset. For tests. */
+	lockWaitMs?: number;
 }
+
+/** How long a query waits for the user's ingest lock (an import, a re-tag or their other queries). */
+export const QUERY_LOCK_WAIT_MS = 30_000;
+const LOCK_BUSY =
+	"Query busy: this account's data is being imported, re-tagged or queried; try again in a moment";
 
 const live: QueryDeps = { run: runSandboxedQuery, describe: describeSchema };
 
@@ -69,12 +77,17 @@ function scrubValue(value: unknown, dbPath: string): unknown {
  *
  * It holds the user's ingest lock while it runs: DuckDB refuses a read-write open while the sandbox holds the
  * file read-only, so without it a query would make that user's import or re-tag fail. Queries and ingests
- * for one user take turns; other users are not held up.
+ * for one user take turns; other users are not held up. A query waits at most {@link QUERY_LOCK_WAIT_MS} for
+ * it ("Query busy … try again"); an ingest waits as long as it takes, so a waiting query never fails one.
+ *
+ * `signal` is the caller's: once it aborts (the MCP client gave up), a query still waiting for the lock or a
+ * sandbox slot never starts, and a running one is killed, freeing the lock for the next holder.
  */
 export async function runQuery(
 	ctx: McpCallContext,
 	args: unknown,
 	deps: QueryDeps = live,
+	signal?: AbortSignal,
 ) {
 	const parsed = inputSchema.safeParse(args ?? {});
 	if (!parsed.success) {
@@ -90,9 +103,9 @@ export async function runQuery(
 		});
 	}
 	const { sql } = parsed.data;
-	return withUserLock(ctx.uid, async () => {
+	const query = async () => {
 		try {
-			const result = await deps.run(dbPath, sql);
+			const result = await deps.run(dbPath, sql, { signal });
 			return {
 				...result,
 				columns: result.columns.map((c) => scrub(c, dbPath)),
@@ -109,7 +122,19 @@ export async function runQuery(
 			}
 			throw new ORPCError("BAD_REQUEST", { message });
 		}
-	});
+	};
+	try {
+		return await withUserLock(ctx.uid, query, {
+			maxWaitMs: deps.lockWaitMs ?? QUERY_LOCK_WAIT_MS,
+			signal,
+		});
+	} catch (e) {
+		if (e instanceof ORPCError) throw e;
+		// Gave up waiting for the lock: it is still held, or the caller is gone.
+		throw new ORPCError("BAD_REQUEST", {
+			message: e instanceof LockWaitTimeout ? LOCK_BUSY : QUERY_CANCELLED,
+		});
+	}
 }
 
 const DESCRIPTION = [
@@ -131,5 +156,5 @@ registerExtraTool({
 	description: DESCRIPTION,
 	inputSchema: json as JSONSchema,
 	kind: "read",
-	run: (ctx, args) => runQuery(ctx, args),
+	run: (ctx, args, signal) => runQuery(ctx, args, live, signal),
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { describeSchema, runSandboxedQuery } from "./index";
 import {
 	MAX_CONCURRENT_QUERIES,
 	QUERY_BUSY,
+	QUERY_CANCELLED,
 	QuerySlots,
 	runInSandboxProcess,
 	SANDBOX_CRASHED,
@@ -292,27 +293,103 @@ describe("the sandbox process", () => {
 		).rejects.toThrow(/too large/);
 	});
 
+	/** The children of `marker-worker.ts` that have started so far, one file each in `markers`. */
+	const started = (markers: string) => readdirSync(markers).length;
+	/** Wait (polling, up to 5 s) until `n` children have started. */
+	async function untilStarted(markers: string, n: number): Promise<void> {
+		const deadline = Date.now() + 5_000;
+		while (started(markers) < n) {
+			if (Date.now() > deadline) {
+				throw new Error(`only ${started(markers)} of ${n} children started`);
+			}
+			await Bun.sleep(10);
+		}
+	}
+	/** Settles to the error message (or "" on success), so a test can await it later without it throwing. */
+	const outcome = (p: Promise<unknown>) =>
+		p.then(
+			() => "",
+			(e: Error) => e.message,
+		);
+
 	test(`at most ${MAX_CONCURRENT_QUERIES} children run at once; a third waits for a slot, and its timeout starts when it does`, async () => {
 		expect(MAX_CONCURRENT_QUERIES).toBe(2);
-		const killAfter = 400;
-		const started = Date.now();
-		// Plain promise handlers, not `expect().rejects`, which would wait for each call in turn.
-		const runs = [1, 2, 3].map(() =>
+		const markers = mkdtempSync(join(dir, "markers-"));
+		const req = { ...request(100), dbPath: markers };
+		const [first, second] = [new AbortController(), new AbortController()];
+		const a = outcome(
 			runInSandboxProcess(
-				fixture("hang-worker.ts"),
-				request(100),
-				killAfter,
-			).then(
-				() => ({ error: "", at: Date.now() - started }),
-				(e: Error) => ({ error: e.message, at: Date.now() - started }),
+				fixture("marker-worker.ts"),
+				req,
+				60_000,
+				first.signal,
 			),
 		);
-		const results = await Promise.all(runs);
-		for (const r of results) expect(r.error).toBe("Query timed out after 0.1s");
-		const [a = 0, b = 0, c = 0] = results.map((r) => r.at);
-		// The first two are killed together; the third only starts then, and gets its own full 400 ms.
-		expect(Math.abs(a - b)).toBeLessThan(200);
-		expect(c - Math.max(a, b)).toBeGreaterThanOrEqual(killAfter - 50);
+		const b = outcome(
+			runInSandboxProcess(
+				fixture("marker-worker.ts"),
+				req,
+				60_000,
+				second.signal,
+			),
+		);
+		// The third is killed 300 ms after it starts. It queues for longer than that, so a kill timer that ran
+		// while it queued would have stopped it before the first slot came free.
+		const killAfter = 300;
+		let cDone = false;
+		const c = outcome(
+			runInSandboxProcess(fixture("marker-worker.ts"), req, killAfter),
+		).then((message) => {
+			cDone = true;
+			return message;
+		});
+		await untilStarted(markers, 2);
+		// Only lower bounds on time below: a slow machine can make this test pass for the wrong reason,
+		// never fail for one.
+		await Bun.sleep(killAfter + 100);
+		expect(started(markers)).toBe(2);
+		expect(cDone).toBe(false);
+
+		const freed = Date.now();
+		first.abort();
+		expect(await a).toBe(QUERY_CANCELLED);
+		expect(await c).toBe("Query timed out after 0.1s");
+		expect(Date.now() - freed).toBeGreaterThanOrEqual(killAfter - 10);
+
+		second.abort();
+		expect(await b).toBe(QUERY_CANCELLED);
+	});
+
+	test("a caller that gives up while its query runs has the child killed", async () => {
+		const markers = mkdtempSync(join(dir, "markers-"));
+		const controller = new AbortController();
+		const run = outcome(
+			runInSandboxProcess(
+				fixture("marker-worker.ts"),
+				{ ...request(), dbPath: markers },
+				60_000,
+				controller.signal,
+			),
+		);
+		await untilStarted(markers, 1);
+		controller.abort();
+		expect(await run).toBe(QUERY_CANCELLED);
+	});
+
+	test("a caller that has already gone never starts a child", async () => {
+		const markers = mkdtempSync(join(dir, "markers-"));
+		await expect(
+			runInSandboxProcess(
+				fixture("marker-worker.ts"),
+				{ ...request(), dbPath: markers },
+				60_000,
+				AbortSignal.abort(),
+			),
+		).rejects.toThrow(QUERY_CANCELLED);
+		await expect(
+			runSandboxedQuery(dbPath, "SELECT 1", { signal: AbortSignal.abort() }),
+		).rejects.toThrow(QUERY_CANCELLED);
+		expect(started(markers)).toBe(0);
 	});
 
 	test("a child that exits without a valid answer is reported as a crash", async () => {
@@ -374,6 +451,26 @@ describe("QuerySlots", () => {
 		// The slot went back to the pool, not to the waiter that gave up.
 		const again = slots.acquire();
 		expect(await settled(again)).toBe(true);
+	});
+
+	test("a waiter whose signal aborts gives up at once, and does not take a slot later", async () => {
+		const slots = new QuerySlots(1, 10_000);
+		const release = await slots.acquire();
+		const controller = new AbortController();
+		const waiter = slots.acquire(controller.signal);
+		controller.abort();
+		await expect(waiter).rejects.toThrow(QUERY_CANCELLED);
+		release();
+		const again = slots.acquire();
+		expect(await settled(again)).toBe(true);
+	});
+
+	test("an already-aborted signal is refused even with a slot free, and takes none", async () => {
+		const slots = new QuerySlots(1, 10_000);
+		await expect(slots.acquire(AbortSignal.abort())).rejects.toThrow(
+			QUERY_CANCELLED,
+		);
+		expect(await settled(slots.acquire())).toBe(true);
 	});
 
 	test("releasing twice frees one slot, not two", async () => {

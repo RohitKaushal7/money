@@ -33,7 +33,12 @@ export interface ToolDef {
 	description: string;
 	inputSchema: JSONSchema;
 	kind: McpKind;
-	run(ctx: McpCallContext, args: unknown): Promise<unknown>;
+	/** `signal` aborts when the MCP client gives up on the call; a tool may stop early, or ignore it. */
+	run(
+		ctx: McpCallContext,
+		args: unknown,
+		signal?: AbortSignal,
+	): Promise<unknown>;
 }
 
 const snake = (s: string) =>

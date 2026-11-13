@@ -42,11 +42,14 @@ export const MAX_CONCURRENT_QUERIES = 2;
 export const QUERY_QUEUE_WAIT_MS = 30_000;
 export const QUERY_BUSY =
 	"Query busy: other queries are running; try again in a moment";
+/** The caller went away (its `signal` aborted) before or while its query ran. */
+export const QUERY_CANCELLED = "Query cancelled: the caller went away";
 
 /**
  * A counting semaphore with a cap on how long a caller waits. `acquire()` resolves with a release function
- * once a slot is free (waiters are served in order), or rejects with {@link QUERY_BUSY} after `maxWaitMs`.
- * Releasing more than once is harmless.
+ * once a slot is free (waiters are served in order), or rejects with {@link QUERY_BUSY} after `maxWaitMs`, or
+ * with {@link QUERY_CANCELLED} once `signal` aborts. A caller that gives up never takes a slot. Releasing
+ * more than once is harmless.
  */
 export class QuerySlots {
 	private active = 0;
@@ -57,21 +60,28 @@ export class QuerySlots {
 		private readonly maxWaitMs: number,
 	) {}
 
-	acquire(): Promise<() => void> {
+	acquire(signal?: AbortSignal): Promise<() => void> {
+		if (signal?.aborted) return Promise.reject(new Error(QUERY_CANCELLED));
 		if (this.active < this.max) {
 			this.active++;
 			return Promise.resolve(this.releaser());
 		}
 		return new Promise((resolve, reject) => {
-			const grant = () => {
-				clearTimeout(timer);
-				resolve(this.releaser());
-			};
-			const timer = setTimeout(() => {
+			const giveUp = (message: string) => {
 				const i = this.waiting.indexOf(grant);
 				if (i >= 0) this.waiting.splice(i, 1);
-				reject(new Error(QUERY_BUSY));
-			}, this.maxWaitMs);
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				reject(new Error(message));
+			};
+			const onAbort = () => giveUp(QUERY_CANCELLED);
+			const grant = () => {
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				resolve(this.releaser());
+			};
+			const timer = setTimeout(() => giveUp(QUERY_BUSY), this.maxWaitMs);
+			signal?.addEventListener("abort", onAbort, { once: true });
 			this.waiting.push(grant);
 		});
 	}
@@ -96,6 +106,11 @@ export interface SandboxedQueryOptions {
 	maxRows?: number;
 	/** Stop the query after this long (default 10 000 ms). */
 	timeoutMs?: number;
+	/**
+	 * The caller's: once it aborts, a query still waiting for a slot never starts and a running one is killed,
+	 * both rejecting with {@link QUERY_CANCELLED}.
+	 */
+	signal?: AbortSignal;
 }
 
 export type SandboxedQueryResult = SandboxResult;
@@ -107,18 +122,21 @@ const timedOut = (timeoutMs: number) =>
  * Run `request` in a child process running `workerPath`, and kill it after `killAfterMs`. Resolves with the
  * child's result. Rejects with the child's error message; "Query timed out after Ns" if it had to be
  * killed; a too-large error if its answer passes 32 MB; {@link QUERY_BUSY} if no slot came free in time (see
- * {@link MAX_CONCURRENT_QUERIES}); or {@link SANDBOX_CRASHED} if it exited abnormally or wrote no valid
- * response. Never throws anything else. The kill timer starts when the child does, not while it queues.
+ * {@link MAX_CONCURRENT_QUERIES}); {@link QUERY_CANCELLED} if `signal` aborted first (the child is never
+ * started, or is killed); or {@link SANDBOX_CRASHED} if it exited abnormally or wrote no valid response.
+ * Never throws anything else. The kill timer starts when the child does, not while it queues.
  * Exported for tests, which point it at stub workers.
  */
 export async function runInSandboxProcess(
 	workerPath: string,
 	request: SandboxRequest,
 	killAfterMs: number,
+	signal?: AbortSignal,
 ): Promise<SandboxedQueryResult> {
-	const release = await slots.acquire();
+	const release = await slots.acquire(signal);
 	try {
-		return await spawnSandbox(workerPath, request, killAfterMs);
+		if (signal?.aborted) throw new Error(QUERY_CANCELLED);
+		return await spawnSandbox(workerPath, request, killAfterMs, signal);
 	} finally {
 		release();
 	}
@@ -128,6 +146,7 @@ function spawnSandbox(
 	workerPath: string,
 	request: SandboxRequest,
 	killAfterMs: number,
+	signal?: AbortSignal,
 ): Promise<SandboxedQueryResult> {
 	return new Promise((resolve, reject) => {
 		// Through `sh` only to turn core dumps off: a child that aborts must not write a core file per query.
@@ -149,6 +168,8 @@ function spawnSandbox(
 			() => stop(timedOut(request.timeoutMs)),
 			killAfterMs,
 		);
+		const onAbort = () => stop(new Error(QUERY_CANCELLED));
+		signal?.addEventListener("abort", onAbort, { once: true });
 
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdoutBytes += chunk.length;
@@ -164,8 +185,9 @@ function spawnSandbox(
 		// A child that exits before reading its request makes these error; its exit status says why.
 		child.stdin.on("error", () => {});
 		child.on("error", (e) => stop(e));
-		child.on("close", (code, signal) => {
+		child.on("close", (code, exitSignal) => {
 			clearTimeout(timer);
+			signal?.removeEventListener("abort", onAbort);
 			if (failure) return reject(failure);
 			let response: SandboxResponse | undefined;
 			if (code === 0) {
@@ -179,7 +201,7 @@ function spawnSandbox(
 			}
 			if (!response || typeof response !== "object" || !("ok" in response)) {
 				console.error(
-					`[analytics] sandboxed query exited abnormally (code ${code}, signal ${signal}):`,
+					`[analytics] sandboxed query exited abnormally (code ${code}, signal ${exitSignal}):`,
 					stderr,
 				);
 				return reject(new Error(SANDBOX_CRASHED));
@@ -197,7 +219,8 @@ function spawnSandbox(
  * Returns at most `maxRows` rows, with `truncated` set when there were more. Rejects with DuckDB's own
  * error for anything the sandbox refuses, "query accepts one SELECT …" for anything that is not a single
  * SELECT, "Query timed out after Ns" at the timeout, {@link QUERY_BUSY} if it waited too long for a slot,
- * and {@link SANDBOX_CRASHED} if the query brought the child down. Never creates `dbPath`.
+ * {@link QUERY_CANCELLED} if `opts.signal` aborted, and {@link SANDBOX_CRASHED} if the query brought the
+ * child down. Never creates `dbPath`.
  */
 export async function runSandboxedQuery(
 	dbPath: string,
@@ -209,6 +232,7 @@ export async function runSandboxedQuery(
 		WORKER_PATH,
 		{ dbPath, sql, maxRows: opts.maxRows ?? QUERY_MAX_ROWS, timeoutMs },
 		timeoutMs + KILL_GRACE_MS,
+		opts.signal,
 	);
 }
 

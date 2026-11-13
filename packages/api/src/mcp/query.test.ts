@@ -12,7 +12,7 @@ const { userDuckdbPath } = await import("@money/analytics");
 const { ORPCError } = await import("@orpc/server");
 const { dataDir } = await import("../paths");
 const { extraTools } = await import("./tools");
-const { QUERY, runQuery } = await import("./query");
+const { QUERY, QUERY_LOCK_WAIT_MS, runQuery } = await import("./query");
 const { runRetag } = await import("../ingest-runner");
 await import("./extra-tools");
 
@@ -236,34 +236,63 @@ describe("query tool", () => {
 	describe("takes turns with ingests for the same user", () => {
 		type Spawner = NonNullable<Parameters<typeof runRetag>[1]>;
 
-		/** A query runner and an ingest spawner that log when each starts and ends, and take `ms` each. */
-		function recorders(queryMs: number, ingestMs: number) {
+		/** A promise and the function that settles it, so a test decides when a run finishes. */
+		function gate() {
+			let open!: () => void;
+			const opened = new Promise<void>((resolve) => {
+				open = resolve;
+			});
+			return { opened, open };
+		}
+
+		/** Lets every already-queued promise callback run. */
+		const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+		/**
+		 * A query runner and an ingest spawner that log when each starts and ends. Each ends only when the test
+		 * opens its gate, so the order of events never depends on timing.
+		 */
+		function recorders(
+			opts: { queryFails?: boolean; lockWaitMs?: number } = {},
+		) {
 			const events: string[] = [];
+			const query = gate();
+			const retag = gate();
 			const deps: Deps = {
 				run: async () => {
 					events.push("query:start");
-					await Bun.sleep(queryMs);
+					await query.opened;
 					events.push("query:end");
+					if (opts.queryFails) throw new Error("Query timed out after 10s");
 					return ok;
 				},
 				describe: async () => "",
+				lockWaitMs: opts.lockWaitMs,
 			};
 			const spawner: Spawner = async () => {
 				events.push("retag:start");
-				await Bun.sleep(ingestMs);
+				await retag.opened;
 				events.push("retag:end");
 				return { ok: true, result: null, stdout: "", stderr: "", exitCode: 0 };
 			};
-			return { events, deps, spawner };
+			return { events, deps, spawner, query, retag };
 		}
+
+		test("waits at most 30 s for the lock", () => {
+			expect(QUERY_LOCK_WAIT_MS).toBe(30_000);
+		});
 
 		test("a retag asked for during a query waits for it to finish", async () => {
 			seedFile("u-lock1");
-			const { events, deps, spawner } = recorders(60, 5);
-			await Promise.all([
-				runQuery(ctx("u-lock1"), { sql: "SELECT 1" }, deps),
-				runRetag("u-lock1", spawner),
-			]);
+			const { events, deps, spawner, query, retag } = recorders();
+			const q = runQuery(ctx("u-lock1"), { sql: "SELECT 1" }, deps);
+			await flush();
+			const r = runRetag("u-lock1", spawner);
+			retag.open();
+			await flush();
+			expect(events).toEqual(["query:start"]);
+			query.open();
+			await Promise.all([q, r]);
 			expect(events).toEqual([
 				"query:start",
 				"query:end",
@@ -274,11 +303,15 @@ describe("query tool", () => {
 
 		test("a query asked for during a retag waits for it to finish", async () => {
 			seedFile("u-lock2");
-			const { events, deps, spawner } = recorders(5, 60);
-			await Promise.all([
-				runRetag("u-lock2", spawner),
-				runQuery(ctx("u-lock2"), { sql: "SELECT 1" }, deps),
-			]);
+			const { events, deps, spawner, query, retag } = recorders();
+			const r = runRetag("u-lock2", spawner);
+			await flush();
+			const q = runQuery(ctx("u-lock2"), { sql: "SELECT 1" }, deps);
+			query.open();
+			await flush();
+			expect(events).toEqual(["retag:start"]);
+			retag.open();
+			await Promise.all([r, q]);
 			expect(events).toEqual([
 				"retag:start",
 				"retag:end",
@@ -287,37 +320,92 @@ describe("query tool", () => {
 			]);
 		});
 
-		test("a failed query still lets the retag run", async () => {
+		test("a failed query still lets the retag run, once it has finished", async () => {
 			seedFile("u-lock3");
-			const { events, spawner } = recorders(0, 5);
-			const deps: Deps = {
-				run: async () => {
-					await Bun.sleep(30);
-					throw new Error("Query timed out after 10s");
-				},
-				describe: async () => "",
-			};
-			const [q] = await Promise.allSettled([
-				runQuery(ctx("u-lock3"), { sql: "SELECT 1" }, deps),
-				runRetag("u-lock3", spawner),
+			const { events, deps, spawner, query, retag } = recorders({
+				queryFails: true,
+			});
+			const q = runQuery(ctx("u-lock3"), { sql: "SELECT 1" }, deps);
+			await flush();
+			const r = runRetag("u-lock3", spawner);
+			retag.open();
+			await flush();
+			expect(events).toEqual(["query:start"]);
+			query.open();
+			const [qr, rr] = await Promise.allSettled([q, r]);
+			expect(qr.status).toBe("rejected");
+			expect(rr.status).toBe("fulfilled");
+			expect(events).toEqual([
+				"query:start",
+				"query:end",
+				"retag:start",
+				"retag:end",
 			]);
-			expect(q.status).toBe("rejected");
-			expect(events).toEqual(["retag:start", "retag:end"]);
 		});
 
 		test("another user's retag does not wait", async () => {
 			seedFile("u-lock4");
-			const { events, deps, spawner } = recorders(60, 5);
-			await Promise.all([
-				runQuery(ctx("u-lock4"), { sql: "SELECT 1" }, deps),
-				runRetag("someone-else", spawner),
-			]);
-			expect(events).toEqual([
-				"query:start",
-				"retag:start",
-				"retag:end",
-				"query:end",
-			]);
+			const { events, deps, spawner, query, retag } = recorders();
+			const q = runQuery(ctx("u-lock4"), { sql: "SELECT 1" }, deps);
+			await flush();
+			retag.open();
+			await runRetag("someone-else", spawner);
+			expect(events).toEqual(["query:start", "retag:start", "retag:end"]);
+			query.open();
+			await q;
+			expect(events.at(-1)).toBe("query:end");
+		});
+
+		test("a query that waits too long for the lock gives up as busy and never runs; the retag is unaffected", async () => {
+			seedFile("u-lock5");
+			const { events, deps, spawner, retag } = recorders({ lockWaitMs: 20 });
+			const r = runRetag("u-lock5", spawner);
+			const e = await failure(
+				runQuery(ctx("u-lock5"), { sql: "SELECT 1" }, deps),
+			);
+			expect(e).toBeInstanceOf(ORPCError);
+			expect((e as Error).message).toStartWith("Query busy");
+			expect((e as Error).message).toContain("try again");
+			retag.open();
+			expect((await r).ok).toBe(true);
+			await flush();
+			expect(events).toEqual(["retag:start", "retag:end"]);
+		});
+
+		test("a query whose caller has gone while it waited never runs", async () => {
+			seedFile("u-lock6");
+			const { events, deps, spawner, retag } = recorders();
+			const r = runRetag("u-lock6", spawner);
+			const controller = new AbortController();
+			const q = failure(
+				runQuery(ctx("u-lock6"), { sql: "SELECT 1" }, deps, controller.signal),
+			);
+			controller.abort();
+			expect(await q).toBeInstanceOf(ORPCError);
+			retag.open();
+			await r;
+			await flush();
+			expect(events).toEqual(["retag:start", "retag:end"]);
+		});
+
+		test("the caller's signal reaches the sandbox, so a query it gives up on mid-run is stopped", async () => {
+			seedFile("u-lock7");
+			let seen: AbortSignal | undefined;
+			const deps: Deps = {
+				run: async (_path, _sql, opts) => {
+					seen = opts?.signal;
+					return ok;
+				},
+				describe: async () => "",
+			};
+			const controller = new AbortController();
+			await runQuery(
+				ctx("u-lock7"),
+				{ sql: "SELECT 1" },
+				deps,
+				controller.signal,
+			);
+			expect(seen).toBe(controller.signal);
 		});
 	});
 });

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -26,6 +26,8 @@ const { buildProcedureTools, contextFor, extraTools, mergeTools, toolName } =
 	await import("./tools");
 const { createRouterClient } = await import("@orpc/server");
 const { handleMcp } = await import("./handler");
+const { userDuckdbPath } = await import("@money/analytics");
+const { runRetag } = await import("../ingest-runner");
 
 const PASSWORD = "correct-horse-battery";
 
@@ -413,6 +415,51 @@ describe("/mcp tools/call", () => {
 		);
 		const body = (await res.json()) as { error?: { message: string } };
 		expect(body.error?.message).toContain("no_such_tool");
+	});
+});
+
+describe("/mcp when the client goes away", () => {
+	test("a query still waiting for the user's lock never starts, and the call ends at once", async () => {
+		const path = userDuckdbPath(dataDir(), owner.uid);
+		mkdirSync(dirname(path), { recursive: true });
+		writeFileSync(path, "");
+		// A re-tag holds the user's lock until the test lets it finish.
+		let finish!: () => void;
+		const held = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const retag = runRetag(owner.uid, async () => {
+			await held;
+			return { ok: true, result: null, stdout: "", stderr: "", exitCode: 0 };
+		});
+		const client = new AbortController();
+		const call = handleMcp(
+			new Request("http://localhost:3000/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json, text/event-stream",
+					...bearer(owner.read),
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: ++rpcId,
+					method: "tools/call",
+					params: { name: "query", arguments: { sql: "SELECT 1" } },
+				}),
+				signal: client.signal,
+			}),
+			{ version: "9.9.9" },
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		client.abort();
+		// Without the request's signal this would wait out the 30 s lock wait.
+		const res = await call;
+		const body = (await res.json()) as { result: ToolResult };
+		expect(body.result.isError).toBe(true);
+		expect(body.result.content[0]?.text).toContain("Query cancelled");
+		finish();
+		await retag;
 	});
 });
 
