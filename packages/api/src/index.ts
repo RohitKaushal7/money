@@ -4,8 +4,9 @@ import type { Context } from "./context";
 import { appDbFor } from "./db";
 import { hasPin } from "./lock";
 import { isUnlocked } from "./lock-tokens";
+import { type McpMeta, pinApplies } from "./mcp/meta";
 
-export const o = os.$context<Context>();
+export const o = os.$context<Context>().$meta<McpMeta>({});
 
 export const publicProcedure = o;
 
@@ -34,6 +35,10 @@ export const authedProcedure = publicProcedure.use(requireAuth);
 
 const requireUnlocked = o.middleware(async ({ context, next }) => {
 	const uid = context.session?.user.id;
+	// Token contexts (MCP) are not behind the screen lock.
+	if (!pinApplies(context)) {
+		return next();
+	}
 	// No PIN configured is the default and the common case: nothing is ever locked, and the check costs one
 	// cached lookup.
 	if (uid && (await hasPin(uid)) && !isUnlocked(uid, context.unlockToken)) {

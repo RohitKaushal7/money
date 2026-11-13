@@ -1,6 +1,7 @@
 import { auth } from "@money/auth";
 import type { Context as HonoContext } from "hono";
 import { controlDb } from "./db";
+import type { TokenVia } from "./mcp/meta";
 
 export type CreateContextOptions = {
 	context: HonoContext;
@@ -17,6 +18,10 @@ export async function createContext({ context }: CreateContextOptions) {
 		session,
 		controlDb: controlDb(),
 		unlockToken: context.req.raw.headers.get(UNLOCK_HEADER),
+		// Supplied by the MCP handler; browser sessions never have it.
+		via: undefined as TokenVia | undefined,
+		// Set by bulk applies so one apply shares a change-log batch.
+		batchId: undefined as string | undefined,
 	};
 }
 
