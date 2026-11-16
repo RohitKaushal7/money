@@ -13,10 +13,6 @@ import {
 	isMatured,
 	monthlyAmount,
 	nextPayment,
-	PAYMENT_METHOD_LABEL,
-	PAYMENT_METHODS,
-	type PaymentMethod,
-	paidWithLabel,
 	type RecurringExpense,
 	toISODate,
 } from "@money/shared";
@@ -35,10 +31,15 @@ import {
 	Plus,
 	X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { ArmedDelete } from "@/components/armed-delete";
 import { DateInput } from "@/components/date-input";
 import { CoverageHistory } from "@/components/plan/coverage-history";
+import {
+	SuggestInput,
+	type Suggestion,
+	suggestionsFrom,
+} from "@/components/suggest-input";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { formatRate } from "@/lib/format";
@@ -87,9 +88,8 @@ interface RecurringDraft {
 	startDate?: string;
 	/** Last payment. Optional; once past, the expense stops counting toward coverage. */
 	endDate?: string;
-	/** `null` clears it. A card is `card` + `cardId`. */
-	paymentMethod?: PaymentMethod | null;
-	cardId?: number | null;
+	/** free text; `null` clears it */
+	paidWith?: string | null;
 }
 
 /** A holding as stored (pre-tax rate), plus its monthly return in the current tax mode. */
@@ -1213,13 +1213,13 @@ function OutgoingRow({
 						{[
 							exp.category &&
 								(CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category),
-							paidWithLabel(exp),
+							exp.paidWith,
 						]
 							.filter(Boolean)
 							.join(" · ")}
 						{due && (
 							<>
-								{(exp.category || exp.paymentMethod) && " · "}
+								{(exp.category || exp.paidWith) && " · "}
 								<span style={soon ? { color: OUT } : undefined}>
 									{relativeDue(days ?? 0)}
 								</span>
@@ -1227,7 +1227,7 @@ function OutgoingRow({
 						)}
 						{showSchedule && !due && (
 							<>
-								{(exp.category || exp.paymentMethod) && " · "}
+								{(exp.category || exp.paidWith) && " · "}
 								{expired ? "ended" : "no date set"}
 							</>
 						)}
@@ -1239,6 +1239,59 @@ function OutgoingRow({
 }
 
 // ── forms ─────────────────────────────────────────────────────────────────────────────────────────────
+/** Groups and platforms already in use, most-used first — what the holding form suggests. */
+function useHoldingSuggestions() {
+	const { data } = useQuery(orpc.plan.investments.queryOptions());
+	return useMemo(() => {
+		const rows = data ?? [];
+		return {
+			groups: suggestionsFrom(
+				rows.map((i) => i.group),
+				"holding",
+			),
+			platforms: suggestionsFrom(
+				rows.map((i) => i.platform),
+				"holding",
+			),
+		};
+	}, [data]);
+}
+
+/** Common ways a bill is paid, offered until the owner has used their own wording. */
+const PAYMENT_METHODS = [
+	"UPI AutoPay",
+	"UPI",
+	"Auto-debit",
+	"Debit card",
+	"Net banking",
+	"Cash",
+];
+
+/**
+ * What "Paid with" suggests: what the owner has already written (most used first), then their active
+ * cards, then the common methods — each only once, whatever its case.
+ */
+function usePaidWithSuggestions(): Suggestion[] {
+	const recurring = useQuery(orpc.plan.recurring.queryOptions());
+	const cardsQ = useQuery(orpc.cards.list.queryOptions());
+	return useMemo(() => {
+		const used = suggestionsFrom(
+			(recurring.data ?? []).map((e) => e.paidWith),
+			"expense",
+		);
+		const seen = new Set(used.map((s) => s.value.toLowerCase()));
+		const more: Suggestion[] = [];
+		const add = (value: string, hint: string) => {
+			if (seen.has(value.toLowerCase())) return;
+			seen.add(value.toLowerCase());
+			more.push({ value, hint });
+		};
+		for (const c of cardsQ.data ?? []) if (c.active) add(c.name, "card");
+		for (const m of PAYMENT_METHODS) add(m, "");
+		return [...used, ...more];
+	}, [recurring.data, cardsQ.data]);
+}
+
 function InvestmentForm({
 	initial,
 	pending,
@@ -1263,6 +1316,7 @@ function InvestmentForm({
 	const [type, setType] = useState<InvestmentType>(initial?.type ?? "bond");
 	const [group, setGroup] = useState(initial?.group ?? "");
 	const [platform, setPlatform] = useState(initial?.platform ?? "");
+	const holdingSuggestions = useHoldingSuggestions();
 	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [value, setValue] = useState(str(initial?.currentValue));
 	// Exact, not rounded: rounding here re-saved 7.75% as 7.8% on any edit. toFixed(6) only strips float
@@ -1357,17 +1411,19 @@ function InvestmentForm({
 					/>
 				</Field>
 				<Field label="Group (optional)">
-					<Input
+					<SuggestInput
 						value={group}
-						onChange={(e) => setGroup(e.target.value)}
-						placeholder="SustVest, Wint, FDs…"
+						onChange={setGroup}
+						suggestions={holdingSuggestions.groups}
+						placeholder="Bonds, FDs…"
 					/>
 				</Field>
 				<Field label="Platform">
-					<Input
+					<SuggestInput
 						value={platform}
-						onChange={(e) => setPlatform(e.target.value)}
-						placeholder="provider"
+						onChange={setPlatform}
+						suggestions={holdingSuggestions.platforms}
+						placeholder="Wint Wealth, SBI…"
 					/>
 				</Field>
 				<Field label="Currency">
@@ -1442,24 +1498,8 @@ function ExpenseForm({
 	const [amount, setAmount] = useState(str(initial?.amount));
 	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [category, setCategory] = useState(initial?.category ?? "");
-	// One picker for both fields: `card:<id>` for a specific card, otherwise the method itself.
-	const [paidWith, setPaidWith] = useState(
-		initial?.paymentMethod === "card" && initial.cardId != null
-			? `card:${initial.cardId}`
-			: (initial?.paymentMethod ?? ""),
-	);
-	const cardsQ = useQuery(orpc.cards.list.queryOptions());
-	const paidWithOptions = [
-		{ value: "", label: "— not set —" },
-		// Closed cards are left out, except the one this expense is already on — it should still read right.
-		...(cardsQ.data ?? [])
-			.filter((c) => c.active || paidWith === `card:${c.id}`)
-			.map((c) => ({ value: `card:${c.id}`, label: c.name })),
-		...PAYMENT_METHODS.map((m) => ({
-			value: m,
-			label: m === "card" ? "Credit card (other)" : PAYMENT_METHOD_LABEL[m],
-		})),
-	];
+	const [paidWith, setPaidWith] = useState(initial?.paidWith ?? "");
+	const paidWithSuggestions = usePaidWithSuggestions();
 	const [cadence, setCadence] = useState<ExpenseCadence>(
 		(initial?.cadence as ExpenseCadence) ?? "monthly",
 	);
@@ -1484,14 +1524,8 @@ function ExpenseForm({
 			endDate: end ?? "",
 		};
 		if (category.trim()) d.category = category.trim();
-		// Always sent, so "not set" clears what was stored.
-		if (paidWith.startsWith("card:")) {
-			d.paymentMethod = "card";
-			d.cardId = Number(paidWith.slice(5));
-		} else {
-			d.paymentMethod = (paidWith as PaymentMethod) || null;
-			d.cardId = null;
-		}
+		// Always sent, so emptying the field clears what was stored.
+		d.paidWith = paidWith.trim() || null;
 		onSubmit(d);
 	}
 
@@ -1520,11 +1554,13 @@ function ExpenseForm({
 						options={EXPENSE_CATEGORY_OPTIONS}
 					/>
 				</Field>
-				<Field label="Paid with">
-					<NativeSelect
+				<Field label="Paid with — optional">
+					<SuggestInput
 						value={paidWith}
 						onChange={setPaidWith}
-						options={paidWithOptions}
+						suggestions={paidWithSuggestions}
+						placeholder="card, UPI AutoPay…"
+						maxLength={80}
 					/>
 				</Field>
 				<Field label="Currency">

@@ -142,45 +142,8 @@ export interface RecurringExpense {
 	/** YYYY-MM-DD */
 	endDate?: string;
 	source?: "manual" | "seeded";
-	/** how it is paid; `card` names the card in `cardId` */
-	paymentMethod?: PaymentMethod;
-	/** the card it is charged to (a `cards.id`), when `paymentMethod` is `card` */
-	cardId?: number;
-	/** that card's name, joined in on read */
-	cardName?: string;
-}
-
-/** How a recurring expense leaves the account. `card` is a credit card, identified by `cardId`. */
-export const PAYMENT_METHODS = [
-	"card",
-	"upi_autopay",
-	"upi",
-	"auto_debit",
-	"debit_card",
-	"net_banking",
-	"cash",
-	"other",
-] as const;
-export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
-
-export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
-	card: "Credit card",
-	upi_autopay: "UPI AutoPay",
-	upi: "UPI",
-	auto_debit: "Bank auto-debit",
-	debit_card: "Debit card",
-	net_banking: "Net banking",
-	cash: "Cash",
-	other: "Other",
-};
-
-/** What a row says it is paid with: the card's name for a card, else the method's label. */
-export function paidWithLabel(
-	exp: Pick<RecurringExpense, "paymentMethod" | "cardName">,
-): string | null {
-	if (!exp.paymentMethod) return null;
-	if (exp.paymentMethod === "card") return exp.cardName ?? "Credit card";
-	return PAYMENT_METHOD_LABEL[exp.paymentMethod];
+	/** what it is paid with, as the owner writes it: a card's name, "UPI AutoPay", "Auto-debit"… */
+	paidWith?: string;
 }
 
 /** XIRR + totals for one investment (computed over its cashflows + current value as the final flow). */

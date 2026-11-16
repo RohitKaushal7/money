@@ -13,5 +13,7 @@
 			"@/*": ["./src/*"],
 			"@money/ui/*": ["../../packages/ui/src/*"]
 		}
-	}
+	},
+	// Bun runs the tests; the app build has no bun types
+	"exclude": ["src/**/*.test.ts"]
 }

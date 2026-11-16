@@ -1,4 +1,4 @@
-import { type AppDb, cards, investments, recurringExpenses } from "@money/db";
+import { type AppDb, investments, recurringExpenses } from "@money/db";
 import {
 	CADENCES,
 	coverageLadder,
@@ -6,14 +6,11 @@ import {
 	type Investment,
 	isISODate,
 	netIncomeOfTax,
-	PAYMENT_METHODS,
-	type PaymentMethod,
 	type RateMap,
 	type RecurringExpense,
 	toInr,
 	wealthSummary,
 } from "@money/shared";
-import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure } from "../index";
@@ -102,8 +99,7 @@ function toRecurring(r: RecurringRow): RecurringExpense {
 		startDate: r.startDate ?? undefined,
 		endDate: r.endDate ?? undefined,
 		source: (r.source as RecurringExpense["source"]) ?? undefined,
-		paymentMethod: (r.paymentMethod as PaymentMethod | null) ?? undefined,
-		cardId: r.cardId ?? undefined,
+		paidWith: r.paidWith ?? undefined,
 	};
 }
 
@@ -113,53 +109,8 @@ export async function listInvestments(appDb: AppDb): Promise<Investment[]> {
 }
 
 export async function listRecurring(appDb: AppDb): Promise<RecurringExpense[]> {
-	const [rows, cardRows] = await Promise.all([
-		appDb.select().from(recurringExpenses),
-		appDb.select({ id: cards.id, name: cards.name }).from(cards),
-	]);
-	const cardName = new Map(cardRows.map((c) => [c.id, c.name]));
-	return rows.map((r) => {
-		const exp = toRecurring(r);
-		const name = r.cardId != null ? cardName.get(r.cardId) : undefined;
-		return name ? { ...exp, cardName: name } : exp;
-	});
-}
-
-type PaymentFields = {
-	paymentMethod?: PaymentMethod | null;
-	cardId?: number | null;
-};
-
-/**
- * Keep the two payment fields saying one thing: a card means the method is `card`, and any other method
- * means no card. Only fields the input mentions are touched, so a partial edit of the amount leaves both
- * alone. A card id that isn't one of the owner's cards is refused rather than stored dangling.
- */
-async function normalisePayment<T extends PaymentFields>(
-	appDb: AppDb,
-	input: T,
-): Promise<T> {
-	const out = { ...input };
-	if (out.cardId != null) {
-		const [card] = await appDb
-			.select({ id: cards.id })
-			.from(cards)
-			.where(eq(cards.id, out.cardId));
-		if (!card) {
-			throw new ORPCError("BAD_REQUEST", {
-				message: `No card with id ${out.cardId} — cards_list shows the owner's cards.`,
-			});
-		}
-		if (out.paymentMethod != null && out.paymentMethod !== "card") {
-			throw new ORPCError("BAD_REQUEST", {
-				message: 'cardId goes with paymentMethod "card" only.',
-			});
-		}
-		out.paymentMethod = "card";
-	} else if (out.paymentMethod !== undefined && out.paymentMethod !== "card") {
-		out.cardId = null;
-	}
-	return out;
+	const rows = await appDb.select().from(recurringExpenses);
+	return rows.map(toRecurring);
 }
 
 // ── input schemas ──────────────────────────────────────────────────────────────────────────────────
@@ -208,8 +159,14 @@ const recurringInput = z.object({
 	startDate: planDate.optional(),
 	endDate: planDate.optional(),
 	source: z.enum(["manual", "seeded"]).optional(),
-	paymentMethod: z.enum(PAYMENT_METHODS).nullable().optional(),
-	cardId: z.number().int().positive().nullable().optional(),
+	/** free text; "" or null clears it */
+	paidWith: z
+		.string()
+		.trim()
+		.max(80)
+		.nullable()
+		.transform((s) => s || null)
+		.optional(),
 });
 
 // The monthly default belongs to *adding* an expense only. Zod applies `.default()` even under
@@ -251,8 +208,7 @@ const RECURRING_FIELDS = [
 	"`startDate` / `endDate` (a real date as YYYY-MM-DD; an empty string clears it; the expense only counts between them);",
 	"`active` (false stops it counting without deleting it);",
 	"`source` (manual | seeded);",
-	"`paymentMethod` (how it is paid: card | upi_autopay | upi | auto_debit | debit_card | net_banking | cash | other; null clears it);",
-	"`cardId` (whole number, the credit card it is charged to, from cards_list; setting it makes paymentMethod card, and any other paymentMethod clears it; null clears it).",
+	'`paidWith` (what it is paid with, free text as the owner writes it — a card\'s name such as "HDFC Swiggy", or "UPI AutoPay", "Auto-debit"; reuse the exact spelling plan_recurring already shows; empty or null clears it).',
 ].join(" ");
 
 /** Today as YYYY-MM-DD (server clock) — drives auto-expiry of matured holdings. */
@@ -368,7 +324,7 @@ export const planRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"List every recurring expense in the owner's plan — the committed outflows passive income has to cover — including inactive ones. Takes no input. Each has `id` (string; pass it as a number to the edit and delete tools), `name`, `category`, `amount` (paid each period, in the expense's `currency`, INR unless stated), `cadence` (monthly | quarterly | half_yearly | yearly), `active`, `currency`, `startDate` / `endDate` (YYYY-MM-DD), `source` (manual | seeded), `paymentMethod` (card | upi_autopay | upi | auto_debit | debit_card | net_banking | cash | other), `cardId` and `cardName` (the credit card it is charged to, when paymentMethod is card). To compare expenses, divide by the cadence: a quarterly amount is a third of its monthly cost.",
+					"List every recurring expense in the owner's plan — the committed outflows passive income has to cover — including inactive ones. Takes no input. Each has `id` (string; pass it as a number to the edit and delete tools), `name`, `category`, `amount` (paid each period, in the expense's `currency`, INR unless stated), `cadence` (monthly | quarterly | half_yearly | yearly), `active`, `currency`, `startDate` / `endDate` (YYYY-MM-DD), `source` (manual | seeded), and `paidWith` (what it is paid with, free text: a card's name, \"UPI AutoPay\"…). To compare expenses, divide by the cadence: a quarterly amount is a third of its monthly cost.",
 			},
 		})
 		.handler(({ context }) => listRecurring(context.appDb)),
@@ -439,10 +395,9 @@ export const planRouter = {
 		})
 		.input(newRecurringInput)
 		.handler(async ({ context, input }) => {
-			const values = await normalisePayment(context.appDb, input);
 			const [row] = await context.appDb
 				.insert(recurringExpenses)
-				.values(values)
+				.values(input)
 				.returning();
 			if (!row) throw new Error("insert failed");
 			return toRecurring(row);
@@ -458,8 +413,7 @@ export const planRouter = {
 		})
 		.input(recurringInput.partial().merge(idInput))
 		.handler(async ({ context, input }) => {
-			const { id, ...fields } = input;
-			const rest = await normalisePayment(context.appDb, fields);
+			const { id, ...rest } = input;
 			const [row] = await context.appDb
 				.update(recurringExpenses)
 				.set(rest)

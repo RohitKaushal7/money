@@ -5,7 +5,6 @@ import {
 	type CoverageCsvRow,
 	INVESTMENT_CSV_COLUMNS,
 	type InvestmentCsvRow,
-	paidWithLabel,
 	RECURRING_EXPENSE_CSV_COLUMNS,
 	type RecurringExpenseCsvRow,
 	SPENDING_CSV_COLUMNS,
@@ -162,7 +161,7 @@ export const exportRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"Export the owner's recurring expenses (the plan's budget) as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, category, amount, currency, cadence, active, startDate, endDate, paidWith (the name of the credit card, or how it is paid). Amounts are per cadence in each row's currency. Read-only.",
+					"Export the owner's recurring expenses (the plan's budget) as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, category, amount, currency, cadence, active, startDate, endDate, paidWith (what it is paid with, as the owner wrote it). Amounts are per cadence in each row's currency. Read-only.",
 			},
 		})
 		.handler(async ({ context }) => {
@@ -176,7 +175,7 @@ export const exportRouter = {
 				active: e.active,
 				startDate: e.startDate ?? null,
 				endDate: e.endDate ?? null,
-				paidWith: paidWithLabel(e),
+				paidWith: e.paidWith ?? null,
 			}));
 			return {
 				csv: toCsv(rows, RECURRING_EXPENSE_CSV_COLUMNS),
