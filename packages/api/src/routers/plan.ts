@@ -4,6 +4,7 @@ import {
 	coverageLadder,
 	INVESTMENT_TYPES,
 	type Investment,
+	isISODate,
 	netIncomeOfTax,
 	type RateMap,
 	type RecurringExpense,
@@ -112,6 +113,19 @@ export async function listRecurring(appDb: AppDb): Promise<RecurringExpense[]> {
 }
 
 // ── input schemas ──────────────────────────────────────────────────────────────────────────────────
+/**
+ * A plan date: a real day as `YYYY-MM-DD`, the one stored form (the web shows it as DD-MM-YYYY). An empty
+ * string clears it, stored as null. Anything else is refused, so no other format can reach the table.
+ */
+const planDate = z
+	.string()
+	.regex(/^(\d{4}-\d{2}-\d{2})?$/, "expected YYYY-MM-DD")
+	.refine(
+		(s) => s === "" || isISODate(s),
+		'expected a real date as YYYY-MM-DD, or "" to clear it',
+	)
+	.transform((s) => (s === "" ? null : s));
+
 const investmentInput = z.object({
 	name: z.string().min(1),
 	type: z.enum(INVESTMENT_TYPES),
@@ -124,8 +138,8 @@ const investmentInput = z.object({
 	expectedMonthlyInterest: z.number().nonnegative().nullable().optional(),
 	interestCadence: z.enum(CADENCES).optional(),
 	principalCadence: z.enum(CADENCES).optional(),
-	startDate: z.string().optional(),
-	maturityDate: z.string().optional(),
+	startDate: planDate.optional(),
+	maturityDate: planDate.optional(),
 	actionOnMaturity: z.enum(["reinvest", "withdraw", "auto_renew"]).optional(),
 	currentValue: z.number().nonnegative().optional(),
 	currency: z.string().optional(),
@@ -141,8 +155,8 @@ const recurringInput = z.object({
 	currency: z.string().optional(),
 	cadence: z.enum(["monthly", "quarterly", "half_yearly", "yearly"]),
 	active: z.boolean().optional(),
-	startDate: z.string().optional(),
-	endDate: z.string().optional(),
+	startDate: planDate.optional(),
+	endDate: planDate.optional(),
 	source: z.enum(["manual", "seeded"]).optional(),
 });
 
@@ -167,7 +181,7 @@ const INVESTMENT_FIELDS = [
 	"`annualRate` (expected annual return as a pre-tax fraction: 0.1175 = 11.75%);",
 	"`expectedMonthlyInterest` (interest expected per month, overriding the rate-based figure; `null` clears it. When it is null the app falls back: coverage and wealth use annualRate × (currentValue, or principal if there is no currentValue) ÷ 12; the Reconcile view's expected interest uses principal × annualRate ÷ 12.);",
 	"`interestCadence` / `principalCadence` (how often interest / principal is paid: daily | weekly | monthly | quarterly | half_yearly | yearly | maturity | none);",
-	"`startDate` / `maturityDate` (YYYY-MM-DD);",
+	"`startDate` / `maturityDate` (a real date as YYYY-MM-DD; an empty string clears it);",
 	"`actionOnMaturity` (reinvest | withdraw | auto_renew);",
 	"`currency` (ISO 4217 code, default INR; principal, currentValue and expectedMonthlyInterest are amounts in this currency);",
 	"`status` (active | matured | closed);",
@@ -182,7 +196,7 @@ const RECURRING_FIELDS = [
 	"`amount` (amount paid each period, in the expense's `currency`);",
 	"`currency` (ISO 4217 code, default INR);",
 	"`cadence` (how often it is paid: monthly | quarterly | half_yearly | yearly; default monthly);",
-	"`startDate` / `endDate` (YYYY-MM-DD; the expense only counts between them);",
+	"`startDate` / `endDate` (a real date as YYYY-MM-DD; an empty string clears it; the expense only counts between them);",
 	"`active` (false stops it counting without deleting it);",
 	"`source` (manual | seeded).",
 ].join(" ");

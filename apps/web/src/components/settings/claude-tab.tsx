@@ -1,13 +1,20 @@
+import { todayISODate } from "@money/shared";
 import { Button } from "@money/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArmedDelete } from "@/components/armed-delete";
+import { DateInput } from "@/components/date-input";
 import { Field, Section, TextInput } from "@/components/settings/section";
 import { useIsAdmin } from "@/lib/admin";
 import { useMoney } from "@/lib/currency";
-import { formatRate, formatRelativeTime } from "@/lib/format";
+import {
+	formatDate,
+	formatDateTime,
+	formatRate,
+	formatRelativeTime,
+} from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export function ClaudeTab() {
@@ -28,19 +35,6 @@ const SCOPE_LABEL: Record<Scope, string> = {
 
 const asMs = (d: Date | string | number | null | undefined) =>
 	d == null ? null : new Date(d).getTime();
-
-const day = (d: Date | string | number) =>
-	new Date(d).toLocaleDateString(undefined, {
-		day: "numeric",
-		month: "short",
-		year: "numeric",
-	});
-
-/** Today in the owner's timezone as `YYYY-MM-DD`, the format of a date input's value. */
-const todayInput = () => {
-	const d = new Date();
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 /** A copy-to-clipboard button that says it worked. Clipboard access can be refused, so that is a toast too. */
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -78,7 +72,7 @@ function Tokens() {
 
 	const [name, setName] = useState("");
 	const [scope, setScope] = useState<Scope>("read");
-	const [expires, setExpires] = useState("");
+	const [expires, setExpires] = useState<string | null>("");
 	/** Plaintext of the token just made. Lives only in this component's state: it is never fetched again. */
 	const [fresh, setFresh] = useState<string | null>(null);
 
@@ -103,7 +97,8 @@ function Tokens() {
 		onError: (e: Error) => toast.error(e.message),
 	});
 
-	const canCreate = name.trim().length > 0 && !create.isPending;
+	const canCreate =
+		name.trim().length > 0 && expires != null && !create.isPending;
 	const command = (token: string) =>
 		`claude mcp add --transport http money ${window.location.origin}/mcp --header "Authorization: Bearer ${token}"`;
 
@@ -148,11 +143,12 @@ function Tokens() {
 						/>
 					</Field>
 					<Field label="Expires (optional)">
-						<TextInput
-							type="date"
-							min={todayInput()}
+						<DateInput
 							value={expires}
-							onChange={(e) => setExpires(e.target.value)}
+							onChange={setExpires}
+							min={todayISODate()}
+							className="w-40"
+							inputClassName="h-auto rounded-md border-border bg-background py-1.5 text-sm md:text-sm"
 						/>
 					</Field>
 				</div>
@@ -261,7 +257,7 @@ function Tokens() {
 											? formatRelativeTime(asMs(t.lastUsedAt))
 											: "never"}
 										{expiresMs != null && !revoked && !expired
-											? ` · Expires ${day(expiresMs)}`
+											? ` · Expires ${formatDate(expiresMs)}`
 											: ""}
 									</span>
 								</div>
@@ -461,7 +457,7 @@ function RecentChanges() {
 									</span>
 									<span
 										className="text-muted-foreground text-xs"
-										title={new Date(c.at).toLocaleString()}
+										title={formatDateTime(c.at)}
 									>
 										{formatRelativeTime(asMs(c.at))} ·{" "}
 										{c.source === "mcp"

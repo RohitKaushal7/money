@@ -27,7 +27,7 @@ import {
 	useCategories,
 } from "@/lib/categories";
 import { csvFilename, downloadCsv } from "@/lib/download";
-import { useFormat } from "@/lib/format";
+import { formatDate, useFormat } from "@/lib/format";
 import { client, orpc } from "@/utils/orpc";
 import { CategoriesTab } from "./-categories-tab";
 import { type RulePrefill, RulesTab } from "./-rules-tab";
@@ -39,17 +39,6 @@ const TXN_TABS = [
 ] as const;
 
 type TxnTab = (typeof TXN_TABS)[number]["key"];
-
-/** "2026-07-02" → "2 Jul '26" (year matters once the statement spans years). */
-function fmtTxnDate(iso: string): string {
-	return new Date(iso)
-		.toLocaleDateString("en-GB", {
-			day: "numeric",
-			month: "short",
-			year: "2-digit",
-		})
-		.replace(/(\d{2})$/, "'$1");
-}
 
 export const Route = createFileRoute("/_auth/transactions")({
 	// `?month=YYYY-MM` seeds the month filter — e.g. drilling in from the spending-history chart.
@@ -477,7 +466,7 @@ function TxnRow({
 					title={rowPending ? "Edited — re-tag to apply" : undefined}
 				/>
 				<div className="tnum w-14 shrink-0 text-muted-foreground text-xs">
-					{fmtTxnDate(txn.date)}
+					{formatDate(txn.date)}
 				</div>
 				<div className="min-w-0 flex-1">
 					<p className="line-clamp-2 text-sm" title={txn.narration}>

@@ -1,7 +1,9 @@
 import {
+	formatDate,
 	type NetworthPoint,
 	type NetworthSeries,
 	networthSeries,
+	todayISODate,
 } from "@money/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, TrendingDown, TrendingUp } from "lucide-react";
@@ -18,6 +20,7 @@ import {
 	YAxis,
 } from "recharts";
 import { ArmedDelete } from "@/components/armed-delete";
+import { DateInput } from "@/components/date-input";
 import {
 	type DateRange,
 	DateRangePicker,
@@ -38,15 +41,6 @@ function signedPct(r: number | null | undefined): string {
 	return `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}%`;
 }
 
-/** "2024-01-05" → "5 Jan '24" */
-function fmtDate(iso: string): string {
-	const d = new Date(iso);
-	return d.toLocaleDateString("en-GB", {
-		day: "numeric",
-		month: "short",
-		year: "2-digit",
-	});
-}
 /** compact axis label "Jan '24" */
 function fmtAxis(iso: string): string {
 	const d = new Date(iso);
@@ -115,7 +109,8 @@ export function NetWorthOverTime() {
 								{view.change >= 0 ? "+" : "−"}
 								{m.fmtc(Math.abs(view.change))}
 							</span>{" "}
-							since {fmtDate(view.points[0]?.asOf ?? "")} · compounded annually
+							since {formatDate(view.points[0]?.asOf ?? "")} · compounded
+							annually
 						</p>
 					)}
 				</div>
@@ -293,7 +288,7 @@ function NetWorthTip({
 	const up = (d.growthPct ?? 0) >= 0;
 	return (
 		<div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
-			<p className="font-medium text-sm">{fmtDate(d.asOf)}</p>
+			<p className="font-medium text-sm">{formatDate(d.asOf)}</p>
 			<p className="tnum mt-0.5 text-sm">{fmt(d.value)}</p>
 			{d.growthPct != null && (
 				<p className="tnum text-xs" style={{ color: up ? COVERED : UNCOVERED }}>
@@ -332,7 +327,7 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 							className="group grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-2.5 text-sm hover:bg-secondary/20"
 						>
 							<span className="flex items-center gap-2">
-								{fmtDate(p.asOf)}
+								{formatDate(p.asOf)}
 								{p.source === "computed" && (
 									<span className="rounded bg-muted px-1.5 py-0.5 text-[0.6rem] text-muted-foreground">
 										auto
@@ -357,7 +352,7 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 							    unreachable on touch. Safe to leave on screen because it takes two taps. */}
 							<ArmedDelete
 								size="icon-xs"
-								title={`Delete ${fmtDate(p.asOf)}`}
+								title={`Delete ${formatDate(p.asOf)}`}
 								onConfirm={() => p.id != null && remove.mutate({ id: p.id })}
 							/>
 						</li>
@@ -372,7 +367,7 @@ function Controls() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 	const [open, setOpen] = useState(false);
-	const [date, setDate] = useState("");
+	const [date, setDate] = useState<string | null>("");
 	const [value, setValue] = useState("");
 
 	const logToday = useMutation({
@@ -416,11 +411,13 @@ function Controls() {
 			</div>
 			{open && (
 				<div className="flex items-center gap-2 rounded-lg border border-border bg-card/60 p-2">
-					<input
-						type="date"
+					<DateInput
+						aria-label="Date"
 						value={date}
-						onChange={(e) => setDate(e.target.value)}
-						className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+						onChange={setDate}
+						max={todayISODate()}
+						className="w-36"
+						inputClassName="h-auto rounded-md border-border bg-background py-1 text-sm md:text-sm"
 					/>
 					<input
 						type="text"

@@ -18,7 +18,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formatMonth, useFormat } from "@/lib/format";
+import { formatDate, formatMonth, useFormat } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/reconcile")({
@@ -486,7 +486,7 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 					{ev.matches.map((c) => (
 						<li key={c.txnId} className="flex items-baseline gap-3">
 							<span className="tnum w-20 shrink-0 text-muted-foreground text-xs">
-								{c.date}
+								{formatDate(c.date)}
 							</span>
 							<span className="tnum w-20 shrink-0 text-right">
 								{formatINR(c.amount)}
@@ -559,7 +559,7 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 								{s.platformGuess ?? "Unknown source"}
 							</p>
 							<p className="truncate text-muted-foreground text-xs">
-								{s.date} · {s.narration}
+								{formatDate(s.date)} · {s.narration}
 							</p>
 						</div>
 						<span className="tnum shrink-0 font-medium" style={{ color: IN }}>

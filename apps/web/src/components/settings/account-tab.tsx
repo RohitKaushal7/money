@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Field, Section, TextInput } from "@/components/settings/section";
 import { authClient } from "@/lib/auth-client";
+import { formatDate } from "@/lib/format";
 import { signOutAndClear } from "@/lib/session";
 
 export function AccountTab() {
@@ -187,7 +188,7 @@ function Sessions() {
 									</span>
 								)}
 								<span className="tnum ml-auto text-muted-foreground text-xs">
-									expires {new Date(s.expiresAt).toLocaleDateString()}
+									expires {formatDate(s.expiresAt)}
 								</span>
 								{!isCurrent && (
 									<Button

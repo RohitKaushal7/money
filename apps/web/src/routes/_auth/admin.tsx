@@ -7,7 +7,7 @@ import { KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
-import { formatRelativeTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/admin")({
@@ -183,7 +183,7 @@ function AdminPage() {
 													)}
 												</td>
 												<td className="tnum py-3 pr-3 text-muted-foreground text-xs">
-													{new Date(u.createdAt).toLocaleDateString()}
+													{formatDate(u.createdAt)}
 												</td>
 												<td className="py-3 pr-3 text-xs">
 													<LastLogin at={lastLogins[u.id] ?? null} />
@@ -249,7 +249,7 @@ function LastLogin({ at }: { at: number | null }) {
 	return (
 		<span
 			className={stale ? "text-muted-foreground/60" : "text-muted-foreground"}
-			title={new Date(at).toLocaleString()}
+			title={formatDateTime(at)}
 		>
 			{formatRelativeTime(at)}
 		</span>

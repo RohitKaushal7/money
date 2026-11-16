@@ -4,7 +4,12 @@ import {
 	investments,
 	networthLogs,
 } from "@money/db";
-import { type NetworthLog, networthSeries, toInr } from "@money/shared";
+import {
+	isISODate,
+	type NetworthLog,
+	networthSeries,
+	toInr,
+} from "@money/shared";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { analyticsReady, withReader } from "../analytics";
@@ -37,7 +42,8 @@ function todayISO(): string {
 
 const dateInput = z
 	.string()
-	.regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD")
+	.refine(isISODate, "expected a real date as YYYY-MM-DD");
 
 /** Sum, per account, of the balance of its most recent statement row = the cash leg of net worth. */
 async function cashOnHand(uid: string): Promise<number> {

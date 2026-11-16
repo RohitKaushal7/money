@@ -18,7 +18,7 @@ import { SpendingExplorer } from "@/components/spending/explorer";
 import { MoneyFlow } from "@/components/spending/money-flow";
 import { SpendingHistory } from "@/components/spending/spending-history";
 import { useMoney } from "@/lib/currency";
-import { formatDay, formatMonth } from "@/lib/format";
+import { formatDate, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/spending")({
@@ -671,7 +671,7 @@ function Drill({ categoryKey }: { categoryKey: string }) {
 					className="flex items-center gap-3 border-border/60 border-b py-2 last:border-b-0"
 				>
 					<span className="tnum w-14 shrink-0 text-muted-foreground text-xs">
-						{formatDay(t.date)}
+						{formatDate(t.date)}
 					</span>
 					<span className="min-w-0 flex-1 truncate text-xs">{t.narration}</span>
 					<span className="tnum shrink-0 text-xs" style={{ color: OUT }}>

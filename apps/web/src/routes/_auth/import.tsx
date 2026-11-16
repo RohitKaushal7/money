@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { formatDay } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/import")({
@@ -869,7 +869,7 @@ function RawFiles({
 						<div className="min-w-0 flex-1">
 							<p className="truncate text-sm">{f.name}</p>
 							<p className="tnum text-muted-foreground text-xs">
-								{(f.bytes / 1024).toFixed(0)} KB · {formatDay(f.modified)}
+								{(f.bytes / 1024).toFixed(0)} KB · {formatDate(f.modified)}
 								{f.formatName ? ` · ${f.formatName}` : " · unbound"}
 								{f.accountName ? ` → ${f.accountName}` : ""}
 							</p>

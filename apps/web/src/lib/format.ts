@@ -1,5 +1,6 @@
 /** INR + number formatting for the dashboard (Indian digit grouping: ₹1,23,456). */
 
+import { formatDate } from "@money/shared";
 import { useMemo } from "react";
 import { usePreference } from "@/lib/preferences";
 
@@ -40,10 +41,16 @@ export function formatMonth(ym: string): string {
 	return `${date.toLocaleDateString("en-US", { month: "short" })} '${(year ?? "").slice(2)}`;
 }
 
-/** "2026-04-01T…" or "2026-04-01" → "1 Apr". */
-export function formatDay(iso: string): string {
-	const date = new Date(iso);
-	return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+/** Every date the app shows is `DD-MM-YYYY` (see `@money/shared/dates`). */
+export { formatDate };
+
+/** A moment, for a tooltip: `15-11-2026 14:05`, local time. */
+export function formatDateTime(value: string | number | Date): string {
+	const d = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(d.getTime())) return String(value);
+	const hh = String(d.getHours()).padStart(2, "0");
+	const mm = String(d.getMinutes()).padStart(2, "0");
+	return `${formatDate(d)} ${hh}:${mm}`;
 }
 
 const RELATIVE = new Intl.RelativeTimeFormat("en", { numeric: "auto" });

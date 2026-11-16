@@ -93,3 +93,53 @@ describe("plan investment amounts", () => {
 		);
 	});
 });
+
+describe("plan dates", () => {
+	const base = { name: "FD", type: "fd", incomeClass: "income" } as const;
+
+	test("only a real YYYY-MM-DD day is stored; any other form is refused", async () => {
+		for (const maturityDate of [
+			"27-11-2027",
+			"31/07/2027",
+			"27-11-27",
+			"2027-02-30",
+		]) {
+			await expect(
+				client.plan.addInvestment({ ...base, maturityDate }),
+			).rejects.toThrow(/Input validation failed/);
+		}
+		const added = await client.plan.addInvestment({
+			...base,
+			maturityDate: "2027-11-27",
+		});
+		expect(added.maturityDate).toBe("2027-11-27");
+		await expect(
+			client.plan.addRecurring({
+				name: "Rent",
+				amount: 1,
+				endDate: "1/1/2027",
+			}),
+		).rejects.toThrow(/Input validation failed/);
+	});
+
+	test("an empty string clears a stored date", async () => {
+		const added = await client.plan.addInvestment({
+			...base,
+			maturityDate: "2027-11-27",
+		});
+		const cleared = await client.plan.updateInvestment({
+			id: Number(added.id),
+			maturityDate: "",
+		});
+		expect(cleared?.maturityDate).toBeUndefined();
+
+		const exp = await client.plan.addRecurring({
+			name: "Gym",
+			amount: 1,
+			startDate: "2026-01-01",
+			endDate: "",
+		});
+		expect(exp.startDate).toBe("2026-01-01");
+		expect(exp.endDate).toBeUndefined();
+	});
+});

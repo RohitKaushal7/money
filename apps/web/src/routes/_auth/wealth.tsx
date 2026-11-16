@@ -22,7 +22,7 @@ import {
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { useMoney } from "@/lib/currency";
-import { formatRate } from "@/lib/format";
+import { formatDate, formatRate } from "@/lib/format";
 import { useRunwayAssumptions } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -651,7 +651,7 @@ function HoldingCard({
 									<p className="truncate">{m.name}</p>
 									{m.maturityDate && (
 										<p className="text-muted-foreground text-xs">
-											matures {m.maturityDate}
+											matures {formatDate(m.maturityDate)}
 											{d != null && (
 												<span
 													className={d <= 30 ? "text-[var(--uncovered)]" : ""}

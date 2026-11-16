@@ -4,10 +4,12 @@ import {
 	convert,
 	daysUntil,
 	estimatedPaid,
+	formatDate,
 	INVESTMENT_TYPES,
 	type Investment,
 	type InvestmentType,
 	isExpired,
+	isISODate,
 	isMatured,
 	monthlyAmount,
 	nextPayment,
@@ -31,6 +33,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { ArmedDelete } from "@/components/armed-delete";
+import { DateInput } from "@/components/date-input";
 import { CoverageHistory } from "@/components/plan/coverage-history";
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
@@ -140,27 +143,6 @@ const ratioStr = (r: number | null) => (r == null ? "—" : `${r.toFixed(2)}×`)
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 /** Today as YYYY-MM-DD (client clock) — drives the maturity countdown and the payment schedule. */
 const todayISO = () => new Date().toISOString().slice(0, 10);
-
-/** `2026-11-15` → `15 Nov 2026`. Day-first, because that is how the dates in this app are read. */
-function fmtDate(iso: string): string {
-	const [y, m, d] = iso.split("-");
-	const mi = Number(m) - 1;
-	return mi >= 0 && mi < 12 ? `${d} ${MONTH_ABBR[mi]} ${y}` : iso;
-}
-const MONTH_ABBR = [
-	"Jan",
-	"Feb",
-	"Mar",
-	"Apr",
-	"May",
-	"Jun",
-	"Jul",
-	"Aug",
-	"Sep",
-	"Oct",
-	"Nov",
-	"Dec",
-];
 
 /**
  * How far off a payment is, in the roughest unit that still tells you what you need: days while it is
@@ -652,7 +634,7 @@ function MaturityAlerts({
 								<p className="truncate font-medium text-sm">{inv.name}</p>
 								<p className="text-muted-foreground text-xs">
 									{inv.maturityDate
-										? `matured ${toISODate(inv.maturityDate) ?? inv.maturityDate} · `
+										? `matured ${formatDate(inv.maturityDate)} · `
 										: ""}
 									{valueInr(inv)}
 								</p>
@@ -1254,7 +1236,12 @@ function InvestmentForm({
 			: "",
 	);
 	const [monthly, setMonthly] = useState(str(initial?.expectedMonthlyInterest));
-	const [maturity, setMaturity] = useState(initial?.maturityDate ?? "");
+	// Stored as YYYY-MM-DD; a legacy value the app can't read shows as typed, flagged, until it's fixed.
+	const [maturity, setMaturity] = useState<string | null>(
+		initial?.maturityDate ?? "",
+	);
+	const maturityOk =
+		maturity === "" || (maturity != null && isISODate(maturity));
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
@@ -1269,7 +1256,8 @@ function InvestmentForm({
 		if (platform.trim()) d.platform = platform.trim();
 		if (value) d.currentValue = Number(value);
 		if (ratePct) d.annualRate = Number(ratePct) / 100;
-		if (maturity.trim()) d.maturityDate = maturity.trim();
+		// An edit always sends it, so emptying the field clears the stored date; a new holding omits it.
+		if (maturity || initial) d.maturityDate = maturity ?? "";
 		if (cls === "income") {
 			d.payout = payout;
 			if (monthly) d.expectedMonthlyInterest = Number(monthly);
@@ -1286,7 +1274,7 @@ function InvestmentForm({
 			<FormActions
 				pending={pending}
 				submitLabel={submitLabel}
-				disabled={!name.trim()}
+				disabled={!name.trim() || !maturityOk}
 				onCancel={onCancel}
 				onDelete={onDelete}
 			/>
@@ -1389,12 +1377,8 @@ function InvestmentForm({
 						/>
 					</Field>
 				)}
-				<Field label="Maturity (YYYY-MM-DD)">
-					<Input
-						value={maturity}
-						onChange={(e) => setMaturity(e.target.value)}
-						placeholder="2026-08-15"
-					/>
+				<Field label="Maturity">
+					<DateInput value={maturity} onChange={setMaturity} />
 				</Field>
 			</div>
 		</form>
@@ -1424,9 +1408,13 @@ function ExpenseForm({
 	const [cadence, setCadence] = useState<ExpenseCadence>(
 		(initial?.cadence as ExpenseCadence) ?? "monthly",
 	);
-	// `type="date"` only accepts YYYY-MM-DD, so legacy day-first values are normalised on the way in.
-	const [start, setStart] = useState(toISODate(initial?.startDate) ?? "");
-	const [end, setEnd] = useState(toISODate(initial?.endDate) ?? "");
+	// Stored as YYYY-MM-DD and shown DD-MM-YYYY; null while the typed text isn't a date yet.
+	const [start, setStart] = useState<string | null>(
+		toISODate(initial?.startDate) ?? "",
+	);
+	const [end, setEnd] = useState<string | null>(
+		toISODate(initial?.endDate) ?? "",
+	);
 
 	function submit(e: FormEvent) {
 		e.preventDefault();
@@ -1437,8 +1425,8 @@ function ExpenseForm({
 			cadence,
 			currency,
 			// Always sent, empty included — clearing a date has to be able to erase the stored one.
-			startDate: start,
-			endDate: end,
+			startDate: start ?? "",
+			endDate: end ?? "",
 		};
 		if (category.trim()) d.category = category.trim();
 		onSubmit(d);
@@ -1449,7 +1437,7 @@ function ExpenseForm({
 			<FormActions
 				pending={pending}
 				submitLabel={submitLabel}
-				disabled={!name.trim() || !amount}
+				disabled={!name.trim() || !amount || start == null || end == null}
 				onCancel={onCancel}
 				onDelete={onDelete}
 			/>
@@ -1501,20 +1489,10 @@ function ExpenseForm({
 				{/* Both dates are optional. Without a start date the expense still counts in full — it simply
 				    has no schedule to show. An end date in the past stops it counting at all. */}
 				<Field label="First payment — optional">
-					<Input
-						type="date"
-						value={start}
-						onChange={(e) => setStart(e.target.value)}
-						className="tnum"
-					/>
+					<DateInput value={start} onChange={setStart} max={end || undefined} />
 				</Field>
 				<Field label="Last payment — optional">
-					<Input
-						type="date"
-						value={end}
-						onChange={(e) => setEnd(e.target.value)}
-						className="tnum"
-					/>
+					<DateInput value={end} onChange={setEnd} min={start || undefined} />
 				</Field>
 			</div>
 			<ExpenseFootnote
@@ -1551,8 +1529,7 @@ function ExpenseFootnote({ exp }: { exp: RecurringExpense }) {
 		<div className="flex flex-col gap-1 border-border/60 border-t pt-2.5 text-xs">
 			{expired && (
 				<p style={{ color: OUT }}>
-					Ended {fmtDate(toISODate(exp.endDate) ?? "")} — no longer counted
-					toward coverage.
+					Ended {formatDate(exp.endDate)} — no longer counted toward coverage.
 				</p>
 			)}
 			{paid > 0 && since && (
@@ -1560,8 +1537,8 @@ function ExpenseFootnote({ exp }: { exp: RecurringExpense }) {
 					<span className="tnum text-foreground/80">
 						≈ {fmtNative(paid, exp.currency ?? "INR")}
 					</span>{" "}
-					committed since {fmtDate(since)} — estimated from the cadence, so it
-					assumes the price never changed and nothing was missed.
+					committed since {formatDate(since)} — estimated from the cadence, so
+					it assumes the price never changed and nothing was missed.
 				</p>
 			)}
 		</div>

@@ -1,6 +1,6 @@
 import { CATEGORY_BY_KEY } from "@money/shared";
 import { useMoney } from "@/lib/currency";
-import { formatDay } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { SectionHead } from "./trend-chart";
 
 interface TransactionRow {
@@ -44,7 +44,7 @@ export function RecentActivity({ rows }: RecentActivityProps) {
 							className="grid grid-cols-[3rem_1fr_auto] items-center gap-4 border-border/60 border-b py-3 last:border-0"
 						>
 							<span className="tnum text-muted-foreground text-xs">
-								{formatDay(t.date)}
+								{formatDate(t.date)}
 							</span>
 							<div className="min-w-0">
 								<p className="truncate text-sm">

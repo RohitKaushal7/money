@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { investments } from "@money/db";
+import { isISODate } from "@money/shared";
 import { createRouterClient, ORPCError, type RouterClient } from "@orpc/server";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { z } from "zod";
@@ -44,6 +45,7 @@ const setSchema = z
 		maturityDate: z
 			.string()
 			.regex(/^\d{4}-\d{2}-\d{2}$/, "use YYYY-MM-DD")
+			.refine(isISODate, "use a real date as YYYY-MM-DD")
 			.optional(),
 		active: z.boolean().optional(),
 	})

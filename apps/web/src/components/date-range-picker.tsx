@@ -1,6 +1,7 @@
 import { fiscalYearStart } from "@money/shared";
 import { Select } from "@money/ui/components/select";
 import { useEffect, useRef, useState } from "react";
+import { DateInput } from "@/components/date-input";
 
 /**
  * Reusable date-range selector: a preset dropdown (+ inline custom inputs) that resolves to inclusive
@@ -76,7 +77,7 @@ export function resolveRange(
 }
 
 const DATE_CLASS =
-	"h-9 rounded-md border border-input bg-background px-2 text-foreground text-sm outline-none focus-visible:border-ring";
+	"h-9 rounded-md bg-background text-foreground text-sm md:text-sm";
 
 export function DateRangePicker({
 	defaultPreset = null,
@@ -86,14 +87,17 @@ export function DateRangePicker({
 	onChange: (range: DateRange) => void;
 }) {
 	const [preset, setPreset] = useState<RangePreset>(defaultPreset ?? "this-fy");
-	const [from, setFrom] = useState("");
-	const [to, setTo] = useState("");
+	// null while the typed text isn't a date yet — the range then stays open on that side
+	const [from, setFrom] = useState<string | null>("");
+	const [to, setTo] = useState<string | null>("");
 	// keep a stable ref so the emit-effect doesn't depend on the caller's onChange identity
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
 
 	useEffect(() => {
-		onChangeRef.current(resolveRange(preset, from, to));
+		onChangeRef.current(
+			resolveRange(preset, from ?? undefined, to ?? undefined),
+		);
 	}, [preset, from, to]);
 
 	return (
@@ -107,22 +111,22 @@ export function DateRangePicker({
 			/>
 			{preset === "custom" && (
 				<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-					<input
-						type="date"
+					<DateInput
 						aria-label="From date"
 						value={from}
 						max={to || undefined}
-						onChange={(e) => setFrom(e.target.value)}
-						className={DATE_CLASS}
+						onChange={setFrom}
+						className="w-36"
+						inputClassName={DATE_CLASS}
 					/>
 					<span>→</span>
-					<input
-						type="date"
+					<DateInput
 						aria-label="To date"
 						value={to}
 						min={from || undefined}
-						onChange={(e) => setTo(e.target.value)}
-						className={DATE_CLASS}
+						onChange={setTo}
+						className="w-36"
+						inputClassName={DATE_CLASS}
 					/>
 				</div>
 			)}
