@@ -52,6 +52,11 @@ export default function UserMenu() {
 						Sign Out
 					</DropdownMenuItem>
 				</DropdownMenuGroup>
+				<DropdownMenuSeparator />
+				{/* The release this page is running — after a deploy, a stale PWA cache shows the old number. */}
+				<p className="tnum px-2 py-1.5 text-muted-foreground text-xs">
+					money v{__APP_VERSION__}
+				</p>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

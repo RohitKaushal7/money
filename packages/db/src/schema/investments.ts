@@ -6,6 +6,7 @@ import {
 	text,
 } from "drizzle-orm/sqlite-core";
 import { timestamps } from "./_helpers";
+import { cards } from "./cards";
 
 /**
  * Investment master data (user-edited) — the **Plan** that drives the coverage KPI (ADR-0011 revised /
@@ -83,6 +84,12 @@ export const recurringExpenses = sqliteTable("recurring_expenses", {
 	endDate: text("end_date"),
 	/** manual | seeded */
 	source: text("source").notNull().default("manual"),
+	/** card | upi_autopay | upi | auto_debit | debit_card | net_banking | cash | other (`PAYMENT_METHODS`) */
+	paymentMethod: text("payment_method"),
+	/** the credit card it is charged to, when `payment_method` is `card`; a deleted card leaves it unset */
+	cardId: integer("card_id").references(() => cards.id, {
+		onDelete: "set null",
+	}),
 	notes: text("notes"),
 	...timestamps,
 });

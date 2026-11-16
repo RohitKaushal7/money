@@ -1,10 +1,11 @@
 import type { SqlParam } from "@money/analytics";
-import { categories, investments, recurringExpenses } from "@money/db";
+import { categories, investments } from "@money/db";
 import {
 	COVERAGE_CSV_COLUMNS,
 	type CoverageCsvRow,
 	INVESTMENT_CSV_COLUMNS,
 	type InvestmentCsvRow,
+	paidWithLabel,
 	RECURRING_EXPENSE_CSV_COLUMNS,
 	type RecurringExpenseCsvRow,
 	SPENDING_CSV_COLUMNS,
@@ -18,6 +19,7 @@ import { analyticsReady, withReader } from "../analytics";
 import { protectedProcedure } from "../index";
 import { loadTxnOverlays } from "../load-txn-overlays";
 import { enrichTransactions, type RawTxnRow } from "../transactions";
+import { listRecurring } from "./plan";
 
 /** Same filter shape as analytics.transactions, minus pagination. */
 const txnFilter = z.object({
@@ -160,20 +162,21 @@ export const exportRouter = {
 			mcp: {
 				kind: "read",
 				description:
-					"Export the owner's recurring expenses (the plan's budget) as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, category, amount, currency, cadence, active, startDate, endDate. Amounts are per cadence in each row's currency. Read-only.",
+					"Export the owner's recurring expenses (the plan's budget) as CSV text. Takes no input. Returns `{ csv, rows }` with columns name, category, amount, currency, cadence, active, startDate, endDate, paidWith (the name of the credit card, or how it is paid). Amounts are per cadence in each row's currency. Read-only.",
 			},
 		})
 		.handler(async ({ context }) => {
-			const exps = await context.appDb.select().from(recurringExpenses);
+			const exps = await listRecurring(context.appDb);
 			const rows: RecurringExpenseCsvRow[] = exps.map((e) => ({
 				name: e.name,
-				category: e.category,
+				category: e.category ?? null,
 				amount: e.amount,
-				currency: e.currency,
+				currency: e.currency ?? "INR",
 				cadence: e.cadence,
 				active: e.active,
-				startDate: e.startDate,
-				endDate: e.endDate,
+				startDate: e.startDate ?? null,
+				endDate: e.endDate ?? null,
+				paidWith: paidWithLabel(e),
 			}));
 			return {
 				csv: toCsv(rows, RECURRING_EXPENSE_CSV_COLUMNS),

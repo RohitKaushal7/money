@@ -13,6 +13,10 @@ import {
 	isMatured,
 	monthlyAmount,
 	nextPayment,
+	PAYMENT_METHOD_LABEL,
+	PAYMENT_METHODS,
+	type PaymentMethod,
+	paidWithLabel,
 	type RecurringExpense,
 	toISODate,
 } from "@money/shared";
@@ -40,6 +44,7 @@ import { MoneyNative, useMoney } from "@/lib/currency";
 import { formatRate } from "@/lib/format";
 import { useIsDesktop } from "@/lib/media";
 import { usePlanPeriod } from "@/lib/period";
+import { platformLabel, platformsOf } from "@/lib/platforms";
 import { usePreference } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -82,6 +87,9 @@ interface RecurringDraft {
 	startDate?: string;
 	/** Last payment. Optional; once past, the expense stops counting toward coverage. */
 	endDate?: string;
+	/** `null` clears it. A card is `card` + `cardId`. */
+	paymentMethod?: PaymentMethod | null;
+	cardId?: number | null;
 }
 
 /** A holding as stored (pre-tax rate), plus its monthly return in the current tax mode. */
@@ -843,9 +851,12 @@ function StandaloneRow({
 				<span className="min-w-0 flex-1">
 					<span className="block truncate font-medium">{rollup.name}</span>
 					<span className="flex items-center gap-2 text-muted-foreground text-xs">
-						<span>
+						<span className="truncate">
 							{rollup.incomeClass === "growth" ? "growth" : "income"}
 							{rollup.rate != null ? ` · ${formatRate(rollup.rate)}` : ""}
+							{withPlatform(
+								platformLabel(platformsOf(rollup.members), rollup.name),
+							)}
 						</span>
 						<MaturityMini inv={rollup.members[0]} />
 					</span>
@@ -866,6 +877,7 @@ function GroupRow({
 	setEditing: (id: string | null) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const platforms = platformsOf(rollup.members);
 	return (
 		<li className="border-border border-b">
 			<div className="relative flex items-center gap-3 py-2.5 transition-colors hover:bg-secondary/20">
@@ -880,9 +892,10 @@ function GroupRow({
 					/>
 					<span className="min-w-0">
 						<span className="block truncate font-medium">{rollup.name}</span>
-						<span className="block text-muted-foreground text-xs">
+						<span className="block truncate text-muted-foreground text-xs">
 							{rollup.members.length} holdings
 							{rollup.rate != null ? ` · ${formatRate(rollup.rate)} wtd` : ""}
+							{withPlatform(platformLabel(platforms, rollup.name))}
 						</span>
 					</span>
 				</button>
@@ -891,7 +904,12 @@ function GroupRow({
 			{open && (
 				<ul className="mb-2 flex flex-col gap-px border-border border-l pl-3">
 					{rollup.members.map((m) => (
-						<MemberRow key={m.id} inv={m} onEdit={() => setEditing(m.id)} />
+						<MemberRow
+							key={m.id}
+							inv={m}
+							showPlatform={platforms.length > 1}
+							onEdit={() => setEditing(m.id)}
+						/>
 					))}
 				</ul>
 			)}
@@ -899,7 +917,16 @@ function GroupRow({
 	);
 }
 
-function MemberRow({ inv, onEdit }: { inv: Member; onEdit: () => void }) {
+function MemberRow({
+	inv,
+	showPlatform,
+	onEdit,
+}: {
+	inv: Member;
+	/** only where the group mixes platforms — otherwise the group's own line already says it */
+	showPlatform: boolean;
+	onEdit: () => void;
+}) {
 	const { fmt } = useMoney();
 	const { scale, suffix } = usePlanPeriod();
 	const monthly = inv.monthly;
@@ -917,6 +944,7 @@ function MemberRow({ inv, onEdit }: { inv: Member; onEdit: () => void }) {
 						<span>
 							{fmt(inv.currentValue ?? 0)}
 							{inv.annualRate != null ? ` · ${formatRate(inv.annualRate)}` : ""}
+							{showPlatform ? withPlatform(inv.platform) : ""}
 						</span>
 						<MaturityMini inv={inv} />
 					</span>
@@ -929,6 +957,10 @@ function MemberRow({ inv, onEdit }: { inv: Member; onEdit: () => void }) {
 		</li>
 	);
 }
+
+/** ` · Wint Wealth`, appended to a row's subtitle; nothing when there is no platform to name. */
+const withPlatform = (label: string | null | undefined) =>
+	label ? ` · ${label}` : "";
 
 /** Spans rather than divs: this renders inside a row's button, which only accepts phrasing content. */
 function Amount({ value, monthly }: { value: number; monthly: number }) {
@@ -1178,11 +1210,16 @@ function OutgoingRow({
 					{/* Category and schedule share one line — a second line per row would cost more vertical
 					    space than the dates are worth, and on a phone the list is the whole screen. */}
 					<span className="block truncate text-muted-foreground text-xs">
-						{exp.category &&
-							(CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category)}
+						{[
+							exp.category &&
+								(CATEGORY_BY_KEY.get(exp.category)?.label ?? exp.category),
+							paidWithLabel(exp),
+						]
+							.filter(Boolean)
+							.join(" · ")}
 						{due && (
 							<>
-								{exp.category && " · "}
+								{(exp.category || exp.paymentMethod) && " · "}
 								<span style={soon ? { color: OUT } : undefined}>
 									{relativeDue(days ?? 0)}
 								</span>
@@ -1190,7 +1227,7 @@ function OutgoingRow({
 						)}
 						{showSchedule && !due && (
 							<>
-								{exp.category && " · "}
+								{(exp.category || exp.paymentMethod) && " · "}
 								{expired ? "ended" : "no date set"}
 							</>
 						)}
@@ -1405,6 +1442,24 @@ function ExpenseForm({
 	const [amount, setAmount] = useState(str(initial?.amount));
 	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
 	const [category, setCategory] = useState(initial?.category ?? "");
+	// One picker for both fields: `card:<id>` for a specific card, otherwise the method itself.
+	const [paidWith, setPaidWith] = useState(
+		initial?.paymentMethod === "card" && initial.cardId != null
+			? `card:${initial.cardId}`
+			: (initial?.paymentMethod ?? ""),
+	);
+	const cardsQ = useQuery(orpc.cards.list.queryOptions());
+	const paidWithOptions = [
+		{ value: "", label: "— not set —" },
+		// Closed cards are left out, except the one this expense is already on — it should still read right.
+		...(cardsQ.data ?? [])
+			.filter((c) => c.active || paidWith === `card:${c.id}`)
+			.map((c) => ({ value: `card:${c.id}`, label: c.name })),
+		...PAYMENT_METHODS.map((m) => ({
+			value: m,
+			label: m === "card" ? "Credit card (other)" : PAYMENT_METHOD_LABEL[m],
+		})),
+	];
 	const [cadence, setCadence] = useState<ExpenseCadence>(
 		(initial?.cadence as ExpenseCadence) ?? "monthly",
 	);
@@ -1429,6 +1484,14 @@ function ExpenseForm({
 			endDate: end ?? "",
 		};
 		if (category.trim()) d.category = category.trim();
+		// Always sent, so "not set" clears what was stored.
+		if (paidWith.startsWith("card:")) {
+			d.paymentMethod = "card";
+			d.cardId = Number(paidWith.slice(5));
+		} else {
+			d.paymentMethod = (paidWith as PaymentMethod) || null;
+			d.cardId = null;
+		}
 		onSubmit(d);
 	}
 
@@ -1455,6 +1518,13 @@ function ExpenseForm({
 						value={category}
 						onChange={setCategory}
 						options={EXPENSE_CATEGORY_OPTIONS}
+					/>
+				</Field>
+				<Field label="Paid with">
+					<NativeSelect
+						value={paidWith}
+						onChange={setPaidWith}
+						options={paidWithOptions}
 					/>
 				</Field>
 				<Field label="Currency">

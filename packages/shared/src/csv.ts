@@ -113,6 +113,8 @@ export interface RecurringExpenseCsvRow {
 	active: boolean;
 	startDate: string | null;
 	endDate: string | null;
+	/** what the row says it is paid with: the card's name, or the method's label */
+	paidWith: string | null;
 }
 
 export const RECURRING_EXPENSE_CSV_COLUMNS: CsvColumn<RecurringExpenseCsvRow>[] =
@@ -125,6 +127,7 @@ export const RECURRING_EXPENSE_CSV_COLUMNS: CsvColumn<RecurringExpenseCsvRow>[] 
 		{ key: "active", header: "active" },
 		{ key: "startDate", header: "start_date" },
 		{ key: "endDate", header: "end_date" },
+		{ key: "paidWith", header: "paid_with" },
 	];
 
 // ── Spending by category ─────────────────────────────────────────────────────

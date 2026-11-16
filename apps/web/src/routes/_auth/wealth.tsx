@@ -23,6 +23,7 @@ import { TaxModeChip } from "@/components/tax-mode-chip";
 import { NetWorthOverTime } from "@/components/wealth/net-worth";
 import { useMoney } from "@/lib/currency";
 import { formatDate, formatRate } from "@/lib/format";
+import { platformLabel, platformsOf } from "@/lib/platforms";
 import { useRunwayAssumptions } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -613,6 +614,8 @@ function HoldingCard({
 	const { fmt } = useMoney();
 	const [open, setOpen] = useState(false);
 	const grouped = rollup.group != null && rollup.members.length > 1;
+	const platforms = platformsOf(rollup.members);
+	const where = platformLabel(platforms, rollup.name);
 	return (
 		<li className="overflow-hidden rounded-xl border border-border bg-card/40">
 			<button
@@ -627,10 +630,11 @@ function HoldingCard({
 				)}
 				<div className="min-w-0 flex-1">
 					<p className="truncate font-medium">{rollup.name}</p>
-					<p className="text-muted-foreground text-xs">
+					<p className="truncate text-muted-foreground text-xs">
 						{grouped
 							? `${rollup.members.length} holdings · ${formatRate(rollup.rate)} wtd`
 							: `${rollup.incomeClass === "growth" ? "growth" : "income"} · ${formatRate(rollup.rate)}`}
+						{where ? ` · ${where}` : ""}
 					</p>
 				</div>
 				<Stat label="value" value={fmt(rollup.value)} />
@@ -649,9 +653,13 @@ function HoldingCard({
 							>
 								<div className="min-w-0 flex-1">
 									<p className="truncate">{m.name}</p>
-									{m.maturityDate && (
+									{(m.maturityDate || (platforms.length > 1 && m.platform)) && (
 										<p className="text-muted-foreground text-xs">
-											matures {formatDate(m.maturityDate)}
+											{platforms.length > 1 && m.platform
+												? `${m.platform}${m.maturityDate ? " · " : ""}`
+												: ""}
+											{m.maturityDate &&
+												`matures ${formatDate(m.maturityDate)}`}
 											{d != null && (
 												<span
 													className={d <= 30 ? "text-[var(--uncovered)]" : ""}

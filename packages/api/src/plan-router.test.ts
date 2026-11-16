@@ -143,3 +143,65 @@ describe("plan dates", () => {
 		expect(exp.endDate).toBeUndefined();
 	});
 });
+
+describe("recurring payment method", () => {
+	test("a card makes the method card, another method clears the card, and the list names the card", async () => {
+		const { appDbFor } = await import("./db");
+		const { cards } = await import("@money/db");
+		const [card] = await appDbFor("plan-u")
+			.insert(cards)
+			.values({ name: "Test Card" })
+			.returning();
+		if (!card) throw new Error("no card");
+
+		const exp = await client.plan.addRecurring({
+			name: "Streaming",
+			amount: 199,
+			cardId: card.id,
+		});
+		expect(exp.paymentMethod).toBe("card");
+		expect(exp.cardId).toBe(card.id);
+		const listed = (await client.plan.recurring()).find((r) => r.id === exp.id);
+		expect(listed?.cardName).toBe("Test Card");
+
+		// a partial edit that doesn't mention payment leaves it alone
+		const priced = await client.plan.updateRecurring({
+			id: Number(exp.id),
+			amount: 249,
+		});
+		expect(priced?.cardId).toBe(card.id);
+
+		const moved = await client.plan.updateRecurring({
+			id: Number(exp.id),
+			paymentMethod: "upi_autopay",
+		});
+		expect(moved?.paymentMethod).toBe("upi_autopay");
+		expect(moved?.cardId).toBeUndefined();
+
+		const cleared = await client.plan.updateRecurring({
+			id: Number(exp.id),
+			paymentMethod: null,
+		});
+		expect(cleared?.paymentMethod).toBeUndefined();
+	});
+
+	test("an unknown card, or a card with another method, is refused", async () => {
+		await expect(
+			client.plan.addRecurring({ name: "X", amount: 1, cardId: 999_999 }),
+		).rejects.toThrow(/No card with id/);
+		const { appDbFor } = await import("./db");
+		const { cards } = await import("@money/db");
+		const [card] = await appDbFor("plan-u")
+			.insert(cards)
+			.values({ name: "Other Card" })
+			.returning();
+		await expect(
+			client.plan.addRecurring({
+				name: "X",
+				amount: 1,
+				cardId: card?.id,
+				paymentMethod: "upi",
+			}),
+		).rejects.toThrow(/cardId goes with/);
+	});
+});
