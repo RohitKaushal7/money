@@ -3,8 +3,11 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
+import { preventPageZoom } from "./lib/no-page-zoom";
 import { routeTree } from "./routeTree.gen";
 import { orpc, queryClient } from "./utils/orpc";
+
+preventPageZoom();
 
 const router = createRouter({
 	routeTree,

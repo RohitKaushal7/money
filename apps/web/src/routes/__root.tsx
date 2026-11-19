@@ -1,4 +1,5 @@
 import { Toaster } from "@money/ui/components/sonner";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import {
@@ -28,7 +29,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 			},
 			{
 				name: "description",
-				content: "money is a web application",
+				content: "How much of your spending your passive income covers.",
 			},
 		],
 		links: [
@@ -41,6 +42,9 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 });
 
 function RootComponent() {
+	// On a phone a toast drops in under the top bar, where iOS and Android put their own banners, instead of
+	// rising out of the tab bar and covering it.
+	const phone = useIsPhone();
 	return (
 		<>
 			<HeadContent />
@@ -52,7 +56,11 @@ function RootComponent() {
 			>
 				<NavProgress />
 				<Outlet />
-				<Toaster richColors />
+				<Toaster
+					richColors
+					position={phone ? "top-center" : "bottom-right"}
+					mobileOffset={{ top: "calc(env(safe-area-inset-top) + 3.5rem)" }}
+				/>
 			</ThemeProvider>
 			<TanStackRouterDevtools position="top-right" />
 			<ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />

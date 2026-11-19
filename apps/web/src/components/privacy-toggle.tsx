@@ -16,24 +16,29 @@ export const PRIVACY_HOTKEY = "Shift+H";
  * away. It exists so a friend at your laptop sees the shape of the app without seeing the size of your
  * portfolio. The lock screen is the thing that keeps them out.
  */
-export function PrivacyToggle() {
+export function PrivacyToggle({
+	variant = "rail",
+}: {
+	/** `bar`: the phone top bar's borderless round button */
+	variant?: "rail" | "bar";
+} = {}) {
 	const [hidden, setHidden] = usePreference("privacy.hidden");
 	const Icon = hidden ? EyeOff : Eye;
 	const label = hidden ? "Show amounts" : "Hide amounts";
 	return (
 		<Button
-			variant="outline"
+			variant={variant === "bar" ? "ghost" : "outline"}
 			size="icon"
 			onClick={() => setHidden(!hidden)}
 			aria-pressed={hidden}
 			title={`${label} · ⇧H`}
 			// Privacy mode is easy to leave on by accident — the lit button is how you find out why every
 			// figure is dots, so it has to read as *on*, not merely as a button you pressed once.
-			className={
+			className={`${variant === "bar" ? "rounded-full text-muted-foreground" : ""} ${
 				hidden
 					? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary dark:bg-primary/15"
-					: undefined
-			}
+					: ""
+			}`}
 		>
 			<Icon className="h-[1.2rem] w-[1.2rem]" />
 			<span className="sr-only">{label}</span>
@@ -45,7 +50,7 @@ export function PrivacyToggle() {
  * ⇧H toggles privacy mode from anywhere.
  *
  * Registered once by the authenticated layout rather than by {@link PrivacyToggle}, because the sidebar
- * renders twice — the desktop rail and the mobile drawer are both mounted at every width — and two
+ * renders twice — the desktop rail and the phone top bar are both mounted at every width — and two
  * registrations would toggle twice per press and cancel out.
  *
  * Reads through the store instead of closing over state, so the handler has nothing to go stale. The

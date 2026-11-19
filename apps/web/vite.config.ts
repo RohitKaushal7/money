@@ -30,8 +30,13 @@ export default defineConfig({
 				short_name: "money",
 				description:
 					"Track your net worth and how much of your spending passive income covers.",
-				theme_color: "#2d5e44",
-				background_color: "#fdfbf7",
+				// The splash and title bar of the installed app take the default (dark) theme's background, so
+				// launching it doesn't flash cream before the first paint.
+				theme_color: "#14110e",
+				background_color: "#14110e",
+				display: "standalone",
+				start_url: "/",
+				scope: "/",
 			},
 			pwaAssets: { disabled: false, config: true },
 			devOptions: { enabled: true },

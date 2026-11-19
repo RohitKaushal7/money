@@ -71,16 +71,20 @@ function DialogContent({
 				className={cn(
 					"fixed z-50 flex flex-col gap-4 border border-border bg-card p-5 shadow-xl outline-none",
 					// phone: a bottom sheet that can scroll rather than push its buttons off-screen
-					"inset-x-0 bottom-0 max-h-[90vh] overflow-y-auto rounded-t-2xl",
+					"inset-x-0 bottom-0 max-h-[90dvh] overflow-y-auto overscroll-contain rounded-t-[28px] border-x-0 border-b-0 pb-[max(1.25rem,env(safe-area-inset-bottom))]",
 					"data-[ending-style]:translate-y-full data-[starting-style]:translate-y-full",
 					// tablet and up: a centred modal
-					"sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:max-h-[85vh] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
+					"sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:max-h-[85vh] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border-x sm:border-b sm:pb-5",
 					"sm:data-[ending-style]:translate-y-[-46%] sm:data-[starting-style]:translate-y-[-46%]",
 					"transition-[transform,opacity] duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0",
 					className,
 				)}
 				{...props}
 			>
+				<div
+					aria-hidden="true"
+					className="mx-auto -mt-2 -mb-1 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/40 sm:hidden"
+				/>
 				<div className="flex items-start justify-between gap-4">
 					<div className="flex min-w-0 flex-col gap-1">
 						<DialogTitle>{title}</DialogTitle>
@@ -90,7 +94,7 @@ function DialogContent({
 					</div>
 					<DialogPrimitive.Close
 						aria-label="Close"
-						className="-mt-1 -mr-1 shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+						className="-mt-1 pointer-coarse:-mt-2.5 -mr-1 pointer-coarse:-mr-2.5 flex pointer-coarse:size-11 shrink-0 cursor-pointer items-center justify-center pointer-coarse:rounded-full rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
 					>
 						<XIcon className="size-4" />
 					</DialogPrimitive.Close>

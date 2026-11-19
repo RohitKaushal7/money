@@ -113,6 +113,73 @@
 }
 
 /*
+ * Touch manners: the handful of rules that stop a phone treating the app as a web page.
+ *
+ * - `touch-action: pan-x pan-y` on the root. touch-action is not inherited, but the browser intersects it
+ *   down the tree, so this one rule rules out pinch-zoom and double-tap-zoom everywhere (the layer iOS Safari
+ *   honours; see lib/no-page-zoom.ts). It also removes the 300ms double-tap wait on every tap.
+ * - No grey tap flash: every control has its own `:active` state instead.
+ * - No rubber-band bounce or pull-to-refresh on the page itself. The app scrolls in its own pane
+ *   (routes/_auth/route.tsx), which keeps its own overscroll contained.
+ * - Chrome is not text. A long-press on a tab, a button or a nav link selected its label and raised the
+ *   copy/share callout; content (amounts, narrations, notes) stays selectable.
+ */
+html {
+	touch-action: pan-x pan-y;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+body {
+	-webkit-tap-highlight-color: transparent;
+	overscroll-behavior: none;
+	background-color: var(--background);
+}
+button,
+[role="button"],
+[role="tab"],
+nav a,
+label {
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+
+/*
+ * Press feedback. A phone has no hover, so a tap has to answer by itself: a small settle on anything that
+ * opts in with `pressable`. Fast in, eased out; transform only, so it never moves layout.
+ */
+@utility pressable {
+	transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+	&:active {
+		transform: scale(0.97);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.pressable:active {
+		transform: none;
+	}
+}
+
+/* Height of the phone tab bar, including the home-indicator inset. Toasts clear it. */
+:root {
+	--tabbar-h: calc(4.375rem + max(0.75rem, env(safe-area-inset-bottom)));
+}
+
+/* Each page scrolls in its own <main>; a fling that reaches the end stops there instead of bouncing the shell. */
+main {
+	overscroll-behavior-y: contain;
+}
+@media (max-width: 767px) {
+	/* the scrollbar is noise on a phone: scrolling is the gesture, the position is the content */
+	main {
+		scrollbar-width: none;
+	}
+	main::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+/*
  * Mount animation for the north-star hero (Overview). One orchestrated reveal rather than scattered
  * micro-interactions: the trend wipes in left→right and the end dot lands last, walking the eye from where
  * you started to where you are now — which is the whole point of the KPI.
