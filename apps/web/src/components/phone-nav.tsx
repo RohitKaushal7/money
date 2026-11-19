@@ -64,8 +64,13 @@ export function TabBarNav() {
  *
  * Its title collapses iOS-style: while the page's own large `<h1>` is on screen the bar shows only the
  * wordmark, and once the heading scrolls up under it the bar takes the page title, with a hairline under it.
- * It watches the `<h1>` inside `<main>`, so no page has to register anything, and it re-reads on every URL
- * change (search included: a Settings section is `?tab=`) and whenever the heading's text changes.
+ *
+ * It reads whatever `<main> h1` is in the page pane *right now*, on every DOM change in the pane and every
+ * scroll, instead of attaching to a heading once per navigation. Attaching once was the bug: a navigation
+ * fires before the new page has replaced the old one, so the bar latched onto the outgoing page's heading,
+ * and when that heading was then detached it read as "scrolled away" and the bar showed the previous
+ * page's title. Reading live has no stale state to get wrong. It is cheap: one rAF-batched querySelector and
+ * two rects.
  *
  * Pages behind More get a back chevron to More: a tab bar with five slots can't light the page you're on,
  * so the way back has to be on screen. A page one level deeper names its own parent with
@@ -75,7 +80,6 @@ export function TabBarNav() {
 export function PhoneTopBar() {
 	const router = useRouter();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
-	const href = useRouterState({ select: (s) => s.location.href });
 	const [title, setTitle] = useState<string | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
 	const [back, setBack] = useState<{ to: string; label: string } | null>(null);
@@ -83,51 +87,50 @@ export function PhoneTopBar() {
 		(p) => pathname === p || pathname.startsWith(`${p}/`),
 	);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-attach to the new page's heading on every URL change
 	useEffect(() => {
-		setCollapsed(false);
-		let observer: IntersectionObserver | undefined;
-		let textWatch: MutationObserver | undefined;
-		let tries = 0;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		// The page mounts after the route resolves (and may render a skeleton first), so look for its heading
-		// a few times rather than once.
-		const attach = () => {
-			const main = document.querySelector("main");
+		const pane = document.querySelector<HTMLElement>("[data-page-pane]");
+		if (!pane) return;
+		let frame = 0;
+		let scroller: HTMLElement | null = null;
+		const schedule = () => {
+			if (!frame) frame = requestAnimationFrame(read);
+		};
+		function read() {
+			frame = 0;
+			const main = pane?.querySelector("main") ?? null;
+			if (main !== scroller) {
+				scroller?.removeEventListener("scroll", schedule);
+				main?.addEventListener("scroll", schedule, { passive: true });
+				scroller = main;
+			}
 			const h1 = main?.querySelector("h1");
+			setTitle(h1?.textContent?.trim() || null);
+			const to = main?.dataset.backTo;
+			setBack(to ? { to, label: main?.dataset.backLabel ?? "Back" } : null);
 			if (!main || !h1) {
-				if (tries++ < 20) timer = setTimeout(attach, 100);
+				setCollapsed(false);
 				return;
 			}
-			const read = () => {
-				setTitle(h1.textContent?.trim() ?? null);
-				const to = main.dataset.backTo;
-				setBack(to ? { to, label: main.dataset.backLabel ?? "Back" } : null);
-			};
-			read();
-			textWatch = new MutationObserver(read);
-			textWatch.observe(h1, {
-				childList: true,
-				characterData: true,
-				subtree: true,
-			});
-			textWatch.observe(main, {
-				attributes: true,
-				attributeFilter: ["data-back-to"],
-			});
-			observer = new IntersectionObserver(
-				([entry]) => setCollapsed(!entry.isIntersecting),
-				{ root: main, threshold: 0, rootMargin: "-8px 0px 0px 0px" },
+			setCollapsed(
+				h1.getBoundingClientRect().bottom <
+					main.getBoundingClientRect().top + 8,
 			);
-			observer.observe(h1);
-		};
-		attach();
+		}
+		const watch = new MutationObserver(schedule);
+		watch.observe(pane, {
+			childList: true,
+			subtree: true,
+			characterData: true,
+			attributes: true,
+			attributeFilter: ["data-back-to", "data-back-label"],
+		});
+		read();
 		return () => {
-			observer?.disconnect();
-			textWatch?.disconnect();
-			if (timer) clearTimeout(timer);
+			watch.disconnect();
+			scroller?.removeEventListener("scroll", schedule);
+			if (frame) cancelAnimationFrame(frame);
 		};
-	}, [href]);
+	}, []);
 
 	const backTarget =
 		back ?? (underMore ? { to: "/more", label: "More" } : null);

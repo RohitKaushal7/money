@@ -134,6 +134,11 @@ body {
 	overscroll-behavior: none;
 	background-color: var(--background);
 }
+a,
+img,
+svg {
+	-webkit-user-drag: none;
+}
 button,
 [role="button"],
 [role="tab"],
@@ -142,6 +147,45 @@ label {
 	-webkit-user-select: none;
 	user-select: none;
 	-webkit-touch-callout: none;
+}
+
+/*
+ * On a phone, a long press is not a way to select the app. Headings, labels, hints and rows are the app's
+ * own words; selecting them (and the copy/share bar it raises) is the clearest tell that this is a web page.
+ * So on touch screens nothing is selectable by default, and only what you might genuinely want to copy
+ * opts back in: what you type, amounts (every figure carries `tnum`), and anything marked `select-text` or
+ * `data-selectable` (a raw narration, a holding's name in its sheet). Inside a tappable row even those stay
+ * inert, so a long press on a row is never a selection. Desktop keeps normal selection everywhere.
+ * The link/long-press menu itself is suppressed in lib/no-long-press-menu.ts.
+ */
+@media (pointer: coarse) {
+	body {
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+	input,
+	textarea,
+	[contenteditable="true"],
+	.tnum,
+	.select-text,
+	[data-selectable] {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+	:is(
+			button,
+			a,
+			label,
+			[role="button"],
+			[role="tab"],
+			[role="switch"],
+			[role="option"]
+		)
+		:is(.tnum, .select-text, [data-selectable]) {
+		-webkit-user-select: none;
+		user-select: none;
+	}
 }
 
 /*
@@ -324,13 +368,16 @@ main {
 		transform: translateY(6px);
 	}
 }
+/* biome-ignore lint/correctness/noUnknownTypeSelector: `page` is a view-transition name, not an element */
 ::view-transition-old(page) {
 	animation: page-out 120ms ease-out both;
 }
+/* biome-ignore lint/correctness/noUnknownTypeSelector: `page` is a view-transition name, not an element */
 ::view-transition-new(page) {
 	animation: page-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @media (min-width: 768px) {
+	/* biome-ignore lint/correctness/noUnknownTypeSelector: `page` is a view-transition name, not an element */
 	::view-transition-new(page) {
 		animation-name: page-out;
 		animation-direction: reverse;
@@ -343,7 +390,11 @@ main {
 	animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-	::view-transition-old(page),
+	/* biome-ignore lint/correctness/noUnknownTypeSelector: `page` is a view-transition name, not an element */
+	::view-transition-old(page) {
+		animation: none;
+	}
+	/* biome-ignore lint/correctness/noUnknownTypeSelector: `page` is a view-transition name, not an element */
 	::view-transition-new(page) {
 		animation: none;
 	}

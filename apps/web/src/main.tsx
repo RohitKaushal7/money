@@ -3,11 +3,13 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
+import { preventLongPressMenu } from "./lib/no-long-press-menu";
 import { preventPageZoom } from "./lib/no-page-zoom";
 import { routeTree } from "./routeTree.gen";
 import { orpc, queryClient } from "./utils/orpc";
 
 preventPageZoom();
+preventLongPressMenu();
 
 const router = createRouter({
 	routeTree,

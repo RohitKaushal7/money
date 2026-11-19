@@ -1,36 +1,76 @@
 "use client";
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
+import { Drawer, DrawerContent } from "@money/ui/components/drawer";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { cn } from "@money/ui/lib/utils";
 import { XIcon } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
 /**
  * A dialog that changes shape rather than scale.
  *
- * On a phone it is a sheet: anchored to the bottom edge, full width, rounded only at the top, capped at
- * 90vh and scrolling inside. On a wider screen it is a centred modal. This is one component and one set of
- * children — a form long enough to need a dialog is long enough that shrinking a desktop modal onto a
- * 375px screen puts its actions off the bottom of the viewport.
+ * On a phone it is a real bottom sheet: Base UI's Drawer, so it follows the finger and closes on a swipe
+ * down, the way every native sheet does; full width, rounded at the top, scrolling inside. On a wider
+ * screen it is a centred modal. One component and one set of children for both, because a form long enough
+ * to need a dialog is long enough that shrinking a desktop modal onto a 375px screen puts its actions off
+ * the bottom of the viewport. The parts (Trigger, Close, Title, Description) follow whichever root is
+ * rendering, so callers never branch.
  */
 
+const PhoneDialog = React.createContext(false);
+
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-	return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+	const phone = useIsPhone();
+	return (
+		<PhoneDialog.Provider value={phone}>
+			{phone ? (
+				<Drawer {...(props as React.ComponentProps<typeof Drawer>)} />
+			) : (
+				<DialogPrimitive.Root data-slot="dialog" {...props} />
+			)}
+		</PhoneDialog.Provider>
+	);
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
-	return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
+	const phone = React.useContext(PhoneDialog);
+	return phone ? (
+		<DrawerPrimitive.Trigger
+			data-slot="dialog-trigger"
+			{...(props as DrawerPrimitive.Trigger.Props)}
+		/>
+	) : (
+		<DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+	);
 }
 
 function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
-	return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
+	const phone = React.useContext(PhoneDialog);
+	return phone ? (
+		<DrawerPrimitive.Close
+			data-slot="dialog-close"
+			{...(props as DrawerPrimitive.Close.Props)}
+		/>
+	) : (
+		<DialogPrimitive.Close data-slot="dialog-close" {...props} />
+	);
 }
 
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
-	return (
+	const phone = React.useContext(PhoneDialog);
+	const cls = cn("font-display font-medium text-lg", className);
+	return phone ? (
+		<DrawerPrimitive.Title
+			data-slot="dialog-title"
+			className={cn(cls, "text-xl tracking-tight")}
+			{...(props as DrawerPrimitive.Title.Props)}
+		/>
+	) : (
 		<DialogPrimitive.Title
 			data-slot="dialog-title"
-			className={cn("font-display font-medium text-lg", className)}
+			className={cls}
 			{...props}
 		/>
 	);
@@ -40,10 +80,18 @@ function DialogDescription({
 	className,
 	...props
 }: DialogPrimitive.Description.Props) {
-	return (
+	const phone = React.useContext(PhoneDialog);
+	const cls = cn("text-muted-foreground text-sm", className);
+	return phone ? (
+		<DrawerPrimitive.Description
+			data-slot="dialog-description"
+			className={cls}
+			{...(props as DrawerPrimitive.Description.Props)}
+		/>
+	) : (
 		<DialogPrimitive.Description
 			data-slot="dialog-description"
-			className={cn("text-muted-foreground text-sm", className)}
+			className={cls}
 			{...props}
 		/>
 	);
@@ -60,6 +108,43 @@ function DialogContent({
 	title: React.ReactNode;
 	description?: React.ReactNode;
 }) {
+	const phone = React.useContext(PhoneDialog);
+	if (phone) {
+		return (
+			<DrawerContent
+				data-slot="dialog-content"
+				className={cn(
+					"rounded-t-[28px] bg-card text-base text-card-foreground [--drawer-bleed-background:var(--color-card)] data-[swipe-direction=down]:rounded-t-[28px]",
+					className,
+				)}
+				{...(props as DrawerPrimitive.Popup.Props)}
+			>
+				<div
+					aria-hidden="true"
+					className="mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/40"
+				/>
+				<div className="flex shrink-0 items-start justify-between gap-4 px-5 pt-3 pb-1">
+					<div className="flex min-w-0 flex-col gap-1">
+						<DialogTitle>{title}</DialogTitle>
+						{description && (
+							<DialogDescription>{description}</DialogDescription>
+						)}
+					</div>
+					<DrawerPrimitive.Close
+						aria-label="Close"
+						className="-mt-1.5 -mr-2.5 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-secondary"
+					>
+						<XIcon className="size-5" />
+					</DrawerPrimitive.Close>
+				</div>
+				{/* Same padding as the desktop popup, so content that pins itself to the bottom edge (Plan's Save
+				    bar) lines up in both shapes. */}
+				<div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+					{children}
+				</div>
+			</DrawerContent>
+		);
+	}
 	return (
 		<DialogPrimitive.Portal>
 			<DialogPrimitive.Backdrop
