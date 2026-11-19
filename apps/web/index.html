@@ -29,21 +29,21 @@
       is the ThemeProvider's `storageKey` in routes/__root.tsx; the two colours are --background in index.css.
     -->
     <script>
-      (function () {
-        var theme = "dark";
+      (() => {
+        let theme = "dark";
         try {
-          var stored = localStorage.getItem("vite-ui-theme");
+          const stored = localStorage.getItem("vite-ui-theme");
           if (stored === "light") theme = "light";
           else if (stored === "system")
             theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        } catch (e) {
+        } catch {
           /* storage blocked: dark, the default */
         }
-        var root = document.documentElement;
+        const root = document.documentElement;
         root.classList.remove("light", "dark");
         root.classList.add(theme);
         root.style.colorScheme = theme;
-        var meta = document.querySelector('meta[name="theme-color"]');
+        const meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", theme === "light" ? "#fdfbf7" : "#14110e");
       })();
     </script>
