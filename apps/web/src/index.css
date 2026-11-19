@@ -305,3 +305,46 @@ main {
 		opacity: 0.6;
 	}
 }
+
+/*
+ * Page changes. The pane holding the page is `view-transition-name: page` (routes/_auth/route.tsx), so the
+ * rail, top bar and tab bar stay perfectly still and only the page moves: on a phone the old page fades
+ * quickly and the new one rises a few pixels into place, the way a native tab switch settles; on desktop a
+ * plain short crossfade. Nothing here runs on a search-param change (see main.tsx), and reduced motion gets
+ * an instant swap.
+ */
+@keyframes page-out {
+	to {
+		opacity: 0;
+	}
+}
+@keyframes page-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+::view-transition-old(page) {
+	animation: page-out 120ms ease-out both;
+}
+::view-transition-new(page) {
+	animation: page-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (min-width: 768px) {
+	::view-transition-new(page) {
+		animation-name: page-out;
+		animation-direction: reverse;
+		animation-duration: 160ms;
+	}
+}
+/* the root snapshot holds only the still chrome: no crossfade for it */
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-old(page),
+	::view-transition-new(page) {
+		animation: none;
+	}
+}

@@ -3,6 +3,7 @@ import {
 	runwayProjection,
 	type WealthSummary,
 } from "@money/shared";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
@@ -133,12 +134,12 @@ type Datum = {
 	color: string;
 };
 type Tab = "allocation" | "return" | "rose" | "spread";
-const TABS: [Tab, string][] = [
-	["allocation", "Allocation"],
-	["return", "By return"],
-	["rose", "Rose"],
-	["spread", "Spread"],
-];
+const TABS = [
+	{ key: "allocation", label: "Allocation" },
+	{ key: "return", label: "By return" },
+	{ key: "rose", label: "Rose" },
+	{ key: "spread", label: "Spread" },
+] as const satisfies readonly { key: Tab; label: string }[];
 const BANDS = [
 	{ label: "< 7%", lo: -1, hi: 0.07, color: "oklch(0.62 0.16 28)" },
 	{ label: "7–10%", lo: 0.07, hi: 0.1, color: "oklch(0.74 0.15 66)" },
@@ -158,13 +159,19 @@ function Distribution({ w }: { w: WealthSummary }) {
 	}));
 	return (
 		<section className="flex flex-col gap-4">
-			<div className="flex gap-1 rounded-lg bg-muted/50 p-1 text-sm">
-				{TABS.map(([k, label]) => (
+			{/* On a phone this takes the segmented-control shape of the shared TabBar, but keeps equal segments
+			    that shrink: four labels don't fit 360px at TabBar's padding, and a strip that scrolls sideways
+			    hides the last view. */}
+			<div
+				role="tablist"
+				className="flex gap-1 rounded-lg bg-muted/50 p-1 text-sm max-md:rounded-full max-md:bg-secondary"
+			>
+				{TABS.map(({ key: k, label }) => (
 					<button
 						key={k}
 						type="button"
 						onClick={() => setTab(k)}
-						className={`flex-1 rounded-md px-2 py-1 transition-colors ${tab === k ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+						className={`flex-1 rounded-md px-2 py-1 transition-colors max-md:h-9 max-md:min-w-0 max-md:truncate max-md:rounded-full max-md:px-1 ${tab === k ? "bg-background font-medium shadow-sm max-md:bg-card" : "text-muted-foreground hover:text-foreground"}`}
 					>
 						{label}
 					</button>
@@ -209,7 +216,7 @@ function AllocationView({ data, total }: { data: Datum[]; total: number }) {
 					</PieChart>
 				</ResponsiveContainer>
 				<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-					<span className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					<span className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 						Total
 					</span>
 					<span className="tnum font-display font-medium text-2xl">
@@ -335,7 +342,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 				>
 					<title>Wealth by value (angle) and return (reach)</title>
 					{segs.map((s) => (
-						// biome-ignore lint/a11y/noStaticElementInteractions: hover-only chart highlight, no click target — the figures are in the chart's aria-label/<title> and the table below
+						// biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only chart highlight (the tap is the touch stand-in for hover) — the figures are in the chart's aria-label/<title> and the table below
 						<path
 							key={s.d.name}
 							d={s.path}
@@ -345,6 +352,8 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 							opacity={active == null || active === s.i ? 1 : 0.35}
 							onMouseEnter={() => setActive(s.i)}
 							onMouseLeave={() => setActive(null)}
+							// A finger has no hover: a tap pins the slice, a second tap lets it go.
+							onClick={() => setActive((a) => (a === s.i ? null : s.i))}
 						/>
 					))}
 				</svg>
@@ -363,7 +372,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 						</>
 					) : (
 						<>
-							<span className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+							<span className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 								Total
 							</span>
 							<span className="tnum font-display font-medium text-2xl">
@@ -376,6 +385,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 			<p className="text-center text-muted-foreground text-xs">
 				Angle = share of wealth · reach = expected return. Fat-and-short = money
 				at low return.
+				<span className="md:hidden"> Tap a slice to see it.</span>
 			</p>
 		</div>
 	);
@@ -383,6 +393,7 @@ function RoseView({ data, total }: { data: Datum[]; total: number }) {
 
 function SpreadView({ data }: { data: Datum[] }) {
 	const { fmt } = useMoney();
+	const isPhone = useIsPhone();
 	const points = data
 		.filter((d) => d.rate != null)
 		.map((d) => ({ ...d, ratePct: (d.rate ?? 0) * 100 }));
@@ -397,7 +408,10 @@ function SpreadView({ data }: { data: Datum[] }) {
 							name="Return"
 							unit="%"
 							domain={[0, "dataMax"]}
-							tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+							tick={{
+								fontSize: isPhone ? 12 : 11,
+								fill: "var(--muted-foreground)",
+							}}
 							tickLine={false}
 							axisLine={{ stroke: "var(--border)" }}
 						/>
@@ -432,7 +446,7 @@ function Metrics({ w }: { w: WealthSummary }) {
 	return (
 		<section className="flex flex-col justify-center gap-6">
 			<div>
-				<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				<p className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 					Total wealth
 				</p>
 				<p className="tnum font-display font-medium text-5xl leading-none">
@@ -573,7 +587,7 @@ function Metric({
 				{value}
 			</span>
 			{hint && (
-				<span className="mt-0.5 text-[0.7rem] text-muted-foreground">
+				<span className="mt-0.5 text-muted-foreground text-xs md:text-[0.7rem]">
 					{hint}
 				</span>
 			)}
@@ -621,7 +635,7 @@ function HoldingCard({
 			<button
 				type="button"
 				onClick={() => grouped && setOpen((o) => !o)}
-				className={`flex w-full items-center gap-4 px-5 py-4 text-left ${grouped ? "hover:bg-secondary/30" : "cursor-default"}`}
+				className={`flex w-full items-center gap-4 px-5 py-4 text-left max-sm:gap-3 max-sm:px-4 ${grouped ? "hover:bg-secondary/30 max-md:active:bg-secondary/40" : "cursor-default"}`}
 			>
 				{grouped && (
 					<ChevronRight
@@ -637,6 +651,17 @@ function HoldingCard({
 						{where ? ` · ${where}` : ""}
 					</p>
 				</div>
+				{/* Under `sm` the three stat columns don't fit, and used to vanish, leaving a card with no amount on
+				    it. A phone gets them stacked on the right instead: value, then share and monthly. */}
+				<div className="flex shrink-0 flex-col items-end sm:hidden">
+					<span className="tnum font-medium">{fmt(rollup.value)}</span>
+					<span className="tnum text-muted-foreground text-xs">
+						{Math.round(share * 100)}% ·{" "}
+						<span style={{ color: "var(--covered)" }}>
+							{fmt(rollup.monthly)}/mo
+						</span>
+					</span>
+				</div>
 				<Stat label="value" value={fmt(rollup.value)} />
 				<Stat label="of wealth" value={`${Math.round(share * 100)}%`} muted />
 				<Stat label="/mo" value={fmt(rollup.monthly)} color="var(--covered)" />
@@ -649,7 +674,7 @@ function HoldingCard({
 						return (
 							<li
 								key={m.id}
-								className="flex items-center gap-4 px-5 py-2.5 pl-11 text-sm"
+								className="flex items-center gap-4 px-5 py-2.5 pl-11 text-sm max-sm:gap-3 max-sm:py-3 max-sm:pr-4 max-sm:pl-10"
 							>
 								<div className="min-w-0 flex-1">
 									<p className="truncate">{m.name}</p>
@@ -671,14 +696,24 @@ function HoldingCard({
 										</p>
 									)}
 								</div>
-								<span className="tnum w-24 text-right text-muted-foreground">
+								{/* Three fixed columns leave the name no room on a phone; stack them on the right. */}
+								<span className="flex shrink-0 flex-col items-end sm:hidden">
+									<span className="tnum">{fmt(m.currentValue ?? 0)}</span>
+									<span className="tnum text-muted-foreground text-xs">
+										{formatRate(m.annualRate)} ·{" "}
+										<span style={{ color: "var(--covered)" }}>
+											{fmt(monthly)}/mo
+										</span>
+									</span>
+								</span>
+								<span className="tnum w-24 text-right text-muted-foreground max-sm:hidden">
 									{fmt(m.currentValue ?? 0)}
 								</span>
-								<span className="tnum w-12 text-right text-muted-foreground">
+								<span className="tnum w-12 text-right text-muted-foreground max-sm:hidden">
 									{formatRate(m.annualRate)}
 								</span>
 								<span
-									className="tnum w-20 text-right"
+									className="tnum w-20 text-right max-sm:hidden"
 									style={{ color: "var(--covered)" }}
 								>
 									{fmt(monthly)}
@@ -711,7 +746,9 @@ function Stat({
 			>
 				{value}
 			</span>
-			<span className="text-[0.6rem] text-muted-foreground">{label}</span>
+			<span className="text-muted-foreground text-xs md:text-[0.6rem]">
+				{label}
+			</span>
 		</div>
 	);
 }

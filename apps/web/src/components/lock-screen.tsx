@@ -1,8 +1,10 @@
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useNavigate } from "@tanstack/react-router";
-import { Lock } from "lucide-react";
+import { Delete, Lock } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { haptics } from "@/lib/haptics";
 import { closeLock, openLock, useLockState } from "@/lib/lock";
 import { client, queryClient } from "@/utils/orpc";
 
@@ -69,6 +71,7 @@ function LockScreen() {
 	const [shake, setShake] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const navigate = useNavigate();
+	const phone = useIsPhone();
 
 	useEffect(() => {
 		inputRef.current?.focus();
@@ -84,6 +87,7 @@ function LockScreen() {
 			setError((e as Error).message || "Wrong PIN.");
 			setPin("");
 			setShake((n) => n + 1);
+			haptics.refused();
 			inputRef.current?.focus();
 		} finally {
 			setBusy(false);
@@ -96,6 +100,22 @@ function LockScreen() {
 		setError(null);
 		if (digits.length === PIN_LENGTH) void submit(digits);
 	}
+
+	if (phone)
+		return (
+			<PhoneLockScreen
+				pin={pin}
+				error={error}
+				busy={busy}
+				shake={shake}
+				onChange={onChange}
+				onForgot={async () => {
+					queryClient.clear();
+					await authClient.signOut();
+					navigate({ to: "/login" });
+				}}
+			/>
+		);
 
 	return (
 		<div className="flex h-svh w-full flex-col items-center justify-center gap-8 bg-background px-6">
@@ -168,6 +188,134 @@ function LockScreen() {
 			>
 				Forgot your PIN? Sign out and use your password
 			</button>
+		</div>
+	);
+}
+
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+
+/**
+ * The lock on a phone: four dots and a keypad of its own, like the phone's own lock screen, rather than
+ * a hidden field that summons the system keyboard (which covers half the screen and offers letters).
+ *
+ * Same semantics as the desktop path: the fourth digit submits, a wrong PIN clears, shakes and buzzes. A
+ * hardware keyboard still types digits and Backspace, since there is no field to type into.
+ */
+function PhoneLockScreen({
+	pin,
+	error,
+	busy,
+	shake,
+	onChange,
+	onForgot,
+}: {
+	pin: string;
+	error: string | null;
+	busy: boolean;
+	shake: number;
+	onChange: (next: string) => void;
+	onForgot: () => void;
+}) {
+	// Two taps can land before React re-renders, so each tap builds on the last tap's PIN, not the render's.
+	const pinRef = useRef(pin);
+	pinRef.current = pin;
+	const press = (key: string) => {
+		if (busy) return;
+		const cur = pinRef.current;
+		if (key !== "del" && cur.length >= PIN_LENGTH) return;
+		const next = key === "del" ? cur.slice(0, -1) : cur + key;
+		pinRef.current = next;
+		onChange(next);
+	};
+
+	// Read through a ref so the listener stays attached once, yet always sees the latest PIN.
+	const pressRef = useRef(press);
+	pressRef.current = press;
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
+			if (/^\d$/.test(e.key)) pressRef.current(e.key);
+			else if (e.key === "Backspace") pressRef.current("del");
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, []);
+
+	return (
+		<div className="flex h-svh w-full flex-col items-center justify-between bg-background px-6 pt-[max(3rem,calc(env(safe-area-inset-top)+2rem))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+			<div className="flex flex-col items-center gap-2">
+				<Lock className="size-5 text-muted-foreground" />
+				<span className="font-display font-medium text-2xl tracking-tight">
+					money
+				</span>
+				<p className="text-base text-muted-foreground">Enter your PIN</p>
+			</div>
+
+			<div className="flex flex-col items-center gap-4">
+				<div
+					key={shake}
+					role="img"
+					aria-label={`${pin.length} of ${PIN_LENGTH} digits entered`}
+					className={`flex gap-5 ${shake > 0 ? "lock-shake" : ""}`}
+				>
+					{Array.from({ length: PIN_LENGTH }, (_, i) => (
+						<span
+							key={`dot-${i}`}
+							className={`size-3.5 rounded-full border-2 transition-colors duration-150 ${
+								error
+									? "border-[var(--uncovered)]"
+									: i < pin.length
+										? "border-foreground bg-foreground"
+										: "border-muted-foreground/50"
+							}`}
+						/>
+					))}
+				</div>
+				<p
+					aria-live="polite"
+					className={`min-h-5 text-sm ${error ? "text-[var(--uncovered)]" : "text-muted-foreground"}`}
+				>
+					{error ?? (busy ? "Checking…" : " ")}
+				</p>
+			</div>
+
+			<div className="flex flex-col items-center gap-6">
+				<div className="grid grid-cols-3 gap-x-7 gap-y-4">
+					{KEYS.map((k, i) =>
+						k === "" ? (
+							<span key={`blank-${i}`} aria-hidden="true" />
+						) : k === "del" ? (
+							<button
+								key={k}
+								type="button"
+								aria-label="Delete last digit"
+								disabled={busy || pin.length === 0}
+								onClick={() => press("del")}
+								className="pressable flex size-16 items-center justify-center rounded-full text-foreground transition-opacity disabled:opacity-30"
+							>
+								<Delete className="size-6" />
+							</button>
+						) : (
+							<button
+								key={k}
+								type="button"
+								disabled={busy}
+								onClick={() => press(k)}
+								className="pressable tnum flex size-16 items-center justify-center rounded-full bg-secondary font-display text-[1.75rem] text-foreground transition-colors active:bg-muted-foreground/25 disabled:opacity-60"
+							>
+								{k}
+							</button>
+						),
+					)}
+				</div>
+				<button
+					type="button"
+					className="min-h-11 px-3 text-muted-foreground text-sm underline underline-offset-4"
+					onClick={onForgot}
+				>
+					Forgot your PIN? Sign out and use your password
+				</button>
+			</div>
 		</div>
 	);
 }

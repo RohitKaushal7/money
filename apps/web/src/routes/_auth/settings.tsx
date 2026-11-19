@@ -1,10 +1,28 @@
 import { Button } from "@money/ui/components/button";
 import { Skeleton } from "@money/ui/components/skeleton";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Check, RefreshCw } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+	Bot,
+	Check,
+	Coins,
+	Download,
+	KeyRound,
+	RefreshCw,
+	UserRound,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+	IconTile,
+	ListGroup,
+	ROW_CLASS,
+	RowChevron,
+	RowText,
+	Switch,
+	SwitchRow,
+} from "@/components/list-group";
 import { AccountTab } from "@/components/settings/account-tab";
 import { ClaudeTab } from "@/components/settings/claude-tab";
 import { DataTab } from "@/components/settings/data-tab";
@@ -24,6 +42,14 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]["key"];
 
+const ICON: Record<Tab, typeof Coins> = {
+	money: Coins,
+	security: KeyRound,
+	account: UserRound,
+	data: Download,
+	claude: Bot,
+};
+
 const BLURB: Record<Tab, string> = {
 	money: "How every figure is converted, taxed, and shown.",
 	security: "Your password, and who can see the screen.",
@@ -36,14 +62,21 @@ export const Route = createFileRoute("/_auth/settings")({
 	component: SettingsPage,
 	// In the URL rather than component state, so "Settings → Security" is linkable and survives a reload —
 	// which matters here, because the lock screen sends you to this page's Security tab.
-	validateSearch: (search: Record<string, unknown>): { tab: Tab } => ({
-		tab: TABS.some((t) => t.key === search.tab) ? (search.tab as Tab) : "money",
+	// No tab means the list of sections on a phone, and Money on desktop, which has no list.
+	validateSearch: (search: Record<string, unknown>): { tab?: Tab } => ({
+		tab: TABS.some((t) => t.key === search.tab)
+			? (search.tab as Tab)
+			: undefined,
 	}),
 });
 
 function SettingsPage() {
-	const { tab } = Route.useSearch();
+	const phone = useIsPhone();
+	const { tab: picked } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
+	const tab = picked ?? "money";
+
+	if (phone) return <PhoneSettings tab={picked} />;
 
 	return (
 		<main className="h-full overflow-y-auto">
@@ -61,18 +94,77 @@ function SettingsPage() {
 					onSelect={(next) => navigate({ search: { tab: next } })}
 				/>
 
-				<div className="flex flex-col gap-10">
-					{tab === "money" && (
-						<>
-							<Currencies />
-							<TaxKpi />
-						</>
-					)}
-					{tab === "security" && <SecurityTab />}
-					{tab === "account" && <AccountTab />}
-					{tab === "data" && <DataTab />}
-					{tab === "claude" && <ClaudeTab />}
-				</div>
+				<TabContent tab={tab} />
+			</div>
+		</main>
+	);
+}
+
+function TabContent({ tab }: { tab: Tab }) {
+	return (
+		<div className="flex flex-col gap-10 max-md:gap-8">
+			{tab === "money" && (
+				<>
+					<Currencies />
+					<TaxKpi />
+				</>
+			)}
+			{tab === "security" && <SecurityTab />}
+			{tab === "account" && <AccountTab />}
+			{tab === "data" && <DataTab />}
+			{tab === "claude" && <ClaudeTab />}
+		</div>
+	);
+}
+
+/**
+ * Settings on a phone: a list of the five sections that pushes into each one, the way a phone's own
+ * Settings works, instead of a five-way tab strip too wide for the screen. The section is still the `tab`
+ * search param, so `/settings?tab=security` opens straight onto Security and the browser's back (or a
+ * swipe) returns to the list.
+ *
+ * The heading is one element whose text changes between list and section, rather than two headings, so
+ * the phone top bar's collapsing title keeps watching a heading that is still on the page.
+ */
+function PhoneSettings({ tab }: { tab: Tab | undefined }) {
+	const label = tab ? TABS.find((t) => t.key === tab)?.label : undefined;
+	return (
+		// A section is one level below the list: the top bar's back chevron returns to it (see phone-nav.tsx).
+		<main
+			className="h-full overflow-y-auto"
+			data-back-to={tab ? "/settings" : undefined}
+			data-back-label={tab ? "Settings" : undefined}
+		>
+			<div className="mx-auto flex max-w-xl flex-col gap-6 px-4 pt-6 pb-10">
+				<header className="flex flex-col gap-1">
+					<h1 className="px-1 font-display font-medium text-3xl tracking-tight">
+						{label ?? "Settings"}
+					</h1>
+					{tab && <p className="px-1 text-muted-foreground">{BLURB[tab]}</p>}
+				</header>
+				{tab ? (
+					<TabContent tab={tab} />
+				) : (
+					<ListGroup>
+						{TABS.map((t) => {
+							const Icon = ICON[t.key];
+							return (
+								<Link
+									key={t.key}
+									to="/settings"
+									search={{ tab: t.key }}
+									className={ROW_CLASS}
+								>
+									<IconTile>
+										<Icon className="size-[1.125rem]" />
+									</IconTile>
+									<RowText label={t.label} hint={BLURB[t.key]} />
+									<RowChevron />
+								</Link>
+							);
+						})}
+					</ListGroup>
+				)}
 			</div>
 		</main>
 	);
@@ -111,13 +203,24 @@ function TaxKpi() {
 	const [draft, setDraft] = useState("");
 	const shown = draft === "" ? (rate * 100).toFixed(1) : draft;
 	const dirty = draft !== "" && Number(draft) > 0;
+	const phone = useIsPhone();
 
 	return (
 		<section className="flex flex-col gap-4">
-			<div className="border-border border-b-2 pb-2">
+			<div className="border-border border-b-2 pb-2 max-md:border-b-0 max-md:px-1 max-md:pb-0">
 				<h2 className="font-display font-medium text-xl">After-tax KPI</h2>
 			</div>
-			<div className="flex flex-wrap items-center justify-between gap-3">
+			{phone && (
+				<ListGroup footer={basis}>
+					<SwitchRow
+						on={enabled}
+						onToggle={() => set.mutate({ enabled: !enabled })}
+						label="Coverage after tax"
+						hint="Net interest income by your marginal rate first"
+					/>
+				</ListGroup>
+			)}
+			<div className="flex flex-wrap items-center justify-between gap-3 max-md:hidden">
 				<p className="max-w-md text-muted-foreground text-sm">
 					Net FD / bond / interest income by your marginal rate before the
 					coverage ratio. The rate is your override if you set one; otherwise
@@ -137,18 +240,27 @@ function TaxKpi() {
 					{enabled ? "After-tax · on" : "After-tax · off"}
 				</button>
 			</div>
-			<div className="flex flex-wrap items-end gap-2">
+			{phone && (
+				<p className="px-1 text-muted-foreground text-sm">
+					The rate is your override if you set one; otherwise it's computed from
+					this FY's tax profile or, without one, your most recent saved profile;
+					with no profile at all it's 31.2%.
+				</p>
+			)}
+			<div className="flex flex-wrap items-end gap-2 max-md:grid max-md:grid-cols-2 max-md:gap-3">
 				<Field label="Marginal rate %">
 					<input
 						type="text"
 						inputMode="decimal"
+						enterKeyHint="done"
 						value={shown}
 						onChange={(e) => setDraft(e.target.value)}
-						className="tnum w-24 rounded-md border border-border bg-background px-2 py-1 text-sm"
+						className="tnum w-24 rounded-md border border-border bg-background px-2 py-1 text-sm max-md:h-11 max-md:w-full max-md:rounded-lg max-md:px-3 max-md:text-base"
 					/>
 				</Field>
 				<Button
 					size="sm"
+					className="max-md:col-start-1 max-md:min-h-11"
 					disabled={!dirty || set.isPending}
 					onClick={() => {
 						set.mutate({ rateOverride: Number(draft) / 100 });
@@ -160,6 +272,7 @@ function TaxKpi() {
 				<Button
 					size="sm"
 					variant="outline"
+					className="max-md:min-h-11"
 					disabled={set.isPending}
 					onClick={() => {
 						set.mutate({ rateOverride: null });
@@ -219,12 +332,13 @@ function Currencies() {
 
 	return (
 		<section className="flex flex-col gap-5">
-			<div className="flex flex-wrap items-end justify-between gap-3 border-border border-b-2 pb-2">
+			<div className="flex flex-wrap items-end justify-between gap-3 border-border border-b-2 pb-2 max-md:items-center max-md:border-b-0 max-md:px-1 max-md:pb-0">
 				<h2 className="font-display font-medium text-xl">Currencies</h2>
 				{isAdmin && (
 					<Button
 						variant="outline"
 						size="sm"
+						className="max-md:min-h-11"
 						onClick={() => refresh.mutate(undefined)}
 						disabled={refresh.isPending}
 					>
@@ -238,7 +352,7 @@ function Currencies() {
 
 			{/* display-currency switcher */}
 			<div className="flex flex-col gap-2">
-				<span className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				<span className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em] max-md:px-1 max-md:text-sm max-md:normal-case max-md:tracking-normal">
 					Display everything in
 				</span>
 				<div className="flex flex-wrap gap-1.5">
@@ -251,7 +365,7 @@ function Currencies() {
 									key={c.code}
 									type="button"
 									onClick={() => !active && setDisplay.mutate({ code: c.code })}
-									className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium text-sm transition-colors ${
+									className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium text-sm transition-colors max-md:h-11 max-md:rounded-full max-md:px-4 ${
 										active
 											? "border-foreground bg-foreground text-background"
 											: "border-border hover:bg-secondary"
@@ -263,14 +377,14 @@ function Currencies() {
 							);
 						})}
 				</div>
-				<p className="text-muted-foreground text-xs">
+				<p className="text-muted-foreground text-xs max-md:px-1 max-md:text-sm">
 					Values show in this currency, with the original dim in brackets when
 					it differs.
 				</p>
 			</div>
 
 			{/* rate table */}
-			<ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+			<ul className="flex flex-col divide-y divide-border rounded-xl border border-border max-md:overflow-hidden max-md:rounded-2xl max-md:bg-card">
 				{cfg.currencies.map((c) => (
 					<CurrencyRow
 						key={c.code}
@@ -293,7 +407,7 @@ function Currencies() {
 					pending={upsert.isPending}
 				/>
 			) : (
-				<p className="text-muted-foreground text-xs">
+				<p className="text-muted-foreground text-xs max-md:px-1 max-md:text-sm">
 					Exchange rates are shared by everyone on this install; only the admin
 					can change them.
 				</p>
@@ -322,6 +436,71 @@ function CurrencyRow({
 	const isBase = code === "INR";
 	const [draft, setDraft] = useState(String(rateToInr));
 	const dirty = draft !== String(rateToInr);
+	const phone = useIsPhone();
+
+	// On a phone the row itself is the on/off switch, and an admin's rate field gets a line of its own
+	// beneath it, so neither has to be squeezed to fit the other.
+	if (phone) {
+		const editable = canEdit && !isBase;
+		return (
+			<li className="flex flex-col">
+				<button
+					type="button"
+					role="switch"
+					aria-checked={enabled}
+					aria-label={`${code} enabled`}
+					disabled={isBase || !canEdit}
+					onClick={() => onToggle(!enabled)}
+					className={ROW_CLASS}
+				>
+					<RowText
+						label={
+							<span className="tnum font-medium">
+								{symbol} {code}
+							</span>
+						}
+						hint={
+							isBase
+								? "Base currency, always on"
+								: editable
+									? undefined
+									: `1 ${code} = ₹${rateToInr}`
+						}
+					/>
+					<span
+						className={`shrink-0 ${isBase || !canEdit ? "opacity-50" : ""}`}
+					>
+						<Switch on={enabled} />
+					</span>
+				</button>
+				{editable && (
+					<form
+						className="flex items-center gap-2 px-4 pb-3 text-muted-foreground text-sm"
+						onSubmit={(e) => {
+							e.preventDefault();
+							if (dirty && Number(draft) > 0) onRate(Number(draft));
+						}}
+					>
+						<span className="tnum shrink-0">1 {code} = ₹</span>
+						<input
+							type="text"
+							inputMode="decimal"
+							enterKeyHint="done"
+							aria-label={`${code} rate in rupees`}
+							value={draft}
+							onChange={(e) => setDraft(e.target.value)}
+							className="tnum h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-base text-foreground"
+						/>
+						{dirty && Number(draft) > 0 && (
+							<Button type="submit" className="min-h-11">
+								Save
+							</Button>
+						)}
+					</form>
+				)}
+			</li>
+		);
+	}
 
 	return (
 		<li className="flex items-center gap-3 px-4 py-3">
@@ -386,14 +565,16 @@ function AddCurrency({
 	const valid = /^[A-Za-z]{3}$/.test(code) && symbol && Number(rate) > 0;
 
 	return (
-		<div className="flex flex-wrap items-end gap-2 rounded-xl border border-border border-dashed p-3">
+		<div className="flex flex-wrap items-end gap-2 rounded-xl border border-border border-dashed p-3 max-md:grid max-md:grid-cols-3 max-md:gap-3 max-md:rounded-2xl max-md:p-4">
 			<Field label="Code">
 				<input
 					value={code}
 					onChange={(e) => setCode(e.target.value.toUpperCase())}
 					placeholder="GBP"
 					maxLength={3}
-					className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm uppercase"
+					autoCapitalize="characters"
+					autoCorrect="off"
+					className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm uppercase max-md:h-11 max-md:w-full max-md:rounded-lg max-md:px-3 max-md:text-base"
 				/>
 			</Field>
 			<Field label="Symbol">
@@ -402,7 +583,7 @@ function AddCurrency({
 					onChange={(e) => setSymbol(e.target.value)}
 					placeholder="£"
 					maxLength={4}
-					className="w-14 rounded-md border border-border bg-background px-2 py-1 text-sm"
+					className="w-14 rounded-md border border-border bg-background px-2 py-1 text-sm max-md:h-11 max-md:w-full max-md:rounded-lg max-md:px-3 max-md:text-base"
 				/>
 			</Field>
 			<Field label="1 unit = ₹">
@@ -410,11 +591,13 @@ function AddCurrency({
 					value={rate}
 					onChange={(e) => setRate(e.target.value)}
 					inputMode="decimal"
+					enterKeyHint="done"
 					placeholder="105"
-					className="tnum w-24 rounded-md border border-border bg-background px-2 py-1 text-sm"
+					className="tnum w-24 rounded-md border border-border bg-background px-2 py-1 text-sm max-md:h-11 max-md:w-full max-md:rounded-lg max-md:px-3 max-md:text-base"
 				/>
 			</Field>
 			<Button
+				className="max-md:col-span-3 max-md:min-h-11"
 				disabled={!valid || pending}
 				onClick={() => {
 					onAdd({ code, symbol, rateToInr: Number(rate) });
@@ -437,8 +620,8 @@ function Field({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex flex-col gap-1">
-			<span className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+		<div className="flex flex-col gap-1 max-md:min-w-0">
+			<span className="text-[0.65rem] text-muted-foreground uppercase tracking-wider max-md:text-sm max-md:normal-case max-md:tracking-normal">
 				{label}
 			</span>
 			{children}

@@ -62,7 +62,7 @@ export function ArmedDelete({
 			onBlur={() => setArmed(false)}
 			className={`${armed ? "" : "text-muted-foreground hover:text-[var(--uncovered)]"} ${className}`}
 		>
-			<Trash2 className="pointer-coarse:size-4 size-3.5" />
+			<Trash2 className="size-3.5 touch:size-4" />
 			{armed ? (
 				<span className="whitespace-nowrap">Tap again to delete</span>
 			) : (

@@ -96,7 +96,7 @@ export function SuggestInput({
 				<div
 					id={listId}
 					role="listbox"
-					className="absolute inset-x-0 top-full z-50 mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover py-1 pointer-coarse:text-base text-popover-foreground text-xs shadow-md"
+					className="absolute inset-x-0 top-full z-50 mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover py-1 text-popover-foreground text-xs touch:text-base shadow-md"
 				>
 					{matches.map((s, i) => (
 						<div
@@ -113,7 +113,7 @@ export function SuggestInput({
 							}}
 							onMouseEnter={() => setActive(i)}
 							className={cn(
-								"flex pointer-coarse:min-h-11 cursor-pointer items-center gap-2 pointer-coarse:px-3 px-2.5 py-1.5",
+								"flex touch:min-h-11 cursor-pointer items-center gap-2 px-2.5 touch:px-3 py-1.5",
 								i === active && "bg-secondary",
 							)}
 						>
@@ -122,7 +122,7 @@ export function SuggestInput({
 								<span className="shrink-0 text-muted-foreground">{s.hint}</span>
 							)}
 							{i === active && (
-								<kbd className="pointer-coarse:hidden shrink-0 rounded border border-border px-1 text-[0.6rem] text-muted-foreground">
+								<kbd className="touch:hidden shrink-0 rounded border border-border px-1 text-[0.6rem] text-muted-foreground">
 									Tab
 								</kbd>
 							)}

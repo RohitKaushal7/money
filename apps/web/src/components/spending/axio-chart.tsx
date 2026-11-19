@@ -6,6 +6,7 @@ import {
 	OTHER_COLOR,
 	topAxioCategories,
 } from "@money/shared";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMemo, useState } from "react";
 import {
 	Bar,
@@ -28,6 +29,7 @@ import { usePreference } from "@/lib/preferences";
  */
 export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 	const { fmt, fmtc } = useMoney();
+	const phone = useIsPhone();
 	const [granularity, setGranularity] = usePreference("explorer.granularity");
 	const [mode, setMode] = usePreference("explorer.mode");
 	const [scope, setScope] = usePreference("explorer.scope");
@@ -57,7 +59,7 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 
 	return (
 		<section className="flex flex-col gap-4">
-			<div className="flex flex-wrap items-center gap-2">
+			<div className="flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch">
 				<Segmented
 					value={mode}
 					onChange={setMode}
@@ -88,7 +90,7 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 			</div>
 
 			{/* Category chips: click to toggle which categories are highlighted (max 5 coloured). */}
-			<div className="flex flex-wrap gap-1.5">
+			<div className="flex flex-wrap gap-1.5 max-md:gap-2">
 				{top5.map((c) => {
 					const on = categories.includes(c);
 					return (
@@ -102,7 +104,9 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 										: [...categories, c].slice(0, 5),
 								)
 							}
-							className={`cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+							// A 36px chip with a 44px hit area: the after: box reaches past the chip's edges, so the
+							// row stays compact while each chip is a full thumb target.
+							className={`relative cursor-pointer rounded-full border px-2.5 py-0.5 text-xs transition-colors max-md:h-9 max-md:px-3.5 max-md:text-sm max-md:after:absolute max-md:after:inset-x-0 max-md:after:-inset-y-1 max-md:after:content-[''] ${
 								on
 									? "border-transparent text-foreground"
 									: "border-border text-muted-foreground"
@@ -119,7 +123,7 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 				})}
 			</div>
 
-			<div className="h-72 w-full">
+			<div className="h-72 w-full max-md:h-64">
 				<ResponsiveContainer width="100%" height="100%">
 					{mode === "composition" ? (
 						<BarChart
@@ -127,7 +131,7 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 							margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
 						>
 							<Grid />
-							<Axes fmtc={fmtc} />
+							<Axes fmtc={fmtc} phone={phone} />
 							<Tip fmt={fmt} />
 							{stackKeys.map((k, i) => (
 								<Bar
@@ -151,7 +155,7 @@ export function AxioChart({ spend }: { spend: AxioSpendRow[] }) {
 							margin={{ top: 8, right: 4, bottom: 0, left: 4 }}
 						>
 							<Grid />
-							<Axes fmtc={fmtc} />
+							<Axes fmtc={fmtc} phone={phone} />
 							<Tip fmt={fmt} />
 							{mode === "total" ? (
 								<Line
@@ -196,13 +200,14 @@ function Segmented<T extends string>({
 	options: [T, string][];
 }) {
 	return (
-		<div className="flex overflow-hidden rounded-lg border border-border text-xs">
+		<div className="flex overflow-hidden rounded-lg border border-border text-xs max-md:rounded-full max-md:text-sm">
 			{options.map(([v, label]) => (
 				<button
 					key={v}
 					type="button"
+					aria-pressed={value === v}
 					onClick={() => onChange(v)}
-					className={`cursor-pointer px-2.5 py-1 transition-colors ${
+					className={`cursor-pointer px-2.5 py-1 transition-colors max-md:h-11 max-md:flex-1 ${
 						value === v
 							? "bg-secondary text-foreground"
 							: "text-muted-foreground hover:text-foreground"
@@ -225,22 +230,32 @@ function Grid() {
 	);
 }
 
-function Axes({ fmtc }: { fmtc: (n: number) => string }) {
+function Axes({
+	fmtc,
+	phone,
+}: {
+	fmtc: (n: number) => string;
+	phone: boolean;
+}) {
+	// 12px on a phone, the app's type floor. Recharts drops X labels that would collide on its own
+	// (`preserveEnd`), so the narrower axis just shows fewer of them.
+	const tick = { fill: "var(--muted-foreground)", fontSize: phone ? 12 : 11 };
 	return (
 		<>
 			<XAxis
 				dataKey="period"
 				tickLine={false}
 				axisLine={false}
-				tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+				tick={tick}
+				minTickGap={phone ? 12 : 5}
 				dy={8}
 			/>
 			<YAxis
 				tickFormatter={(v) => fmtc(v as number)}
 				tickLine={false}
 				axisLine={false}
-				width={52}
-				tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+				width={phone ? 48 : 52}
+				tick={tick}
 			/>
 		</>
 	);

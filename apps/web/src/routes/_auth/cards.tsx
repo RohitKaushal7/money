@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_auth/cards")({
 function CardsPage() {
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-5xl flex-col gap-10 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-5xl flex-col gap-10 px-4 pt-6 pb-10 max-md:gap-8 sm:px-8 sm:py-14">
 				<Header />
 				<Picker />
 				<Portfolio />
@@ -38,7 +38,7 @@ function Header() {
 				<h1 className="font-display font-medium text-3xl tracking-tight">
 					Cards
 				</h1>
-				<p className="text-muted-foreground">
+				<p className="text-muted-foreground max-md:text-sm">
 					Which card to use, and the gotchas that decide it.
 				</p>
 			</div>
@@ -71,13 +71,14 @@ function Picker() {
 				<h2 className="font-display font-medium text-xl">Best card for</h2>
 				<Select
 					aria-label="Spend category"
+					sheetTitle="Best card for…"
 					value={category}
 					onValueChange={setCategory}
 					options={CARD_CATEGORIES.map((c) => ({
 						value: c.key,
 						label: c.label,
 					}))}
-					className="h-9 w-auto min-w-[10rem] rounded-md"
+					className="h-9 w-auto min-w-[10rem] rounded-md max-md:h-11 max-md:w-full max-md:rounded-xl max-md:text-base"
 				/>
 			</div>
 			<ol className="flex flex-col divide-y divide-border rounded-xl border border-border">
@@ -90,7 +91,7 @@ function Picker() {
 				{ranked.map((r, i) => (
 					<li
 						key={r.cardId}
-						className={`flex items-start gap-3 px-4 py-3 ${r.excluded ? "opacity-55" : ""}`}
+						className={`flex items-start gap-3 px-4 py-3 max-md:py-3.5 ${r.excluded ? "opacity-55" : ""}`}
 					>
 						<span className="tnum w-5 pt-0.5 text-muted-foreground text-sm">
 							{i + 1}
@@ -157,48 +158,57 @@ function CardRow({ card }: { card: CardListItem }) {
 
 	return (
 		<li className="flex flex-col">
-			<div className="flex items-center gap-3 px-4 py-3">
+			<div className="flex items-center gap-3 px-4 py-3 max-md:gap-1 max-md:py-1 max-md:pr-1">
 				<button
 					type="button"
+					aria-expanded={open}
 					onClick={() => setOpen((o) => !o)}
-					className="flex flex-1 items-center gap-2 text-left"
+					className="flex flex-1 items-center gap-2 text-left max-md:min-h-14 max-md:min-w-0 max-md:py-2"
 				>
 					<ChevronDown
-						className={`size-4 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
+						className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
 					/>
-					<span className="font-medium">{card.name}</span>
-					<span className="text-muted-foreground text-xs">
-						{[
-							card.network,
-							card.isLtf ? "LTF" : money.fmt(card.annualFee ?? 0),
-							card.forexMarkupText ? `${card.forexMarkupText} forex` : null,
-							card.vintageYear
-								? `'${String(card.vintageYear).slice(-2)}`
-								: null,
-							lounge ? "✈ lounge" : null,
-							card.status && card.status !== "active" ? card.status : null,
-						]
-							.filter(Boolean)
-							.join(" · ")}
+					{/* Name over its facts on a phone: one line would push the facts off the row. */}
+					<span className="flex min-w-0 items-center gap-2 max-md:flex-col max-md:items-start max-md:gap-0.5">
+						<span className="font-medium">{card.name}</span>
+						<span className="text-muted-foreground text-xs">
+							{[
+								card.network,
+								card.isLtf ? "LTF" : money.fmt(card.annualFee ?? 0),
+								card.forexMarkupText ? `${card.forexMarkupText} forex` : null,
+								card.vintageYear
+									? `'${String(card.vintageYear).slice(-2)}`
+									: null,
+								lounge ? "✈ lounge" : null,
+								card.status && card.status !== "active" ? card.status : null,
+							]
+								.filter(Boolean)
+								.join(" · ")}
+						</span>
 					</span>
 				</button>
 				<button
 					type="button"
 					title="In daily wallet"
+					aria-label="In daily wallet"
+					aria-pressed={card.inWallet}
 					onClick={() =>
 						flags.mutate({ id: card.id, inWallet: !card.inWallet })
 					}
-					className={`rounded-full p-1.5 transition-colors ${card.inWallet ? "bg-[var(--covered)]/15 text-[var(--covered)]" : "text-muted-foreground hover:bg-secondary"}`}
+					className={`shrink-0 rounded-full p-1.5 transition-colors max-md:grid max-md:size-11 max-md:place-items-center max-md:p-0 ${card.inWallet ? "bg-[var(--covered)]/15 text-[var(--covered)]" : "text-muted-foreground hover:bg-secondary"}`}
 				>
 					<Wallet className="size-4" />
 				</button>
 			</div>
 			{open && (
-				<div className="flex flex-col gap-3 border-border border-t bg-muted/30 px-4 py-3 pl-10 text-sm">
+				<div className="flex flex-col gap-3 border-border border-t bg-muted/30 px-4 py-3 text-sm md:pl-10">
 					<ul className="flex flex-col gap-1">
 						{card.rules.map((rule) => (
-							<li key={rule.id} className="flex flex-wrap items-baseline gap-2">
-								<span className="w-28 shrink-0 text-muted-foreground text-xs">
+							<li
+								key={rule.id}
+								className="flex flex-wrap items-baseline gap-2 max-md:gap-x-3"
+							>
+								<span className="w-28 shrink-0 text-muted-foreground text-xs max-md:w-24">
 									{rule.isBase ? "base" : rule.category}
 								</span>
 								<span className="tnum font-medium">
@@ -267,7 +277,7 @@ function Detail({ label, items }: { label: string; items: string[] }) {
 				{label}
 			</span>
 			{items.map((it) => (
-				<span key={it} className="text-xs">
+				<span key={it} className="text-xs max-md:text-sm">
 					• {it}
 				</span>
 			))}
@@ -291,21 +301,38 @@ function SpendProfile() {
 			<h2 className="border-border border-b-2 pb-2 font-display font-medium text-xl">
 				Monthly spend profile
 			</h2>
-			<ul className="flex flex-col gap-2">
+			<ul className="flex flex-col gap-2 max-md:gap-0 max-md:divide-y max-md:divide-border">
 				{rows.map((r) => (
-					<li key={r.category} className="flex items-center gap-3 text-sm">
-						<span className="w-40 text-muted-foreground">{r.category}</span>
-						<span className="tnum flex-1">{money.fmt(r.monthlyAmount)}/mo</span>
+					<li
+						key={r.category}
+						className="flex items-center gap-3 text-sm max-md:py-2"
+					>
+						{/* On a phone the category and its current figure stack, so the field keeps a
+						    thumb-sized box on the right instead of squeezing the figure to nothing. */}
+						<span className="flex flex-1 items-center gap-3 max-md:min-w-0 max-md:flex-col max-md:items-start max-md:gap-0">
+							<span className="w-40 text-muted-foreground max-md:w-auto max-md:truncate max-md:text-foreground">
+								{r.category}
+							</span>
+							<span className="tnum flex-1 max-md:text-muted-foreground">
+								{money.fmt(r.monthlyAmount)}/mo
+							</span>
+						</span>
 						<input
 							type="number"
 							inputMode="numeric"
+							enterKeyHint="done"
+							aria-label={`${r.category} monthly spend`}
 							defaultValue={r.monthlyAmount}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") e.currentTarget.blur();
+							}}
 							onBlur={(e) => {
 								const v = Number(e.target.value);
 								if (v >= 0 && v !== r.monthlyAmount)
 									setSpend.mutate({ category: r.category, monthlyAmount: v });
 							}}
-							className="tnum w-28 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring"
+							// 16px on a phone so iOS doesn't zoom into the field on focus.
+							className="tnum w-28 rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus-visible:border-ring max-md:h-11 max-md:w-32 max-md:rounded-lg max-md:px-3 max-md:text-base"
 						/>
 					</li>
 				))}

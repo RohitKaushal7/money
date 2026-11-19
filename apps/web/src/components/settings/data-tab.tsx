@@ -1,4 +1,5 @@
 import { Button } from "@money/ui/components/button";
+import { Download } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -87,14 +88,18 @@ export function DataTab() {
 				Download your data as CSV for spreadsheets or backup. The date range
 				below scopes Transactions and Spending; Plan exports in full.
 			</p>
-			<div className="max-w-xs">
+			{/* The picker is shared and sized for a pointer; on a phone its controls get the full 44px here. */}
+			<div className="max-w-xs max-md:max-w-none max-md:[&_button]:min-h-11">
 				<DateRangePicker defaultPreset="all" onChange={setRange} />
 			</div>
-			<ul className="flex flex-col divide-y divide-border">
+			<ul className="flex flex-col divide-y divide-border max-md:overflow-hidden max-md:rounded-2xl max-md:border max-md:border-border max-md:bg-card">
 				{ITEMS.map((item) => (
-					<li key={item.dataset} className="flex items-center gap-4 py-3">
-						<div className="flex flex-1 flex-col">
-							<span className="font-medium text-sm">
+					<li
+						key={item.dataset}
+						className="flex items-center gap-4 py-3 max-md:gap-3 max-md:px-4"
+					>
+						<div className="flex min-w-0 flex-1 flex-col">
+							<span className="font-medium text-sm max-md:text-base">
 								{item.label}
 								{!item.ranged && (
 									<span className="ml-2 text-muted-foreground text-xs">
@@ -102,16 +107,28 @@ export function DataTab() {
 									</span>
 								)}
 							</span>
-							<span className="text-muted-foreground text-xs">{item.hint}</span>
+							<span className="text-muted-foreground text-xs max-md:text-sm">
+								{item.hint}
+							</span>
 						</div>
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
+							className="max-md:min-h-11"
 							disabled={busy !== null}
 							onClick={() => void download(item)}
 						>
-							{busy === item.dataset ? "Preparing…" : "Download CSV"}
+							{/* "CSV" alone on a phone: the row already says what downloads, and the hint keeps its width. */}
+							{busy === item.dataset ? (
+								"Preparing…"
+							) : (
+								<>
+									<span className="max-md:hidden">Download CSV</span>
+									<Download className="md:hidden" />
+									<span className="md:hidden">CSV</span>
+								</>
+							)}
 						</Button>
 					</li>
 				))}

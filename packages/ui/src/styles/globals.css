@@ -6,6 +6,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Touch sizing: a touch pointer OR a phone-width window. Controls grow to 44px targets and 16px text under
+ * either, so a phone gets them by pointer and a narrow desktop window, laid out like a phone, matches it.
+ */
+@custom-variant touch {
+	@media (pointer: coarse) {
+		@slot;
+	}
+	@media (max-width: 767px) {
+		@slot;
+	}
+}
+
 :root {
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);

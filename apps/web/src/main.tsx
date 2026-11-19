@@ -13,6 +13,12 @@ const router = createRouter({
 	routeTree,
 	defaultPreload: "intent",
 	scrollRestoration: true,
+	// A short settle between pages (styled in index.css). Only when the page itself changes: a filter or a
+	// tab is a search-param change, and animating the whole page on every keystroke in a search box would be
+	// noise, not feedback.
+	defaultViewTransition: {
+		types: ({ pathChanged }) => (pathChanged ? ["page"] : false),
+	},
 	defaultPendingComponent: () => <Loader />,
 	context: { orpc, queryClient },
 	Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {

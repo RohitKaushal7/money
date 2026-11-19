@@ -89,8 +89,8 @@ function CardSettlements({ rows }: { rows: AxioCrossCheckRow[] }) {
 			<h3 className="font-medium text-muted-foreground text-sm">
 				Card settlements · Axio spend vs statement bill
 			</h3>
-			<div className="flex flex-col divide-y divide-border rounded-2xl border border-border border-dashed bg-card/30 px-6">
-				<div className="flex items-center gap-3 py-2 text-muted-foreground text-xs">
+			<div className="flex flex-col divide-y divide-border rounded-2xl border border-border border-dashed bg-card/30 px-4 sm:px-6">
+				<div className="flex items-center gap-3 py-2 text-muted-foreground text-xs max-md:hidden">
 					<span className="flex-1">Spend month → bill month</span>
 					<span className="w-24 text-right">Axio</span>
 					<span className="w-24 text-right">Bill</span>
@@ -103,29 +103,52 @@ function CardSettlements({ rows }: { rows: AxioCrossCheckRow[] }) {
 					const matched =
 						Math.abs(r.gap) <= 0.1 * Math.max(r.cardSpend, r.cardBill);
 					return (
-						<div
-							key={r.spendMonth}
-							className="tnum flex items-center gap-3 py-2.5 text-sm"
-						>
-							<span className="flex-1 text-muted-foreground">
-								{formatMonth(r.spendMonth)} → {formatMonth(r.settleMonth)}
-							</span>
-							<span className="w-24 text-right">{fmt(r.cardSpend)}</span>
-							<span className="w-24 text-right text-muted-foreground">
-								{fmt(r.cardBill)}
-							</span>
-							<span className="w-28 text-right">
-								{matched ? (
-									<span className="text-muted-foreground">matched</span>
-								) : (
-									<>
-										{fmt(Math.abs(r.gap))}{" "}
-										<span className="text-muted-foreground text-xs">
-											{r.gap > 0 ? "unbilled" : "over"}
-										</span>
-									</>
-								)}
-							</span>
+						<div key={r.spendMonth}>
+							{/* A phone can't hold four columns: the months and the verdict on top, the two
+							    ledgers' figures under them, each named since there's no header row. */}
+							<div className="tnum flex flex-col gap-0.5 py-3 text-sm md:hidden">
+								<div className="flex items-baseline justify-between gap-3">
+									<span>
+										{formatMonth(r.spendMonth)} → {formatMonth(r.settleMonth)}
+									</span>
+									<span className="shrink-0 text-right">
+										{matched ? (
+											<span className="text-muted-foreground">matched</span>
+										) : (
+											<>
+												{fmt(Math.abs(r.gap))}{" "}
+												<span className="text-muted-foreground text-xs">
+													{r.gap > 0 ? "unbilled" : "over"}
+												</span>
+											</>
+										)}
+									</span>
+								</div>
+								<span className="text-muted-foreground text-xs">
+									Axio {fmt(r.cardSpend)} · bill {fmt(r.cardBill)}
+								</span>
+							</div>
+							<div className="tnum flex items-center gap-3 py-2.5 text-sm max-md:hidden">
+								<span className="flex-1 text-muted-foreground">
+									{formatMonth(r.spendMonth)} → {formatMonth(r.settleMonth)}
+								</span>
+								<span className="w-24 text-right">{fmt(r.cardSpend)}</span>
+								<span className="w-24 text-right text-muted-foreground">
+									{fmt(r.cardBill)}
+								</span>
+								<span className="w-28 text-right">
+									{matched ? (
+										<span className="text-muted-foreground">matched</span>
+									) : (
+										<>
+											{fmt(Math.abs(r.gap))}{" "}
+											<span className="text-muted-foreground text-xs">
+												{r.gap > 0 ? "unbilled" : "over"}
+											</span>
+										</>
+									)}
+								</span>
+							</div>
 						</div>
 					);
 				})}
@@ -166,7 +189,7 @@ function ImportPanel({
 	const p = preview.data;
 
 	return (
-		<div className="flex flex-col gap-3 rounded-2xl border border-border px-6 py-5">
+		<div className="flex flex-col gap-3 rounded-2xl border border-border px-4 py-5 sm:px-6">
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<h3 className="font-medium">
 					{firstRun ? "Import your Axio export" : "Replace the Axio import"}
@@ -186,6 +209,7 @@ function ImportPanel({
 					size="sm"
 					variant="outline"
 					onClick={() => fileRef.current?.click()}
+					className="max-md:h-11 max-md:w-full max-md:text-sm"
 				>
 					Choose CSV
 				</Button>
@@ -201,10 +225,11 @@ function ImportPanel({
 						{p.total} rows · {fmt(p.expenseSum)} real spend ·{" "}
 						{p.minDate?.slice(0, 7)} → {p.maxDate?.slice(0, 7)}
 					</p>
-					<div className="flex gap-2">
+					<div className="flex gap-2 max-md:flex-col">
 						<Button
 							type="button"
 							size="sm"
+							className="max-md:h-11 max-md:text-sm"
 							disabled={commit.isPending || !csv}
 							onClick={() => csv && commit.mutate({ csv })}
 						>
@@ -215,6 +240,7 @@ function ImportPanel({
 								type="button"
 								size="sm"
 								variant="ghost"
+								className="max-md:h-11 max-md:text-sm"
 								disabled={remove.isPending}
 								onClick={() => remove.mutate(undefined)}
 							>

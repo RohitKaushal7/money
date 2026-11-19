@@ -4,6 +4,7 @@ import {
 	runwayProjection,
 	type WealthSummary,
 } from "@money/shared";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useQuery } from "@tanstack/react-query";
 import {
 	Area,
@@ -66,6 +67,9 @@ type Datum = {
  */
 export function RunwayView({ points }: { points: NetworthPoint[] }) {
 	const m = useMoney();
+	// 12px is the phone's type floor; desktop keeps its smaller axis and marker labels.
+	const isPhone = useIsPhone();
+	const fontSize = isPhone ? 12 : 11;
 	const wealth = useQuery(orpc.plan.wealth.queryOptions());
 	const w = wealth.data as WealthSummary | undefined;
 	const {
@@ -160,14 +164,14 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 							scale="time"
 							domain={["dataMin", "dataMax"]}
 							tickFormatter={(v: number) => fmtAxis(v, spanYears)}
-							tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+							tick={{ fontSize, fill: "var(--muted-foreground)" }}
 							tickLine={false}
 							axisLine={{ stroke: "var(--border)" }}
 							minTickGap={40}
 						/>
 						<YAxis
 							tickFormatter={(v: number) => m.fmtc(v)}
-							tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+							tick={{ fontSize, fill: "var(--muted-foreground)" }}
 							tickLine={false}
 							axisLine={false}
 							width={52}
@@ -181,7 +185,7 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 								value: "today",
 								position: "insideTopLeft",
 								fill: "var(--muted-foreground)",
-								fontSize: 10,
+								fontSize: isPhone ? 12 : 10,
 							}}
 						/>
 						<Tooltip
@@ -257,9 +261,10 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 						title="Step spending up once a year"
 					/>
 					{inflationOn && (
-						<label className="flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs">
+						<label className="flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs max-md:h-11 max-md:px-4 max-md:text-sm">
 							<input
 								type="number"
+								inputMode="decimal"
 								min={0}
 								max={20}
 								step={0.5}
@@ -269,7 +274,7 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 									if (Number.isFinite(v))
 										setInflationRate(Math.min(20, Math.max(0, v)) / 100);
 								}}
-								className="tnum w-11 bg-transparent text-right outline-none"
+								className="tnum w-11 bg-transparent text-right outline-none max-md:w-12 max-md:text-base"
 								aria-label="Annual expense inflation, percent"
 							/>
 							<span className="text-muted-foreground">% /yr</span>
@@ -277,6 +282,11 @@ export function RunwayView({ points }: { points: NetworthPoint[] }) {
 					)}
 				</div>
 			</div>
+			{/* The toggles explain themselves in a hover title on desktop; a phone has no hover, so say it here. */}
+			<p className="text-muted-foreground text-xs md:hidden">
+				Earning lets the remaining balance keep compounding at your blended
+				return. Inflating steps spending up once a year.
+			</p>
 		</div>
 	);
 }
@@ -298,7 +308,7 @@ function Toggle({
 			onClick={onClick}
 			title={title}
 			aria-pressed={on}
-			className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+			className={`rounded-full border px-3 py-1 text-xs transition-colors max-md:h-11 max-md:px-4 max-md:text-sm ${
 				on
 					? "border-foreground/25 bg-secondary font-medium"
 					: "border-border text-muted-foreground hover:text-foreground"

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Eye, Lock, LogOut, Moon } from "lucide-react";
-import type { ReactNode } from "react";
+import { IconTile, ListGroup, Switch } from "@/components/list-group";
 import { useTheme } from "@/components/theme-provider";
 import { useIsAdmin } from "@/lib/admin";
 import { authClient } from "@/lib/auth-client";
@@ -35,48 +35,27 @@ function MorePage() {
 					More
 				</h1>
 
-				<Group label="Your money">
+				<ListGroup label="Your money">
 					{pages("money").map((d) => (
 						<NavRow key={d.to} dest={d} />
 					))}
-				</Group>
+				</ListGroup>
 
-				<Group label="Preferences">
+				<ListGroup label="Preferences">
 					<PrivacyRow />
 					<ThemeRow />
 					<LockRow />
-				</Group>
+				</ListGroup>
 
-				<Group label="App">
+				<ListGroup label="App">
 					{pages("app").map((d) => (
 						<NavRow key={d.to} dest={d} />
 					))}
-				</Group>
+				</ListGroup>
 
 				<AccountGroup />
 			</div>
 		</main>
-	);
-}
-
-function Group({ label, children }: { label: string; children: ReactNode }) {
-	return (
-		<section className="flex flex-col gap-2">
-			<h2 className="px-4 font-medium text-muted-foreground text-sm">
-				{label}
-			</h2>
-			<div className="flex flex-col divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
-				{children}
-			</div>
-		</section>
-	);
-}
-
-function IconTile({ children }: { children: ReactNode }) {
-	return (
-		<span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-			{children}
-		</span>
 	);
 }
 
@@ -99,24 +78,6 @@ function NavRow({ dest }: { dest: Destination }) {
 			</span>
 			<ChevronRight className="size-5 shrink-0 text-muted-foreground/70" />
 		</Link>
-	);
-}
-
-/** A 51×31 switch, the size a thumb expects; the whole row toggles it. */
-function Switch({ on }: { on: boolean }) {
-	return (
-		<span
-			aria-hidden="true"
-			className={`relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200 ${
-				on ? "bg-primary" : "bg-muted-foreground/30"
-			}`}
-		>
-			<span
-				className={`absolute top-[2px] left-[2px] size-[27px] rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${
-					on ? "translate-x-5" : "translate-x-0"
-				}`}
-			/>
-		</span>
 	);
 }
 

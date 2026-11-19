@@ -7,13 +7,18 @@ import {
 	type SpendingTrends,
 	spendHistory,
 } from "@money/shared";
+import { buttonVariants } from "@money/ui/components/button";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
+import { useState } from "react";
 import {
 	Bar,
 	CartesianGrid,
 	ComposedChart,
 	Line,
+	ReferenceArea,
 	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
@@ -22,6 +27,7 @@ import {
 } from "recharts";
 import { useMoney } from "@/lib/currency";
 import { formatMonth } from "@/lib/format";
+import { haptics } from "@/lib/haptics";
 import { orpc } from "@/utils/orpc";
 
 const OUT = "var(--uncovered)"; // over budget = pressure
@@ -77,6 +83,11 @@ export function SpendingHistory({
 	// currency-aware, and the axis was the one label in the chart that ignored the display currency.
 	const { fmt, fmtc } = useMoney();
 	const navigate = useNavigate();
+	const phone = useIsPhone();
+	// A phone has no hover, so the tooltip's breakdown would be unreachable if a tap went straight to
+	// Transactions. Instead a tap picks the month and its breakdown shows under the chart, with the jump to
+	// Transactions one tap further (the readout's button, or the same column again). Opens on the latest month.
+	const [picked, setPicked] = useState<string | null>(null);
 	const hist = spendHistory(res, 5);
 	const colorByKey = useCategoryColors(
 		hist.series.filter((s) => !s.isOther).map((s) => s.key),
@@ -98,9 +109,16 @@ export function SpendingHistory({
 	const showBudget = hist.budget > 0;
 	const showAverage = insights.average > 0;
 	const showRolling = insights.rolling.some((v) => v != null);
-	// Thin X labels once the window is wide enough that every-month labels would collide.
+	// Thin X labels once the window is wide enough that every-month labels would collide. A phone fits
+	// about five "Jul '25" labels across.
+	const maxLabels = phone ? 5 : 12;
 	const interval =
-		hist.months.length > 14 ? Math.ceil(hist.months.length / 12) - 1 : 0;
+		hist.months.length > (phone ? maxLabels : 14)
+			? Math.ceil(hist.months.length / maxLabels) - 1
+			: 0;
+	const selected = phone
+		? (data.find((r) => r.ym === picked) ?? data[data.length - 1])
+		: undefined;
 
 	// Click anywhere in a month's column → open Transactions filtered to that month. Reading the chart's
 	// activePayload (rather than a per-Bar onClick) makes the whole column clickable and sidesteps the
@@ -109,8 +127,39 @@ export function SpendingHistory({
 		// recharts gives us the clicked column's display label; map it back to the raw "YYYY-MM".
 		const label = (state as { activeLabel?: string })?.activeLabel;
 		const ym = data.find((r) => r.month === label)?.ym;
-		if (ym) navigate({ to: "/transactions", search: { month: ym } });
+		if (!ym) return;
+		if (phone && ym !== selected?.ym) {
+			haptics.selected();
+			setPicked(ym);
+			return;
+		}
+		navigate({ to: "/transactions", search: { month: ym } });
 	};
+
+	const legend = (
+		<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-muted-foreground text-xs">
+			{hist.series.map((s) => (
+				<Swatch key={s.key} color={colorOf(s)} label={s.label} />
+			))}
+			{showRolling && (
+				<Swatch
+					color="var(--foreground)"
+					label={`${ROLLING_MONTHS}-mo avg`}
+					line="solid"
+				/>
+			)}
+			{showAverage && (
+				<Swatch
+					color="var(--foreground)"
+					label={`Typical ${fmt(Math.round(insights.average))}`}
+					line="dotted"
+				/>
+			)}
+			{showBudget && (
+				<Swatch color="var(--muted-foreground)" label="Budget" line="dashed" />
+			)}
+		</div>
+	);
 
 	return (
 		<section className="flex flex-col gap-4">
@@ -118,32 +167,7 @@ export function SpendingHistory({
 				<h2 className="font-display font-medium text-xl tracking-tight">
 					Spending history
 				</h2>
-				<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-muted-foreground text-xs">
-					{hist.series.map((s) => (
-						<Swatch key={s.key} color={colorOf(s)} label={s.label} />
-					))}
-					{showRolling && (
-						<Swatch
-							color="var(--foreground)"
-							label={`${ROLLING_MONTHS}-mo avg`}
-							line="solid"
-						/>
-					)}
-					{showAverage && (
-						<Swatch
-							color="var(--foreground)"
-							label={`Typical ${fmt(Math.round(insights.average))}`}
-							line="dotted"
-						/>
-					)}
-					{showBudget && (
-						<Swatch
-							color="var(--muted-foreground)"
-							label="Budget"
-							line="dashed"
-						/>
-					)}
-				</div>
+				{!phone && legend}
 			</div>
 			<div className="h-64 w-full cursor-pointer">
 				<ResponsiveContainer width="100%" height="100%">
@@ -169,20 +193,36 @@ export function SpendingHistory({
 							tickFormatter={(v) => fmtc(v as number)}
 							tickLine={false}
 							axisLine={false}
-							width={52}
-							tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+							width={phone ? 48 : 52}
+							tick={{
+								fill: "var(--muted-foreground)",
+								fontSize: phone ? 12 : 11,
+							}}
 						/>
+						{selected && (
+							<ReferenceArea
+								x1={selected.month}
+								x2={selected.month}
+								fill="var(--muted)"
+								fillOpacity={0.7}
+								strokeOpacity={0}
+							/>
+						)}
 						<Tooltip
-							cursor={{ fill: "var(--muted)", opacity: 0.5 }}
-							content={({ active, payload, label }) => (
-								<HistoryTooltip
-									active={active}
-									payload={payload as unknown as TooltipEntry[] | undefined}
-									label={label as string | undefined}
-									budget={hist.budget}
-									fmt={fmt}
-								/>
-							)}
+							// On a phone the readout below replaces the floating tooltip; it stays mounted (with
+							// nothing to draw) so the chart still reports which column a tap landed on.
+							cursor={phone ? false : { fill: "var(--muted)", opacity: 0.5 }}
+							content={({ active, payload, label }) =>
+								phone ? null : (
+									<HistoryTooltip
+										active={active}
+										payload={payload as unknown as TooltipEntry[] | undefined}
+										label={label as string | undefined}
+										budget={hist.budget}
+										fmt={fmt}
+									/>
+								)
+							}
 						/>
 						{hist.series.map((s, i) => (
 							<Bar
@@ -232,7 +272,75 @@ export function SpendingHistory({
 					</ComposedChart>
 				</ResponsiveContainer>
 			</div>
+			{phone && (
+				<>
+					{legend}
+					{selected && (
+						<MonthReadout
+							row={selected}
+							series={hist.series.map((s) => ({
+								key: s.key,
+								label: s.label,
+								color: colorOf(s),
+							}))}
+							budget={hist.budget}
+							fmt={fmt}
+						/>
+					)}
+				</>
+			)}
 		</section>
+	);
+}
+
+/**
+ * The phone's stand-in for the hover tooltip: the picked month's breakdown, in place under the chart, and
+ * the way through to that month's transactions as a full-width button rather than a precise tap on a bar.
+ */
+function MonthReadout({
+	row,
+	series,
+	budget,
+	fmt,
+}: {
+	row: ChartRow;
+	series: { key: string; label: string; color: string }[];
+	budget: number;
+	fmt: (inr: number) => string;
+}) {
+	const rows = series
+		.map((s) => ({ ...s, value: Number(row[s.key] ?? 0) }))
+		.filter((r) => r.value > 0)
+		.sort((a, b) => b.value - a.value);
+	return (
+		<div className="flex flex-col gap-3 rounded-2xl border border-border bg-card/40 px-4 py-4 text-sm">
+			<p className="text-muted-foreground text-xs">
+				Tap a month to see its breakdown
+			</p>
+			<MonthBreakdown
+				label={row.month}
+				rows={rows.map((r) => ({
+					label: r.label,
+					value: r.value,
+					color: r.color,
+				}))}
+				total={row.total}
+				rolling={row.rolling}
+				budget={budget}
+				fmt={fmt}
+			/>
+			<Link
+				to="/transactions"
+				search={{ month: row.ym }}
+				className={buttonVariants({
+					variant: "secondary",
+					className: "h-11 w-full justify-between text-sm",
+				})}
+			>
+				{row.month} transactions
+				<ChevronRight className="size-4" />
+			</Link>
+		</div>
 	);
 }
 
@@ -271,9 +379,39 @@ function HistoryTooltip({
 		}))
 		.filter((r) => r.value > 0)
 		.sort((a, b) => b.value - a.value);
-	const over = budget > 0 && total > budget;
 	return (
 		<div className="rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm shadow-lg backdrop-blur">
+			<MonthBreakdown
+				label={label}
+				rows={rows}
+				total={total}
+				rolling={rolling ?? null}
+				budget={budget}
+				fmt={fmt}
+			/>
+		</div>
+	);
+}
+
+/** One month's stack, total, trailing level and budget verdict: the tooltip's body and the phone readout's. */
+function MonthBreakdown({
+	label,
+	rows,
+	total,
+	rolling,
+	budget,
+	fmt,
+}: {
+	label?: string;
+	rows: { label: string; value: number; color: string }[];
+	total: number;
+	rolling: number | null;
+	budget: number;
+	fmt: (inr: number) => string;
+}) {
+	const over = budget > 0 && total > budget;
+	return (
+		<div>
 			<p className="mb-1 font-medium">{label}</p>
 			{rows.map((r) => (
 				<Row
@@ -317,14 +455,14 @@ function Row({
 }) {
 	return (
 		<div className="tnum flex items-center justify-between gap-6">
-			<span className="flex items-center gap-2 text-muted-foreground">
+			<span className="flex min-w-0 items-center gap-2 text-muted-foreground">
 				<span
-					className="size-2 rounded-[2px]"
+					className="size-2 shrink-0 rounded-[2px]"
 					style={{ backgroundColor: color }}
 				/>
 				{label}
 			</span>
-			<span className="font-medium">{value}</span>
+			<span className="shrink-0 font-medium">{value}</span>
 		</div>
 	);
 }

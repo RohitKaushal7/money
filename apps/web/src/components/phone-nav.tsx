@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BAR_DESTINATIONS, isActive, MORE_PATHS } from "@/lib/nav";
@@ -64,25 +64,30 @@ export function TabBarNav() {
  *
  * Its title collapses iOS-style: while the page's own large `<h1>` is on screen the bar shows only the
  * wordmark, and once the heading scrolls up under it the bar takes the page title, with a hairline under it.
- * It watches the `<h1>` inside `<main>`, so no page has to register anything.
+ * It watches the `<h1>` inside `<main>`, so no page has to register anything, and it re-reads on every URL
+ * change (search included: a Settings section is `?tab=`) and whenever the heading's text changes.
  *
  * Pages behind More get a back chevron to More: a tab bar with five slots can't light the page you're on,
- * so the way back has to be on screen. The privacy eye stays on the right of every page, since hiding the
- * figures is something you need in public, one-handed, without a menu.
+ * so the way back has to be on screen. A page one level deeper names its own parent with
+ * `<main data-back-to="/settings" data-back-label="Settings">`. The privacy eye stays on the right of every
+ * page, since hiding the figures is something you need in public, one-handed, without a menu.
  */
 export function PhoneTopBar() {
+	const router = useRouter();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
+	const href = useRouterState({ select: (s) => s.location.href });
 	const [title, setTitle] = useState<string | null>(null);
 	const [collapsed, setCollapsed] = useState(false);
+	const [back, setBack] = useState<{ to: string; label: string } | null>(null);
 	const underMore = MORE_PATHS.some(
 		(p) => pathname === p || pathname.startsWith(`${p}/`),
 	);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-attach to the new page's heading on every route change
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-attach to the new page's heading on every URL change
 	useEffect(() => {
 		setCollapsed(false);
-		setTitle(null);
 		let observer: IntersectionObserver | undefined;
+		let textWatch: MutationObserver | undefined;
 		let tries = 0;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		// The page mounts after the route resolves (and may render a skeleton first), so look for its heading
@@ -94,7 +99,22 @@ export function PhoneTopBar() {
 				if (tries++ < 20) timer = setTimeout(attach, 100);
 				return;
 			}
-			setTitle(h1.textContent?.trim() ?? null);
+			const read = () => {
+				setTitle(h1.textContent?.trim() ?? null);
+				const to = main.dataset.backTo;
+				setBack(to ? { to, label: main.dataset.backLabel ?? "Back" } : null);
+			};
+			read();
+			textWatch = new MutationObserver(read);
+			textWatch.observe(h1, {
+				childList: true,
+				characterData: true,
+				subtree: true,
+			});
+			textWatch.observe(main, {
+				attributes: true,
+				attributeFilter: ["data-back-to"],
+			});
 			observer = new IntersectionObserver(
 				([entry]) => setCollapsed(!entry.isIntersecting),
 				{ root: main, threshold: 0, rootMargin: "-8px 0px 0px 0px" },
@@ -104,9 +124,13 @@ export function PhoneTopBar() {
 		attach();
 		return () => {
 			observer?.disconnect();
+			textWatch?.disconnect();
 			if (timer) clearTimeout(timer);
 		};
-	}, [pathname]);
+	}, [href]);
+
+	const backTarget =
+		back ?? (underMore ? { to: "/more", label: "More" } : null);
 
 	return (
 		<header
@@ -116,15 +140,16 @@ export function PhoneTopBar() {
 		>
 			<div className="relative flex h-12 items-center justify-between px-2">
 				<div className="flex min-w-0 items-center">
-					{underMore ? (
-						<Link
-							to="/more"
-							aria-label="Back to More"
+					{backTarget ? (
+						<button
+							type="button"
+							onClick={() => router.history.push(backTarget.to)}
+							aria-label={`Back to ${backTarget.label}`}
 							className="pressable flex h-11 items-center gap-0.5 rounded-full pr-3 pl-1 text-primary"
 						>
 							<ChevronLeft className="size-6" />
-							<span className="text-base">More</span>
-						</Link>
+							<span className="text-base">{backTarget.label}</span>
+						</button>
 					) : (
 						<span
 							className={`px-2 font-display font-medium text-xl tracking-tight transition-opacity duration-200 ${

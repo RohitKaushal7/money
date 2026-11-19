@@ -53,7 +53,7 @@ export function CoverageHero({
 		<section className="flex flex-col gap-8">
 			<div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end lg:gap-12">
 				<div className="max-w-xl shrink-0">
-					<p className="flex items-center gap-2 font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
+					<p className="flex items-center gap-2 font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em] max-md:text-sm max-md:normal-case max-md:tracking-normal">
 						Passive-income coverage · monthly
 						<TaxModeChip />
 					</p>
@@ -88,7 +88,7 @@ export function CoverageHero({
 				    composition rather than a figure sitting next to a widget. */}
 				<div className="flex min-w-0 flex-1 flex-col justify-end gap-7">
 					<CoverageTrend history={history} accent={accent} delta={delta} />
-					<dl className="grid grid-cols-3 gap-x-8 gap-y-1 lg:text-right">
+					<dl className="grid grid-cols-3 gap-x-8 gap-y-1 max-md:gap-x-3 lg:text-right">
 						<Stat label="Passive / mo" value={m.fmt(passive)} tone="covered" />
 						<Stat label="Expenses / mo" value={m.fmt(expenses)} />
 						<Stat
@@ -314,10 +314,13 @@ function Stat({
 				? "var(--uncovered)"
 				: undefined;
 	return (
-		<div className="flex flex-col lg:items-end">
-			<dt className="order-2 text-muted-foreground text-xs">{label}</dt>
+		<div className="flex flex-col max-md:min-w-0 lg:items-end">
+			<dt className="order-2 text-muted-foreground text-xs max-md:truncate">
+				{label}
+			</dt>
+			{/* three across a phone: the figure shrinks with the screen rather than wrapping mid-number */}
 			<dd
-				className="tnum order-1 font-display font-medium text-2xl"
+				className="tnum order-1 font-display font-medium text-2xl max-md:whitespace-nowrap max-md:text-[clamp(1rem,5vw,1.5rem)]"
 				style={color ? { color } : undefined}
 			>
 				{value}

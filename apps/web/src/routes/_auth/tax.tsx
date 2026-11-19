@@ -59,14 +59,15 @@ function TaxPage() {
 	const [choices] = useState(() => taxFyChoices(currentFyLabel()));
 	const [fy, setFy] = useState(choices.initial);
 	return (
-		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-5xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
+		// The scroll padding keeps a focused field clear of the sticky result bar on a phone.
+		<main className="h-full overflow-y-auto max-md:scroll-pb-28">
+			<div className="mx-auto flex max-w-5xl flex-col gap-8 px-5 py-10 max-md:gap-6 max-md:px-4 max-md:pt-6 max-md:pb-6 sm:px-8 sm:py-14">
 				<header className="flex flex-wrap items-end justify-between gap-3">
 					<div className="flex flex-col gap-1">
 						<h1 className="font-display font-medium text-3xl tracking-tight">
 							Tax
 						</h1>
-						<p className="text-muted-foreground">
+						<p className="text-muted-foreground max-md:text-sm">
 							Old vs new regime, capital gains, and deduction planning — per FY.
 						</p>
 					</div>
@@ -93,7 +94,7 @@ function FyPicker({
 			value={fy}
 			onValueChange={onChange}
 			options={fys.map((f) => ({ value: f, label: f }))}
-			className="h-9 w-auto min-w-[8rem] rounded-md"
+			className="h-9 w-auto min-w-[8rem] rounded-md max-md:h-11 max-md:w-full max-md:rounded-xl"
 		/>
 	);
 }
@@ -220,8 +221,8 @@ function TaxForm({ fy }: { fy: string }) {
 			: null;
 
 	return (
-		<div className="flex flex-col gap-10">
-			<div className="grid gap-8 lg:grid-cols-2">
+		<div className="flex flex-col gap-10 max-md:gap-6">
+			<div className="grid gap-8 max-md:gap-6 lg:grid-cols-2">
 				{/* ── Income ─────────────────────────────────────── */}
 				<Section title="Income">
 					<Field label="Salary / active income (gross)">
@@ -247,7 +248,8 @@ function TaxForm({ fy }: { fy: string }) {
 								: ""}
 						</Hint>
 					</Field>
-					<div className="grid grid-cols-2 gap-3">
+					<SubLabel>Capital gains</SubLabel>
+					<div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
 						<Field label="Equity STCG (20%)">
 							<Num
 								value={draft.capitalGains.equityStcg}
@@ -283,7 +285,7 @@ function TaxForm({ fy }: { fy: string }) {
 
 				{/* ── Deductions (old regime) ────────────────────── */}
 				<Section title="Deductions" subtitle="Old regime only">
-					<div className="grid grid-cols-2 gap-3">
+					<div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
 						<Field label="80C (max ₹1.5L)">
 							<Num
 								value={draft.deductions.s80c}
@@ -310,11 +312,11 @@ function TaxForm({ fy }: { fy: string }) {
 							/>
 						</Field>
 					</div>
-					<div className="mt-2 flex flex-col gap-2 border-border border-t pt-3">
-						<span className="text-muted-foreground text-xs">
+					<div className="mt-2 flex flex-col gap-2 border-border border-t pt-3 max-md:mt-0 max-md:gap-3 max-md:pt-4">
+						<span className="text-muted-foreground text-xs max-md:font-medium max-md:text-foreground max-md:text-sm">
 							HRA — exemption {c ? money.fmtc(c.hraExemption) : "—"}
 						</span>
-						<div className="grid grid-cols-2 gap-3">
+						<div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
 							<Field label="Basic salary">
 								<Num
 									value={draft.basicSalary}
@@ -335,12 +337,12 @@ function TaxForm({ fy }: { fy: string }) {
 								<Hint>actual {money.fmtc(rent)}/yr from ledger</Hint>
 							</Field>
 						</div>
-						<label className="flex items-center gap-2 text-sm">
+						<label className="flex items-center gap-2 text-sm max-md:min-h-11 max-md:gap-3">
 							<input
 								type="checkbox"
 								checked={draft.metro}
 								onChange={(e) => set("metro", e.target.checked)}
-								className="size-4 accent-foreground"
+								className="size-4 accent-foreground max-md:size-5"
 							/>
 							Metro city (50% of basic; else 40%)
 						</label>
@@ -376,7 +378,7 @@ function TaxForm({ fy }: { fy: string }) {
 							fmt={money.fmt}
 						/>
 					</div>
-					<div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+					<div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm max-md:flex-col max-md:items-stretch max-md:gap-y-3">
 						<span className="text-muted-foreground">
 							{c.breakeven == null
 								? "New regime wins regardless of extra deductions."
@@ -393,7 +395,7 @@ function TaxForm({ fy }: { fy: string }) {
 						<Button
 							variant="outline"
 							size="sm"
-							className="ml-auto"
+							className="ml-auto max-md:ml-0 max-md:min-h-11 max-md:w-full"
 							onClick={() =>
 								finalize.mutate(
 									{ fy, regimeChoice: c.recommended },
@@ -413,6 +415,64 @@ function TaxForm({ fy }: { fy: string }) {
 					</div>
 				</section>
 			)}
+			{c && (
+				<ResultBar
+					recommended={c.recommended}
+					saving={c.saving}
+					oldTax={c.old.totalTax}
+					newTax={c.new.totalTax}
+					updating={upsert.isPending || compute.isFetching}
+					fmt={money.fmt}
+				/>
+			)}
+		</div>
+	);
+}
+
+/**
+ * The answer, pinned to the foot of the page on a phone, so it moves while you type instead of sitting
+ * two screens below the field you're editing. Sticky inside the page's own scroll pane, so it rides above
+ * the tab bar rather than fighting it, and comes to rest after the regime cards once you scroll to them.
+ */
+function ResultBar({
+	recommended,
+	saving,
+	oldTax,
+	newTax,
+	updating,
+	fmt,
+}: {
+	recommended: "old" | "new";
+	saving: number;
+	oldTax: number;
+	newTax: number;
+	updating: boolean;
+	fmt: (inr: number) => string;
+}) {
+	const verdict =
+		saving === 0
+			? "Both regimes cost the same"
+			: `${recommended === "new" ? "New" : "Old"} regime saves ${fmt(saving)}`;
+	return (
+		<div className="sticky bottom-0 z-10 -mx-4 -mt-4 px-4 pt-2 pb-3 md:hidden">
+			<output
+				aria-live="polite"
+				className="flex items-center gap-3 rounded-2xl border border-[var(--covered)]/40 bg-card/95 px-4 py-3 shadow-[0_10px_30px_rgb(0_0_0/0.18)] backdrop-blur-xl"
+			>
+				<span className="flex min-w-0 flex-1 flex-col">
+					<span className="font-medium text-[var(--covered)] text-base">
+						{verdict}
+					</span>
+					<span className="tnum truncate text-muted-foreground text-sm">
+						Old {fmt(oldTax)} · New {fmt(newTax)}
+					</span>
+				</span>
+				<span
+					className={`text-muted-foreground text-xs transition-opacity ${updating ? "opacity-100" : "opacity-0"}`}
+				>
+					Updating…
+				</span>
+			</output>
 		</div>
 	);
 }
@@ -495,22 +555,42 @@ function Section({
 	children: ReactNode;
 }) {
 	return (
-		<section className="flex flex-col gap-4">
-			<div className="flex items-baseline justify-between border-border border-b-2 pb-2">
+		<section className="flex flex-col gap-4 max-md:gap-2">
+			<div className="flex items-baseline justify-between border-border border-b-2 pb-2 max-md:border-b-0 max-md:px-1 max-md:pb-0">
 				<h2 className="font-display font-medium text-xl">{title}</h2>
 				{subtitle && (
-					<span className="text-muted-foreground text-xs">{subtitle}</span>
+					<span className="text-muted-foreground text-xs max-md:text-sm">
+						{subtitle}
+					</span>
 				)}
 			</div>
-			{children}
+			{/* On a phone the fields sit in an inset card, the shape of a phone's own forms. */}
+			<div className="flex flex-col gap-4 max-md:rounded-2xl max-md:border max-md:border-border max-md:bg-card max-md:p-4">
+				{children}
+			</div>
 		</section>
 	);
 }
 
+/** A heading inside a section's card, on a phone only: the desktop grid groups these by position. */
+function SubLabel({ children }: { children: ReactNode }) {
+	return (
+		<span className="-mb-1 border-border border-t pt-4 font-medium text-sm md:hidden">
+			{children}
+		</span>
+	);
+}
+
+/**
+ * Label over field on desktop. On a phone, label left and field right on one line, like a phone's own
+ * forms, so the card reads as a list of amounts; a hint runs the full width underneath.
+ */
 function Field({ label, children }: { label: string; children: ReactNode }) {
 	return (
-		<div className="flex flex-col gap-1">
-			<span className="text-muted-foreground text-xs">{label}</span>
+		<div className="flex flex-col gap-1 max-md:grid max-md:grid-cols-[minmax(0,1fr)_9.5rem] max-md:items-center max-md:gap-x-3">
+			<span className="text-muted-foreground text-xs max-md:text-foreground max-md:text-sm max-md:leading-snug">
+				{label}
+			</span>
 			{children}
 		</div>
 	);
@@ -518,8 +598,20 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Hint({ children }: { children: ReactNode }) {
 	return (
-		<span className="text-[0.7rem] text-muted-foreground/80">{children}</span>
+		<span className="text-muted-foreground/80 text-xs max-md:col-span-2 md:text-[0.7rem]">
+			{children}
+		</span>
 	);
+}
+
+/** "Next" on a phone keyboard walks to the following amount; on the last one it closes the keyboard. */
+function focusNextAmount(from: HTMLInputElement) {
+	const all = [
+		...document.querySelectorAll<HTMLInputElement>("input[data-tax-amount]"),
+	];
+	const next = all[all.indexOf(from) + 1];
+	if (next) next.focus();
+	else from.blur();
 }
 
 function Num({
@@ -530,14 +622,34 @@ function Num({
 	onChange: (v: number) => void;
 }) {
 	return (
-		<input
-			type="number"
-			inputMode="numeric"
-			value={value === 0 ? "" : value}
-			placeholder="0"
-			onChange={(e) => onChange(Number(e.target.value) || 0)}
-			className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm tabular-nums shadow-xs outline-none focus-visible:border-ring"
-		/>
+		<div className="relative flex flex-col">
+			{/* Every figure on this page is a rupee amount; on a phone the field says so. */}
+			<span
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base text-muted-foreground md:hidden"
+			>
+				₹
+			</span>
+			<input
+				type="number"
+				inputMode="decimal"
+				enterKeyHint="next"
+				data-tax-amount=""
+				value={value === 0 ? "" : value}
+				placeholder="0"
+				onChange={(e) => onChange(Number(e.target.value) || 0)}
+				onKeyDown={(e) => {
+					if (
+						e.key !== "Enter" ||
+						!window.matchMedia("(max-width: 767px)").matches
+					)
+						return;
+					e.preventDefault();
+					focusNextAmount(e.currentTarget);
+				}}
+				className="h-9 rounded-md border border-input bg-background px-3 text-foreground text-sm tabular-nums shadow-xs outline-none focus-visible:border-ring max-md:h-11 max-md:rounded-lg max-md:pl-7 max-md:text-right max-md:text-base"
+			/>
+		</div>
 	);
 }
 
@@ -554,7 +666,7 @@ function Toggle({
 		<button
 			type="button"
 			onClick={onToggle}
-			className={`h-9 rounded-md border px-3 text-sm transition-colors ${on ? "border-foreground bg-foreground text-background" : "border-input text-muted-foreground hover:bg-secondary"}`}
+			className={`h-9 rounded-md border px-3 text-sm transition-colors max-md:h-11 max-md:rounded-lg ${on ? "border-foreground bg-foreground text-background" : "border-input text-muted-foreground hover:bg-secondary"}`}
 		>
 			{label}
 		</button>

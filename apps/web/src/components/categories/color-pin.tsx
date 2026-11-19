@@ -109,3 +109,65 @@ export function ColorPin({
 		</div>
 	);
 }
+
+/**
+ * The phone's version: the five slots and "None" as 44px swatches laid out in the sheet, since a popover
+ * hung off a 28px dot is no target for a thumb. Who else holds a slot is written under it rather than in a
+ * tooltip a phone can't hover.
+ */
+export function ColorSlotGrid({
+	slot,
+	slotUsers,
+	onPick,
+	disabled,
+	self,
+}: {
+	slot: ColorSlot | null;
+	slotUsers: Map<ColorSlot, string[]>;
+	onPick: (slot: ColorSlot | null) => void;
+	disabled?: boolean;
+	/** this category's own label, left out of "shared with" */
+	self?: string;
+}) {
+	const others = (slot ? (slotUsers.get(slot) ?? []) : []).filter(
+		(l) => l !== self,
+	);
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="flex flex-wrap gap-2">
+				{COLOR_SLOTS.map((s) => (
+					<button
+						key={s}
+						type="button"
+						disabled={disabled}
+						onClick={() => onPick(s)}
+						aria-label={`Use colour slot ${s}`}
+						aria-pressed={s === slot}
+						className={`grid size-11 place-items-center rounded-full disabled:opacity-40 ${s === slot ? "ring-2 ring-foreground/70 ring-offset-2 ring-offset-card" : ""}`}
+					>
+						<span
+							className="size-7 rounded-full"
+							style={{ backgroundColor: slotVar(s) }}
+						/>
+					</button>
+				))}
+				<button
+					type="button"
+					disabled={disabled}
+					onClick={() => onPick(null)}
+					aria-pressed={slot == null}
+					className={`h-11 rounded-full border border-border border-dashed px-4 text-muted-foreground text-sm disabled:opacity-40 ${slot == null ? "ring-2 ring-foreground/70 ring-offset-2 ring-offset-card" : ""}`}
+				>
+					None
+				</button>
+			</div>
+			<p className="text-muted-foreground text-sm">
+				{slot == null
+					? "No colour pinned — it takes a free slot when shown."
+					: others.length > 0
+						? `Shared with ${others.filter((_, i) => i < 3).join(", ")}${others.length > 3 ? "…" : ""}.`
+						: "Only this category uses it."}
+			</p>
+		</div>
+	);
+}

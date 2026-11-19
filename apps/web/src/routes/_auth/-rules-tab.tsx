@@ -19,11 +19,27 @@ import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
+import { Sheet } from "@money/ui/components/sheet";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+	ChevronRight,
+	GripVertical,
+	Pencil,
+	Plus,
+	Trash2,
+	X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ArmedDelete } from "@/components/armed-delete";
+import {
+	CategoryPicker,
+	PickerField,
+	SwitchRow,
+} from "@/components/categories/category-picker";
 import { groupByKind, kindColor, useCategories } from "@/lib/categories";
+import { haptics } from "@/lib/haptics";
 import { orpc } from "@/utils/orpc";
 
 /** A rule pre-seeded from a transaction's narration (the "Create rule from this" shortcut). */
@@ -80,6 +96,14 @@ export function RulesTab({
 	const cats = catsQ.data ?? [];
 	const byKey = new Map(cats.map((c) => [c.key, c]));
 	const [form, setForm] = useState<FormState>(EMPTY);
+	const phone = useIsPhone();
+	// The phone edits a rule in a sheet rather than the card above the list, which needs a desktop's width.
+	const [sheetOpen, setSheetOpen] = useState(false);
+	const [sheetActive, setSheetActive] = useState(true);
+	const closeSheet = () => {
+		setSheetOpen(false);
+		setForm(EMPTY);
+	};
 
 	const rulesKey = orpc.rules.list.queryKey();
 	// Everything, not just the rule list: rules decide how transactions are categorised, so spending and
@@ -94,6 +118,8 @@ export function RulesTab({
 			pattern: prefill.pattern,
 			assignCategoryKey: prefill.assignCategoryKey,
 		});
+		setSheetActive(true);
+		setSheetOpen(true);
 		onConsumePrefill();
 	}, [prefill, onConsumePrefill]);
 
@@ -102,6 +128,7 @@ export function RulesTab({
 		onSuccess: () => {
 			invalidate();
 			setForm(EMPTY);
+			setSheetOpen(false);
 			toast.success("Rule added — Re-tag to apply.");
 		},
 		onError: (e: Error) => toast.error(e.message),
@@ -111,6 +138,7 @@ export function RulesTab({
 		onSuccess: () => {
 			invalidate();
 			setForm(EMPTY);
+			setSheetOpen(false);
 		},
 		onError: (e: Error) => toast.error(e.message),
 	});
@@ -148,13 +176,15 @@ export function RulesTab({
 		reorder.mutate({ orderedIds: next.map((r) => r.id) });
 	};
 
-	const submit = () => {
+	const submit = (opts?: { active?: boolean }) => {
 		if (!form.pattern.trim() || !form.assignCategoryKey) {
+			if (phone) haptics.refused();
 			toast.error("A pattern and a category are required.");
 			return;
 		}
 		const cat = byKey.get(form.assignCategoryKey);
 		if (!cat) {
+			if (phone) haptics.refused();
 			toast.error("Pick a valid category.");
 			return;
 		}
@@ -172,7 +202,7 @@ export function RulesTab({
 			maxAmount: form.maxAmount === "" ? null : Number(form.maxAmount),
 		};
 		if (form.editingId != null) {
-			update.mutate({ id: form.editingId, ...payload });
+			update.mutate({ id: form.editingId, ...payload, ...opts });
 		} else {
 			create.mutate(payload);
 		}
@@ -188,11 +218,60 @@ export function RulesTab({
 	}));
 
 	const busy = create.isPending || update.isPending;
+	const editRule = (r: Rule) =>
+		setForm({
+			editingId: r.id,
+			pattern: r.pattern,
+			matchType: r.matchType === "regex" ? "regex" : "substring",
+			assignCategoryKey: r.assignCategoryKey,
+			minAmount: r.minAmount == null ? "" : String(r.minAmount),
+			maxAmount: r.maxAmount == null ? "" : String(r.maxAmount),
+			advanced: r.minAmount != null || r.maxAmount != null,
+		});
 
 	return (
 		<section className="flex flex-col gap-6">
+			{phone && (
+				<>
+					<Button
+						variant="outline"
+						className="h-11 w-full"
+						onClick={() => {
+							setForm(EMPTY);
+							setSheetActive(true);
+							setSheetOpen(true);
+						}}
+					>
+						<Plus className="size-4" /> Add a rule
+					</Button>
+					<PhoneRuleSheet
+						open={sheetOpen}
+						onClose={closeSheet}
+						form={form}
+						setForm={setForm}
+						active={sheetActive}
+						onActive={setSheetActive}
+						catLabel={byKey.get(form.assignCategoryKey)?.label}
+						catKind={byKey.get(form.assignCategoryKey)?.kind}
+						busy={busy}
+						onSave={() =>
+							submit(
+								form.editingId != null ? { active: sheetActive } : undefined,
+							)
+						}
+						onDelete={() => {
+							if (form.editingId == null) return;
+							remove.mutate({ id: form.editingId });
+							closeSheet();
+						}}
+					/>
+				</>
+			)}
+
 			{/* add / edit form */}
-			<div className="flex flex-col gap-3 rounded-xl border border-border bg-card/40 px-4 py-4">
+			<div
+				className={`flex flex-col gap-3 rounded-xl border border-border bg-card/40 px-4 py-4 ${phone ? "hidden" : ""}`}
+			>
 				<div className="flex items-center justify-between">
 					<h3 className="font-medium text-sm">
 						{form.editingId != null ? "Edit rule" : "Add a rule"}
@@ -284,7 +363,7 @@ export function RulesTab({
 							</label>
 						</>
 					)}
-					<Button onClick={submit} disabled={busy}>
+					<Button onClick={() => submit()} disabled={busy}>
 						{form.editingId != null ? "Save" : <Plus className="size-4" />}
 						{form.editingId != null ? "" : "Add"}
 					</Button>
@@ -325,19 +404,15 @@ export function RulesTab({
 								<SortableRuleRow
 									key={r.id}
 									rule={r}
+									phone={phone}
 									catLabel={byKey.get(r.assignCategoryKey)?.label}
-									onEdit={() =>
-										setForm({
-											editingId: r.id,
-											pattern: r.pattern,
-											matchType:
-												r.matchType === "regex" ? "regex" : "substring",
-											assignCategoryKey: r.assignCategoryKey,
-											minAmount: r.minAmount == null ? "" : String(r.minAmount),
-											maxAmount: r.maxAmount == null ? "" : String(r.maxAmount),
-											advanced: r.minAmount != null || r.maxAmount != null,
-										})
-									}
+									onEdit={() => {
+										editRule(r);
+										if (phone) {
+											setSheetActive(r.active);
+											setSheetOpen(true);
+										}
+									}}
 									onToggle={() =>
 										update.mutate({ id: r.id, active: !r.active })
 									}
@@ -354,12 +429,14 @@ export function RulesTab({
 
 function SortableRuleRow({
 	rule,
+	phone,
 	catLabel,
 	onEdit,
 	onToggle,
 	onDelete,
 }: {
 	rule: Rule;
+	phone: boolean;
 	catLabel: string | undefined;
 	onEdit: () => void;
 	onToggle: () => void;
@@ -379,15 +456,64 @@ function SortableRuleRow({
 	]
 		.filter(Boolean)
 		.join(" ");
+	const style = {
+		transform: CSS.Transform.toString(transform),
+		transition,
+		opacity: isDragging ? 0.6 : 1,
+		zIndex: isDragging ? 10 : undefined,
+	};
+	if (phone) {
+		// The handle keeps drag-to-reorder; the rest of the row is one tap target that opens the editor,
+		// where enable, edit and delete live.
+		return (
+			<li
+				ref={setNodeRef}
+				style={style}
+				className="flex items-stretch bg-background first:rounded-t-xl last:rounded-b-xl"
+			>
+				<button
+					type="button"
+					className="grid w-11 shrink-0 touch-none place-items-center text-muted-foreground"
+					aria-label="Drag to reorder"
+					{...attributes}
+					{...listeners}
+				>
+					<GripVertical className="size-5" />
+				</button>
+				<button
+					type="button"
+					onClick={onEdit}
+					className="flex min-h-16 min-w-0 flex-1 items-center gap-2 py-2.5 pr-3 text-left active:bg-secondary/60"
+				>
+					<span
+						className={`flex min-w-0 flex-1 flex-col gap-0.5 ${rule.active ? "" : "opacity-50"}`}
+					>
+						<code className="truncate text-sm">{rule.pattern}</code>
+						<span
+							className="truncate text-sm"
+							style={{ color: kindColor(rule.assignKind) }}
+						>
+							→ {catLabel ?? rule.assignCategoryKey}
+						</span>
+						<span className="tnum truncate text-muted-foreground text-xs">
+							{rule.matchType === "regex" ? "regex" : "contains"}
+							{bounds && ` · ${bounds}`}
+						</span>
+					</span>
+					{!rule.active && (
+						<span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-muted-foreground text-xs">
+							Off
+						</span>
+					)}
+					<ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+				</button>
+			</li>
+		);
+	}
 	return (
 		<li
 			ref={setNodeRef}
-			style={{
-				transform: CSS.Transform.toString(transform),
-				transition,
-				opacity: isDragging ? 0.6 : 1,
-				zIndex: isDragging ? 10 : undefined,
-			}}
+			style={style}
 			className={`flex items-center gap-2 bg-background px-3 py-2.5 ${rule.active ? "" : "opacity-50"}`}
 		>
 			<button
@@ -438,5 +564,152 @@ function SortableRuleRow({
 				<Trash2 className="size-3.5" />
 			</button>
 		</li>
+	);
+}
+
+/** The phone's rule editor: the desktop card's fields, stacked, with the category as a picker step. */
+function PhoneRuleSheet({
+	open,
+	onClose,
+	form,
+	setForm,
+	active,
+	onActive,
+	catLabel,
+	catKind,
+	busy,
+	onSave,
+	onDelete,
+}: {
+	open: boolean;
+	onClose: () => void;
+	form: FormState;
+	setForm: (f: (prev: FormState) => FormState) => void;
+	active: boolean;
+	onActive: (v: boolean) => void;
+	catLabel: string | undefined;
+	catKind: string | undefined;
+	busy: boolean;
+	onSave: () => void;
+	onDelete: () => void;
+}) {
+	const [picking, setPicking] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: every opening starts on the form
+	useEffect(() => setPicking(false), [open]);
+	const editing = form.editingId != null;
+	return (
+		<Sheet
+			open={open}
+			onOpenChange={(o) => !o && onClose()}
+			title={picking ? "Category" : editing ? "Edit rule" : "Add a rule"}
+			footer={
+				picking ? undefined : (
+					<Button className="h-11 w-full" onClick={onSave} disabled={busy}>
+						{busy ? "Saving…" : editing ? "Save rule" : "Add rule"}
+					</Button>
+				)
+			}
+		>
+			{picking ? (
+				<CategoryPicker
+					value={form.assignCategoryKey}
+					onBack={() => setPicking(false)}
+					onPick={(v) => {
+						setForm((f) => ({ ...f, assignCategoryKey: v }));
+						setPicking(false);
+					}}
+				/>
+			) : (
+				<>
+					<label htmlFor="rule-pattern-phone" className="flex flex-col gap-1.5">
+						<span className="text-muted-foreground text-sm">
+							Narration {form.matchType === "regex" ? "regex" : "contains"}
+						</span>
+						<Input
+							id="rule-pattern-phone"
+							value={form.pattern}
+							onChange={(e) =>
+								setForm((f) => ({ ...f, pattern: e.target.value }))
+							}
+							placeholder="e.g. SWIGGY"
+							autoCapitalize="characters"
+							className="h-11 rounded-xl text-base"
+						/>
+					</label>
+					<PickerField
+						label="Category"
+						value={catLabel}
+						color={catKind ? kindColor(catKind) : undefined}
+						placeholder="Pick a category"
+						onClick={() => setPicking(true)}
+					/>
+					<div className="flex flex-col gap-1.5">
+						<span className="text-muted-foreground text-sm">Match</span>
+						<div className="flex rounded-full bg-secondary p-1">
+							{(["substring", "regex"] as const).map((m) => (
+								<button
+									key={m}
+									type="button"
+									aria-pressed={form.matchType === m}
+									onClick={() => setForm((f) => ({ ...f, matchType: m }))}
+									className={`h-9 flex-1 rounded-full text-sm ${form.matchType === m ? "bg-card font-medium shadow-sm" : "text-muted-foreground"}`}
+								>
+									{m === "regex" ? "Regex" : "Contains"}
+								</button>
+							))}
+						</div>
+					</div>
+					<div className="grid grid-cols-2 gap-3">
+						<label htmlFor="rule-min-phone" className="flex flex-col gap-1.5">
+							<span className="text-muted-foreground text-sm">Min ₹</span>
+							<Input
+								id="rule-min-phone"
+								type="number"
+								value={form.minAmount}
+								onChange={(e) =>
+									setForm((f) => ({ ...f, minAmount: e.target.value }))
+								}
+								placeholder="—"
+								className="h-11 rounded-xl text-base"
+							/>
+						</label>
+						<label htmlFor="rule-max-phone" className="flex flex-col gap-1.5">
+							<span className="text-muted-foreground text-sm">Max ₹</span>
+							<Input
+								id="rule-max-phone"
+								type="number"
+								value={form.maxAmount}
+								onChange={(e) =>
+									setForm((f) => ({ ...f, maxAmount: e.target.value }))
+								}
+								placeholder="—"
+								className="h-11 rounded-xl text-base"
+							/>
+						</label>
+					</div>
+					<p className="text-muted-foreground text-sm">
+						Amount bounds are signed INR (credits +, debits −). First matching
+						rule wins, top of the list first; drag the handle to reorder.
+					</p>
+					{editing && (
+						<>
+							<SwitchRow
+								label="Enabled"
+								hint="A disabled rule is skipped on re-tag."
+								checked={active}
+								onChange={onActive}
+							/>
+							<ArmedDelete
+								label="Delete rule"
+								title="Delete rule"
+								size="sm"
+								onConfirm={onDelete}
+								className="h-11 self-start"
+							/>
+						</>
+					)}
+				</>
+			)}
+		</Sheet>
 	);
 }

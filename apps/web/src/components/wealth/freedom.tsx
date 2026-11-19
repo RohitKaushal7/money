@@ -233,9 +233,9 @@ function Answer({
 			: null;
 
 	return (
-		<div className="flex flex-col gap-5 rounded-2xl border border-border px-6 py-6">
+		<div className="flex flex-col gap-5 rounded-2xl border border-border px-6 py-6 max-md:px-5">
 			<div>
-				<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				<p className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 					Free in
 				</p>
 				{years == null ? (
@@ -334,7 +334,7 @@ function Answer({
 					<button
 						type="button"
 						onClick={onTryPlan}
-						className="rounded-lg border border-border border-dashed px-3 py-2 text-left text-xs leading-relaxed transition-colors hover:border-foreground/30 hover:bg-secondary/30"
+						className="rounded-lg border border-border border-dashed px-3 py-2 text-left text-xs leading-relaxed transition-colors hover:border-foreground/30 hover:bg-secondary/30 max-md:rounded-xl max-md:py-3 max-md:text-sm max-md:active:bg-secondary/40"
 					>
 						<span className="text-muted-foreground">
 							What if you spent your{" "}
@@ -364,11 +364,13 @@ function Fact({
 }) {
 	return (
 		<div>
-			<dt className="text-[0.6rem] text-muted-foreground uppercase tracking-[0.18em]">
+			<dt className="text-muted-foreground text-xs uppercase tracking-[0.18em] md:text-[0.6rem]">
 				{label}
 			</dt>
 			<dd className="tnum mt-1 font-medium text-sm">{value}</dd>
-			<dd className="mt-0.5 text-[0.7rem] text-muted-foreground">{note}</dd>
+			<dd className="mt-0.5 text-muted-foreground text-xs md:text-[0.7rem]">
+				{note}
+			</dd>
 		</div>
 	);
 }
@@ -401,14 +403,14 @@ function Panel({
 	return (
 		<div className="flex flex-col gap-4 rounded-2xl border border-border bg-card/30 px-5 py-5">
 			<div className="flex items-center justify-between gap-3">
-				<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				<p className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 					What if
 				</p>
 				{dirty && (
 					<button
 						type="button"
 						onClick={onReset}
-						className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
+						className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground max-md:-my-2 max-md:h-11 max-md:px-4 max-md:text-sm"
 					>
 						<RotateCcw className="size-3" />
 						Reset
@@ -469,7 +471,7 @@ function Panel({
 				/>
 			</div>
 
-			<p className="text-[0.7rem] text-muted-foreground leading-relaxed">
+			<p className="text-muted-foreground text-xs leading-relaxed md:text-[0.7rem]">
 				Return and inflation are the fragile pair — the target divides by the
 				gap between them, so a point either way moves it by crores. Nudge them
 				and see.
@@ -511,27 +513,30 @@ function Knob({
 			<span className="flex items-baseline justify-between gap-2">
 				<label
 					htmlFor={id}
-					className="text-[0.6rem] text-muted-foreground uppercase tracking-[0.18em]"
+					className="text-muted-foreground text-xs uppercase tracking-[0.18em] md:text-[0.6rem]"
 				>
 					{label}
 				</label>
 				{moved && (
-					<span className="tnum text-[0.65rem] text-muted-foreground">
+					<span className="tnum text-muted-foreground text-xs md:text-[0.65rem]">
 						was {format(actual)}
 					</span>
 				)}
 			</span>
 			<span
-				className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+				className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors max-md:min-h-12 max-md:rounded-xl ${
 					moved ? "border-foreground/30 bg-secondary/40" : "border-border"
 				}`}
 			>
 				{hidden ? (
-					<span className="flex-1 text-muted-foreground text-sm">••••••</span>
+					<span className="flex-1 text-muted-foreground text-sm max-md:text-base">
+						••••••
+					</span>
 				) : (
 					<input
 						id={id}
 						type="number"
+						inputMode={decimals > 0 ? "decimal" : "numeric"}
 						value={decimals > 0 ? value.toFixed(decimals) : Math.round(value)}
 						step={step}
 						min={0}
@@ -539,12 +544,14 @@ function Knob({
 							const v = Number(e.target.value);
 							if (Number.isFinite(v) && v >= 0) onChange(v);
 						}}
-						className="tnum w-full flex-1 bg-transparent font-medium text-sm outline-none"
+						className="tnum w-full min-w-0 flex-1 bg-transparent font-medium text-sm outline-none max-md:-my-2 max-md:h-12 max-md:text-base"
 					/>
 				)}
 				<span className="shrink-0 text-muted-foreground text-xs">{unit}</span>
 			</span>
-			<span className="text-[0.7rem] text-muted-foreground">{hint}</span>
+			<span className="text-muted-foreground text-xs md:text-[0.7rem]">
+				{hint}
+			</span>
 		</div>
 	);
 }

@@ -279,12 +279,12 @@ function ImportPage() {
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 pt-6 pb-10 sm:px-8 sm:py-14">
 				<header className="flex flex-col gap-1">
 					<h1 className="font-display font-medium text-3xl tracking-tight">
 						Import
 					</h1>
-					<p className="text-muted-foreground">
+					<p className="text-muted-foreground max-md:text-sm">
 						Upload or paste a bank statement CSV. Known formats import in one
 						click; a new bank walks through a quick column mapping that's
 						remembered for next time.
@@ -292,10 +292,13 @@ function ImportPage() {
 				</header>
 
 				<section className="flex flex-col gap-3">
-					<div className="flex flex-wrap items-center gap-2">
-						<label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 font-medium text-sm transition-colors hover:bg-secondary">
-							<Upload className="size-4" />
-							Upload CSV
+					<div className="flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch max-md:gap-2.5">
+						{/* On a phone, picking the file is the whole first step, so it's the screen's one big
+						    primary control; pasting a CSV on a phone is the rare path. */}
+						<label className="pressable inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 font-medium text-sm transition-colors hover:bg-secondary max-md:h-14 max-md:justify-center max-md:rounded-2xl max-md:border-transparent max-md:bg-primary max-md:text-base max-md:text-primary-foreground max-md:hover:bg-primary/90">
+							<Upload className="size-4 max-md:size-5" />
+							<span className="md:hidden">Choose statement file</span>
+							<span className="max-md:hidden">Upload CSV</span>
 							<input
 								ref={fileRef}
 								type="file"
@@ -308,13 +311,16 @@ function ImportPage() {
 							/>
 						</label>
 						{fileName ? (
-							<span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-								<FileText className="size-3.5" />
-								<span className="text-foreground/80">{fileName}</span>
+							<span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs max-md:justify-center max-md:text-sm">
+								<FileText className="size-3.5 shrink-0" />
+								<span className="truncate text-foreground/80">{fileName}</span>
 							</span>
 						) : (
-							<span className="text-muted-foreground text-xs">
-								or paste / drop a file below
+							<span className="text-muted-foreground text-xs max-md:text-center max-md:text-sm">
+								<span className="md:hidden">.csv · or paste it below</span>
+								<span className="max-md:hidden">
+									or paste / drop a file below
+								</span>
 							</span>
 						)}
 					</div>
@@ -343,12 +349,12 @@ function ImportPage() {
 							placeholder={
 								"Paste a statement CSV (header row + rows)…\n\n…or drop a .csv file here"
 							}
-							className="min-h-[12rem] rounded-md font-mono text-xs leading-relaxed"
+							className="min-h-[12rem] rounded-md font-mono text-xs leading-relaxed max-md:min-h-[6rem]"
 						/>
 					</div>
 
 					{hasCsv && (
-						<p className="text-muted-foreground text-xs">
+						<p className="break-words text-muted-foreground text-xs">
 							<span className="tnum text-foreground">{dataRows}</span> data row
 							{dataRows === 1 ? "" : "s"} ·{" "}
 							<span className="text-foreground/70">
@@ -390,13 +396,17 @@ function ImportPage() {
 					)}
 
 					{hasCsv && (
-						<div className="flex flex-wrap items-center gap-2">
-							<Button onClick={doImport} disabled={!canImport}>
+						<div className="flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch">
+							<Button
+								onClick={doImport}
+								disabled={!canImport}
+								className="max-md:h-12 max-md:rounded-xl max-md:text-base"
+							>
 								<Upload className="size-4" />
 								{commit.isPending ? "Importing…" : "Import & rebuild"}
 							</Button>
 							{!matched && (
-								<span className="text-muted-foreground text-xs">
+								<span className="text-muted-foreground text-xs max-md:text-center">
 									Saves this mapping as a reusable format.
 								</span>
 							)}
@@ -477,8 +487,8 @@ function MappingWizard({
 	];
 
 	return (
-		<div className="flex flex-col gap-4 rounded-xl border border-border bg-card/40 px-4 py-4">
-			<div className="flex items-center gap-2">
+		<div className="flex flex-col gap-4 rounded-xl border border-border bg-card/40 px-4 py-4 max-md:rounded-2xl">
+			<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
 				<h3 className="font-medium text-sm">New format — map the columns</h3>
 				<span className="text-muted-foreground text-xs">
 					remembered for next time
@@ -489,6 +499,7 @@ function MappingWizard({
 				<Field label="Date column">
 					<Select
 						aria-label="Date column"
+						sheetTitle="Which column is the date?"
 						value={draft.dateCol}
 						onValueChange={(v) => set({ dateCol: v })}
 						options={cols}
@@ -497,6 +508,7 @@ function MappingWizard({
 				<Field label="Date format">
 					<Select
 						aria-label="Date format"
+						sheetTitle="How are dates written?"
 						value={draft.dateFmt}
 						onValueChange={(v) => set({ dateFmt: v })}
 						options={DATE_FORMATS}
@@ -506,6 +518,7 @@ function MappingWizard({
 				<Field label="Amount style">
 					<Select
 						aria-label="Amount style"
+						sheetTitle="How are amounts laid out?"
 						value={draft.amountMode}
 						onValueChange={(v) => set({ amountMode: v as AmountMode })}
 						options={AMOUNT_MODES}
@@ -518,6 +531,7 @@ function MappingWizard({
 						<Field label="Debit column">
 							<Select
 								aria-label="Debit column"
+								sheetTitle="Which column is money out?"
 								value={draft.debitCol}
 								onValueChange={(v) => set({ debitCol: v })}
 								options={cols}
@@ -526,6 +540,7 @@ function MappingWizard({
 						<Field label="Credit column">
 							<Select
 								aria-label="Credit column"
+								sheetTitle="Which column is money in?"
 								value={draft.creditCol}
 								onValueChange={(v) => set({ creditCol: v })}
 								options={cols}
@@ -538,6 +553,7 @@ function MappingWizard({
 						<Field label="Amount column">
 							<Select
 								aria-label="Amount column"
+								sheetTitle="Which column is the amount?"
 								value={draft.amountCol}
 								onValueChange={(v) => set({ amountCol: v })}
 								options={cols}
@@ -546,6 +562,7 @@ function MappingWizard({
 						<Field label="Sign convention">
 							<Select
 								aria-label="Sign convention"
+								sheetTitle="What does a positive amount mean?"
 								value={draft.signConvention || "credit_positive"}
 								onValueChange={(v) =>
 									set({ signConvention: v as Draft["signConvention"] })
@@ -563,6 +580,7 @@ function MappingWizard({
 						<Field label="Amount column">
 							<Select
 								aria-label="Amount column"
+								sheetTitle="Which column is the amount?"
 								value={draft.amountCol}
 								onValueChange={(v) => set({ amountCol: v })}
 								options={cols}
@@ -571,6 +589,7 @@ function MappingWizard({
 						<Field label="Dr/Cr column">
 							<Select
 								aria-label="Indicator column"
+								sheetTitle="Which column says Dr or Cr?"
 								value={draft.indicatorCol}
 								onValueChange={(v) => set({ indicatorCol: v })}
 								options={cols}
@@ -590,6 +609,7 @@ function MappingWizard({
 				<Field label="Narration column">
 					<Select
 						aria-label="Narration column"
+						sheetTitle="Which column describes each row?"
 						value={draft.narrationCol}
 						onValueChange={(v) => set({ narrationCol: v })}
 						options={cols}
@@ -598,6 +618,7 @@ function MappingWizard({
 				<Field label="Value date (optional)">
 					<Select
 						aria-label="Value date column"
+						sheetTitle="Which column is the value date?"
 						value={draft.valueDateCol}
 						onValueChange={(v) => set({ valueDateCol: v })}
 						options={colsOptional}
@@ -607,6 +628,7 @@ function MappingWizard({
 				<Field label="Identity anchor">
 					<Select
 						aria-label="Identity anchor"
+						sheetTitle="How are re-imports matched?"
 						value={draft.anchor}
 						onValueChange={(v) => set({ anchor: v as StatementAnchor })}
 						options={ANCHORS}
@@ -616,6 +638,7 @@ function MappingWizard({
 					<Field label="Balance column">
 						<Select
 							aria-label="Balance column"
+							sheetTitle="Which column is the running balance?"
 							value={draft.balanceCol}
 							onValueChange={(v) => set({ balanceCol: v })}
 							options={cols}
@@ -625,6 +648,7 @@ function MappingWizard({
 					<Field label="Reference column">
 						<Select
 							aria-label="Reference column"
+							sheetTitle="Which column is the reference no.?"
 							value={draft.refCol}
 							onValueChange={(v) => set({ refCol: v })}
 							options={cols}
@@ -643,6 +667,7 @@ function MappingWizard({
 				<Field label="Account">
 					<Select
 						aria-label="Account"
+						sheetTitle="Which account is this statement for?"
 						value={accountSel}
 						onValueChange={setAccountSel}
 						options={accountOptions}
@@ -689,8 +714,9 @@ function Field({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex flex-col gap-1 text-xs">
-			<span className="text-muted-foreground">{label}</span>
+		// Phone-width fields are thumb-height even where the pointer isn't coarse (a narrow desktop window).
+		<div className="flex flex-col gap-1 text-xs max-md:gap-1.5 max-md:[&_button]:h-11 max-md:[&_input]:h-11">
+			<span className="text-muted-foreground max-md:text-sm">{label}</span>
 			{children}
 		</div>
 	);
@@ -745,11 +771,32 @@ function PreviewPanel({
 				<Stat label="Rows" value={preview.total} />
 				<Stat label="New" value={preview.newRows} color={IN} />
 				<Stat label="Already imported" value={preview.duplicate} />
-				<span className="ml-auto self-center text-muted-foreground text-xs">
+				<span className="ml-auto self-center text-muted-foreground text-xs max-md:ml-0 max-md:w-full">
 					{loading ? "Updating…" : "Preview — nothing written yet."}
 				</span>
 			</div>
-			<div className="overflow-x-auto">
+			{/* A phone gets each parsed row as a stacked row (date and amount, then the narration, then
+			    balance and ref) rather than a five-column table that would scroll sideways. */}
+			<ul className="flex flex-col divide-y divide-border/60 md:hidden">
+				{preview.rows.map((r, i) => (
+					<li
+						key={String(r.txn_id ?? i)}
+						className="tnum flex flex-col gap-0.5 py-2.5 text-sm"
+					>
+						<div className="flex items-baseline justify-between gap-3">
+							<span className="text-muted-foreground text-xs">
+								{cell(r.txn_date)}
+							</span>
+							<span className="shrink-0 font-medium">{cell(r.amount)}</span>
+						</div>
+						<p className="line-clamp-2 break-words">{cell(r.narration)}</p>
+						<p className="truncate text-muted-foreground text-xs">
+							Balance {cell(r.balance)} · Ref {cell(r.ref_no)}
+						</p>
+					</li>
+				))}
+			</ul>
+			<div className="overflow-x-auto max-md:hidden">
 				<table className="w-full min-w-[32rem] border-collapse text-xs">
 					<thead>
 						<tr className="text-left text-muted-foreground">
@@ -804,7 +851,7 @@ function Stat({
 			<span className="tnum font-medium text-lg" style={{ color }}>
 				{value}
 			</span>
-			<span className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+			<span className="text-muted-foreground text-xs md:text-[0.65rem] md:uppercase md:tracking-wider">
 				{label}
 			</span>
 		</div>
@@ -863,7 +910,7 @@ function RawFiles({
 				{files.map((f) => (
 					<li
 						key={f.name}
-						className="flex items-center gap-3 border-border border-b py-3"
+						className="flex items-center gap-3 border-border border-b py-3 max-md:flex-wrap"
 					>
 						<FileText className="size-4 shrink-0 text-muted-foreground" />
 						<div className="min-w-0 flex-1">
@@ -875,13 +922,16 @@ function RawFiles({
 							</p>
 						</div>
 						{confirming === f.name ? (
-							<div className="flex items-center gap-2">
-								<span className="text-muted-foreground text-xs">
+							// On a phone the confirm takes its own line under the file, so the name it
+							// asks about stays readable instead of being squeezed out by the buttons.
+							<div className="flex items-center gap-2 max-md:w-full max-md:justify-end max-md:pl-7">
+								<span className="text-muted-foreground text-xs max-md:mr-auto max-md:text-sm">
 									Remove & rebuild?
 								</span>
 								<Button
 									size="sm"
 									variant="destructive"
+									className="max-md:h-11 max-md:px-5"
 									onClick={() => doRemove(f.name)}
 									disabled={remove.isPending}
 								>
@@ -890,6 +940,7 @@ function RawFiles({
 								<Button
 									size="sm"
 									variant="ghost"
+									className="max-md:h-11 max-md:px-5"
 									onClick={() => setConfirming(null)}
 									disabled={remove.isPending}
 								>
@@ -901,9 +952,10 @@ function RawFiles({
 								type="button"
 								title="Remove this import and rebuild"
 								onClick={() => setConfirming(f.name)}
-								className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+								aria-label="Remove this import and rebuild"
+								className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground max-md:-mr-2 max-md:size-11 max-md:rounded-full max-md:active:bg-secondary/60"
 							>
-								<Trash2 className="size-3.5" />
+								<Trash2 className="size-3.5 max-md:size-4" />
 							</button>
 						)}
 					</li>

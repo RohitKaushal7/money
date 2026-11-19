@@ -20,6 +20,7 @@ import { Button } from "@money/ui/components/button";
 import { Dialog, DialogContent } from "@money/ui/components/dialog";
 import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -31,7 +32,13 @@ import {
 	Plus,
 	X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import {
+	type FormEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	useMemo,
+	useState,
+} from "react";
 import { ArmedDelete } from "@/components/armed-delete";
 import { DateInput } from "@/components/date-input";
 import { CoverageHistory } from "@/components/plan/coverage-history";
@@ -43,6 +50,7 @@ import {
 import { TaxModeChip } from "@/components/tax-mode-chip";
 import { MoneyNative, useMoney } from "@/lib/currency";
 import { formatRate } from "@/lib/format";
+import { haptics } from "@/lib/haptics";
 import { useIsDesktop } from "@/lib/media";
 import { usePlanPeriod } from "@/lib/period";
 import { platformLabel, platformsOf } from "@/lib/platforms";
@@ -147,6 +155,20 @@ const OUT = "var(--uncovered)";
 const tint = (c: string, pct: number) =>
 	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
 const ratioStr = (r: number | null) => (r == null ? "—" : `${r.toFixed(2)}×`);
+/** The "/mo" after a figure. 10px is fine beside a desktop number; on a phone nothing goes under 12px. */
+const SUFFIX = "text-xs md:text-[0.6rem]";
+/**
+ * A list row's tap target on a phone. The row's padding moves from the `<li>` onto the button, so the whole
+ * 56px row is the target rather than the 40px of text inside it.
+ */
+const PHONE_ROW =
+	"max-md:min-h-14 max-md:py-2 max-md:transition-colors max-md:active:bg-secondary/40";
+
+/** A save landed: the one buzz, then whatever the caller does next. The sheet closing is what it pairs with. */
+const saved = (then: () => void) => () => {
+	haptics.saved();
+	then();
+};
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 /** Today as YYYY-MM-DD (client clock) — drives the maturity countdown and the payment schedule. */
@@ -199,12 +221,15 @@ function PlanPage() {
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-5xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
+			{/* On a phone the top bar already sits above this, so the page starts close under it and the
+			    sections sit tighter: the coverage number and the first rows of the list fit the first screen. */}
+			<div className="mx-auto flex max-w-5xl flex-col gap-5 px-4 pt-3 pb-8 sm:px-8 sm:py-14 md:gap-8">
 				<header className="flex flex-col gap-1">
 					<h1 className="font-display font-medium text-3xl tracking-tight">
 						Plan
 					</h1>
-					<p className="text-muted-foreground">
+					{/* Two lines of explanation the owner has read before; on a phone they push the list down. */}
+					<p className="text-muted-foreground max-md:hidden">
 						Passive income you expect vs the recurring life it has to cover —
 						laddered from cash-in-hand up to total return.
 					</p>
@@ -289,7 +314,7 @@ function TotalButton({
 				style={{ color: tone }}
 			>
 				{fmt(scale(total))}
-				<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
+				<span className={`${SUFFIX} text-muted-foreground`}> {suffix}</span>
 			</span>
 			<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
 		</button>
@@ -321,9 +346,12 @@ function ColumnTabs({
 		return (
 			<button
 				type="button"
-				onClick={() => onChange(id)}
+				onClick={() => {
+					if (!active) haptics.selected();
+					onChange(id);
+				}}
 				aria-pressed={active}
-				className="flex flex-1 cursor-pointer flex-col gap-0.5 rounded-md px-3 py-2 text-left transition-colors"
+				className="pressable flex flex-1 cursor-pointer flex-col gap-0.5 rounded-md px-3 py-2 text-left transition-colors"
 				style={active ? { background: tint(tone, 12) } : undefined}
 			>
 				<span className="flex items-center gap-1.5">
@@ -358,7 +386,7 @@ function ColumnTabs({
 				onClick={cycle}
 				title={`${label} — tap to change period`}
 				aria-label={`Showing ${label} amounts. Tap to change period.`}
-				className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border px-3 text-muted-foreground text-sm transition-colors hover:bg-secondary hover:text-foreground"
+				className="pressable flex min-w-11 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border px-3 text-muted-foreground text-sm transition-colors hover:bg-secondary hover:text-foreground"
 			>
 				<span className="tnum">{suffix}</span>
 				<ChevronsUpDown className="size-3.5" />
@@ -390,15 +418,16 @@ function LadderCard({
 	const expenses = (
 		<>
 			{fmt(scale(ladder?.expenses ?? 0))}
-			<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
+			<span className={`${SUFFIX} text-muted-foreground`}> {suffix}</span>
 		</>
 	);
 	return (
-		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
+		<section className="flex flex-col gap-4 rounded-2xl border border-border bg-card/40 px-4 py-4 sm:gap-5 sm:px-6 sm:py-6">
 			{/* The chip is a button, so it sits beside the collapse toggle rather than inside it. */}
 			<div className="flex items-end justify-between gap-3">
 				<div className="min-w-0">
-					<p className="flex items-center gap-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					{/* A letter-spaced 10px eyebrow is an editorial touch on a desktop and unreadable on a phone. */}
+					<p className="flex items-center gap-2 text-[0.8125rem] text-muted-foreground max-md:mb-1 md:text-[0.65rem] md:uppercase md:tracking-[0.2em]">
 						Coverage
 						<TaxModeChip />
 					</p>
@@ -449,12 +478,17 @@ function LadderCard({
 			>
 				{tiers.map(({ key, label, t }) => {
 					const r = t?.ratio ?? 0;
+					// Label, bar, ratio and income side by side leave the bar ~20px wide at 360px, so on a phone
+					// the figures share the label's line and the bar takes the full width underneath.
 					return (
-						<div key={key} className="flex items-center gap-3">
-							<span className="w-28 shrink-0 text-muted-foreground text-xs">
+						<div
+							key={key}
+							className="flex items-center gap-3 max-md:flex-wrap max-md:gap-y-1.5"
+						>
+							<span className="w-28 shrink-0 text-muted-foreground text-xs max-md:w-auto max-md:flex-1 max-md:text-sm">
 								{label}
 							</span>
-							<div className="relative h-5 flex-1 overflow-hidden rounded bg-muted/60">
+							<div className="relative h-5 flex-1 overflow-hidden rounded bg-muted/60 max-md:order-last max-md:h-2.5 max-md:basis-full max-md:rounded-full">
 								<div
 									className="h-full rounded transition-[width] duration-500"
 									style={{
@@ -471,7 +505,7 @@ function LadderCard({
 							>
 								{ratioStr(t?.ratio ?? null)}
 							</span>
-							<span className="tnum w-20 shrink-0 text-right text-muted-foreground text-xs">
+							<span className="tnum w-20 shrink-0 text-right text-muted-foreground text-xs max-md:w-auto max-md:min-w-16">
 								{fmt(scale(t?.income ?? 0))}
 							</span>
 						</div>
@@ -559,7 +593,7 @@ function MaturityAlerts({
 	const [open, setOpen] = useState(false);
 	const update = useMutation({
 		...orpc.plan.updateInvestment.mutationOptions(),
-		onSuccess: onDone,
+		onSuccess: saved(onDone),
 	});
 	const del = useMutation({
 		...orpc.plan.deleteInvestment.mutationOptions(),
@@ -603,7 +637,7 @@ function MaturityAlerts({
 
 	return (
 		<section
-			className="flex flex-col gap-2 rounded-xl border px-5 py-4"
+			className="flex flex-col gap-2 rounded-xl border px-4 py-4 sm:px-5"
 			style={{ borderColor: tint(OUT, 35), background: tint(OUT, 7) }}
 		>
 			{collapsible ? (
@@ -612,7 +646,7 @@ function MaturityAlerts({
 					onClick={() => setOpen((o) => !o)}
 					aria-expanded={open}
 					aria-label={`${open ? "Hide" : "Show"} the holdings needing attention`}
-					className="flex cursor-pointer items-center gap-2 text-left"
+					className="-my-2 flex min-h-11 cursor-pointer items-center gap-2 text-left"
 				>
 					<AlertTriangle className="size-4 shrink-0" style={{ color: OUT }} />
 					<h2 className="flex-1 font-medium text-sm" style={{ color: OUT }}>
@@ -636,8 +670,8 @@ function MaturityAlerts({
 				<ul
 					className={`${collapsed ? "hidden" : "flex"} flex-col divide-y divide-border/50`}
 				>
-					{matured.map((inv) => (
-						<li key={inv.id} className="flex items-center gap-3 py-2">
+					{matured.map((inv) => {
+						const text = (
 							<div className="min-w-0 flex-1">
 								<p className="truncate font-medium text-sm">{inv.name}</p>
 								<p className="text-muted-foreground text-xs">
@@ -647,19 +681,36 @@ function MaturityAlerts({
 									{valueInr(inv)}
 								</p>
 							</div>
-							<button
-								type="button"
-								onClick={() => setEditing(inv.id)}
-								className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
-							>
-								Update
-							</button>
-							<ArmedDelete
-								onConfirm={() => del.mutate({ id: Number(inv.id) })}
-								title={`Delete ${inv.name}`}
-							/>
-						</li>
-					))}
+						);
+						// On a phone the whole row opens the editor, which holds Update and Delete both, rather
+						// than two small buttons squeezed in beside the name.
+						return collapsible ? (
+							<li key={inv.id}>
+								<AlertRow
+									label={`Update ${inv.name}`}
+									onClick={() => setEditing(inv.id)}
+								>
+									{text}
+									<span className="text-muted-foreground text-sm">Update</span>
+								</AlertRow>
+							</li>
+						) : (
+							<li key={inv.id} className="flex items-center gap-3 py-2">
+								{text}
+								<button
+									type="button"
+									onClick={() => setEditing(inv.id)}
+									className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-secondary"
+								>
+									Update
+								</button>
+								<ArmedDelete
+									onConfirm={() => del.mutate({ id: Number(inv.id) })}
+									title={`Delete ${inv.name}`}
+								/>
+							</li>
+						);
+					})}
 				</ul>
 			)}
 
@@ -669,7 +720,7 @@ function MaturityAlerts({
 						<div
 							className={`${collapsed ? "hidden" : "flex"} mt-1 items-center gap-2 border-border/60 border-t pt-2`}
 						>
-							<span className="text-[0.7rem] text-muted-foreground uppercase tracking-wider">
+							<span className="text-muted-foreground text-xs md:text-[0.7rem] md:uppercase md:tracking-wider">
 								Expiring within 30 days
 							</span>
 						</div>
@@ -677,19 +728,35 @@ function MaturityAlerts({
 					<ul
 						className={`${collapsed ? "hidden" : "flex"} flex-col divide-y divide-border/50`}
 					>
-						{soon.map(({ inv, days }) => (
-							<li key={inv.id} className="flex items-center gap-3 py-1.5">
-								<div className="min-w-0 flex-1">
-									<p className="truncate text-sm">{inv.name}</p>
-									<p className="tnum text-muted-foreground text-xs">
-										{valueInr(inv)}
-									</p>
-								</div>
-								<span className="tnum text-xs" style={{ color: OUT }}>
-									{days}d
-								</span>
-							</li>
-						))}
+						{soon.map(({ inv, days }) => {
+							const content = (
+								<>
+									<div className="min-w-0 flex-1">
+										<p className="truncate text-sm">{inv.name}</p>
+										<p className="tnum text-muted-foreground text-xs">
+											{valueInr(inv)}
+										</p>
+									</div>
+									<span className="tnum text-xs" style={{ color: OUT }}>
+										{days}d
+									</span>
+								</>
+							);
+							return collapsible ? (
+								<li key={inv.id}>
+									<AlertRow
+										label={`Edit ${inv.name}`}
+										onClick={() => setEditing(inv.id)}
+									>
+										{content}
+									</AlertRow>
+								</li>
+							) : (
+								<li key={inv.id} className="flex items-center gap-3 py-1.5">
+									{content}
+								</li>
+							);
+						})}
 					</ul>
 				</>
 			)}
@@ -722,6 +789,29 @@ function MaturityAlerts({
 	);
 }
 
+/** A phone row in the maturity strip: the whole row is one tap target into the holding's editor. */
+function AlertRow({
+	label,
+	onClick,
+	children,
+}: {
+	label: string;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			aria-label={label}
+			className="flex min-h-14 w-full cursor-pointer items-center gap-3 py-2 text-left transition-colors active:bg-secondary/40"
+		>
+			{children}
+			<ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+		</button>
+	);
+}
+
 // ── Incoming (grouped investments) ────────────────────────────────────────────────────────────────────
 function IncomingColumn({
 	rollups,
@@ -741,11 +831,11 @@ function IncomingColumn({
 	const [adding, setAdding] = useState(false);
 	const add = useMutation({
 		...orpc.plan.addInvestment.mutationOptions(),
-		onSuccess: onDone,
+		onSuccess: saved(onDone),
 	});
 	const update = useMutation({
 		...orpc.plan.updateInvestment.mutationOptions(),
-		onSuccess: onDone,
+		onSuccess: saved(onDone),
 	});
 	const del = useMutation({
 		...orpc.plan.deleteInvestment.mutationOptions(),
@@ -759,7 +849,18 @@ function IncomingColumn({
 
 	return (
 		<section className="flex flex-col">
-			{desktop && <ColHeader tone={IN} label="Incoming" total={total} />}
+			{desktop ? (
+				<ColHeader tone={IN} label="Incoming" total={total} />
+			) : (
+				<PhoneListBar
+					caption={countLabel(
+						rollups.reduce((n, r) => n + r.members.length, 0),
+						"holding",
+					)}
+					addLabel="Add holding"
+					onAdd={() => setAdding(true)}
+				/>
+			)}
 			<ul className="flex flex-col">
 				{rollups.length === 0 && <Empty>No holdings yet.</Empty>}
 				{rollups.map((r) =>
@@ -780,7 +881,9 @@ function IncomingColumn({
 					),
 				)}
 			</ul>
-			<AddButton onClick={() => setAdding(true)}>Add holding</AddButton>
+			{desktop && (
+				<AddButton onClick={() => setAdding(true)}>Add holding</AddButton>
+			)}
 
 			<EditorDialog
 				open={adding}
@@ -837,7 +940,7 @@ function StandaloneRow({
 	onEdit: () => void;
 }) {
 	return (
-		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20">
+		<li className="relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20 max-md:py-0">
 			<Depth pct={pct} side="right" tone={IN} />
 			{/* The whole tile opens the editor, which is where both edit and delete live. Hover-revealed
 			    icons used to sit here, but `group-hover` is gated behind `@media (hover: hover)`: on a phone
@@ -846,7 +949,7 @@ function StandaloneRow({
 				type="button"
 				onClick={onEdit}
 				aria-label={`Edit ${rollup.name}`}
-				className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+				className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left ${PHONE_ROW}`}
 			>
 				<span className="min-w-0 flex-1">
 					<span className="block truncate font-medium">{rollup.name}</span>
@@ -880,12 +983,15 @@ function GroupRow({
 	const platforms = platformsOf(rollup.members);
 	return (
 		<li className="border-border border-b">
-			<div className="relative flex items-center gap-3 py-2.5 transition-colors hover:bg-secondary/20">
+			<div className="relative flex items-center gap-3 py-2.5 transition-colors hover:bg-secondary/20 max-md:py-0">
 				<Depth pct={pct} side="right" tone={IN} />
+				{/* On a phone the toggle's hit area is stretched over the whole row, amount included, so the
+				    row expands wherever it is tapped. */}
 				<button
 					type="button"
 					onClick={() => setOpen((o) => !o)}
-					className="relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+					aria-expanded={open}
+					className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left max-md:static max-md:after:absolute max-md:after:inset-0 max-md:*:relative ${PHONE_ROW}`}
 				>
 					<ChevronRight
 						className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
@@ -902,7 +1008,7 @@ function GroupRow({
 				<Amount value={rollup.value} monthly={rollup.monthly} />
 			</div>
 			{open && (
-				<ul className="mb-2 flex flex-col gap-px border-border border-l pl-3">
+				<ul className="mb-2 flex flex-col gap-px border-border border-l pl-3 max-md:ml-2">
 					{rollup.members.map((m) => (
 						<MemberRow
 							key={m.id}
@@ -931,17 +1037,17 @@ function MemberRow({
 	const { scale, suffix } = usePlanPeriod();
 	const monthly = inv.monthly;
 	return (
-		<li className="flex items-center gap-3 py-1.5 transition-colors hover:bg-secondary/20">
+		<li className="flex items-center gap-3 py-1.5 transition-colors hover:bg-secondary/20 max-md:py-0">
 			<button
 				type="button"
 				onClick={onEdit}
 				aria-label={`Edit ${inv.name}`}
-				className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+				className={`flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left ${PHONE_ROW}`}
 			>
 				<span className="block min-w-0 flex-1">
 					<span className="block truncate text-sm">{inv.name}</span>
 					<span className="flex items-center gap-2 text-muted-foreground text-xs">
-						<span>
+						<span className="max-md:truncate">
 							{fmt(inv.currentValue ?? 0)}
 							{inv.annualRate != null ? ` · ${formatRate(inv.annualRate)}` : ""}
 							{showPlatform ? withPlatform(inv.platform) : ""}
@@ -949,9 +1055,12 @@ function MemberRow({
 						<MaturityMini inv={inv} />
 					</span>
 				</span>
-				<span className="tnum text-sm" style={{ color: IN }}>
+				<span
+					className="tnum shrink-0 whitespace-nowrap text-sm"
+					style={{ color: IN }}
+				>
 					{fmt(scale(monthly))}
-					<span className="text-[0.6rem] text-muted-foreground">{suffix}</span>
+					<span className={`${SUFFIX} text-muted-foreground`}>{suffix}</span>
 				</span>
 			</button>
 		</li>
@@ -967,10 +1076,10 @@ function Amount({ value, monthly }: { value: number; monthly: number }) {
 	const { fmt } = useMoney();
 	const { scale, suffix } = usePlanPeriod();
 	return (
-		<span className="relative block text-right">
+		<span className="relative block shrink-0 whitespace-nowrap text-right max-md:pointer-events-none">
 			<span className="tnum block font-medium" style={{ color: IN }}>
 				{fmt(scale(monthly))}
-				<span className="text-[0.6rem] text-muted-foreground"> {suffix}</span>
+				<span className={`${SUFFIX} text-muted-foreground`}> {suffix}</span>
 			</span>
 			{/* The corpus is a stock, not a flow — it is the same ₹18L whichever period you read the yield in. */}
 			<span className="tnum block text-muted-foreground text-xs">
@@ -1002,11 +1111,11 @@ function OutgoingColumn({
 	const today = todayISO();
 	const add = useMutation({
 		...orpc.plan.addRecurring.mutationOptions(),
-		onSuccess: onDone,
+		onSuccess: saved(onDone),
 	});
 	const update = useMutation({
 		...orpc.plan.updateRecurring.mutationOptions(),
-		onSuccess: onDone,
+		onSuccess: saved(onDone),
 	});
 	const del = useMutation({
 		...orpc.plan.deleteRecurring.mutationOptions(),
@@ -1028,10 +1137,20 @@ function OutgoingColumn({
 
 	return (
 		<section className="flex flex-col">
-			{desktop && (
-				<ColHeader tone={OUT} label="Outgoing" total={total} side="right" />
+			{desktop ? (
+				<>
+					<ColHeader tone={OUT} label="Outgoing" total={total} side="right" />
+					<ScheduleToggle on={bySchedule} onChange={setBySchedule} />
+				</>
+			) : (
+				<PhoneListBar
+					caption={countLabel(rows.length, "expense")}
+					addLabel="Add recurring expense"
+					onAdd={() => setAdding(true)}
+				>
+					<ScheduleToggle on={bySchedule} onChange={setBySchedule} phone />
+				</PhoneListBar>
 			)}
-			<ScheduleToggle on={bySchedule} onChange={setBySchedule} />
 			<ul className="flex flex-col">
 				{rows.length === 0 && <Empty>No recurring expenses yet.</Empty>}
 				{ordered.map((exp) => (
@@ -1055,9 +1174,11 @@ function OutgoingColumn({
 					/>
 				))}
 			</ul>
-			<AddButton onClick={() => setAdding(true)}>
-				Add recurring expense
-			</AddButton>
+			{desktop && (
+				<AddButton onClick={() => setAdding(true)}>
+					Add recurring expense
+				</AddButton>
+			)}
 
 			<EditorDialog
 				open={adding}
@@ -1117,23 +1238,41 @@ function OutgoingColumn({
 function ScheduleToggle({
 	on,
 	onChange,
+	phone,
 }: {
 	on: boolean;
 	onChange: (v: boolean) => void;
+	/** a 44px pill in the phone list bar, rather than a small chip on its own line */
+	phone?: boolean;
 }) {
-	return (
-		<div className="flex justify-end py-1.5">
-			<button
-				type="button"
-				onClick={() => onChange(!on)}
-				aria-pressed={on}
-				className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-secondary"
-				style={on ? { color: OUT, background: tint(OUT, 10) } : undefined}
-			>
-				<CalendarClock className="size-3.5" />
-				Next payment
-			</button>
-		</div>
+	const button = (
+		<button
+			type="button"
+			onClick={() => onChange(!on)}
+			aria-pressed={on}
+			className={
+				phone
+					? "pressable flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3.5 text-sm transition-colors"
+					: "flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-secondary"
+			}
+			style={
+				on
+					? {
+							color: OUT,
+							background: tint(OUT, 10),
+							borderColor: phone ? tint(OUT, 35) : undefined,
+						}
+					: undefined
+			}
+		>
+			<CalendarClock className={phone ? "size-4" : "size-3.5"} />
+			Next payment
+		</button>
+	);
+	return phone ? (
+		button
+	) : (
+		<div className="flex justify-end py-1.5">{button}</div>
 	);
 }
 
@@ -1165,7 +1304,7 @@ function OutgoingRow({
 
 	return (
 		<li
-			className={`relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20 ${expired ? "opacity-40" : ""}`}
+			className={`relative flex items-center gap-3 border-border border-b py-2.5 transition-colors hover:bg-secondary/20 max-md:py-0 ${expired ? "opacity-40" : ""}`}
 		>
 			{/* An ended expense keeps its row — deleting it would lose the record — but drops out of every
 			    total, so it gets no depth bar either: there is nothing left for it to be a share of. */}
@@ -1177,9 +1316,11 @@ function OutgoingRow({
 				type="button"
 				onClick={onEdit}
 				aria-label={`Edit ${exp.name}`}
-				className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 ${mirrored ? "" : "flex-row-reverse"}`}
+				className={`relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 ${PHONE_ROW} ${mirrored ? "" : "flex-row-reverse"}`}
 			>
-				<span className={`block ${mirrored ? "text-left" : "text-right"}`}>
+				<span
+					className={`block shrink-0 whitespace-nowrap ${mirrored ? "text-left" : "text-right"}`}
+				>
 					<span
 						className={`tnum block font-medium ${expired ? "line-through" : ""}`}
 						style={{ color: OUT }}
@@ -1192,7 +1333,7 @@ function OutgoingRow({
 					{/* The period suffix labels the figure above; a non-monthly bill also keeps its real contract
 					    alongside, because "₹19,239 /yr" is what actually leaves the account and no rescaling of
 					    it into a weekly average should hide that. */}
-					<span className="block text-[0.6rem] text-muted-foreground">
+					<span className={`block ${SUFFIX} text-muted-foreground`}>
 						{suffix}
 						{exp.cadence !== "monthly" && (
 							<>
@@ -1308,6 +1449,9 @@ function InvestmentForm({
 	onDelete?: () => void;
 }) {
 	const { enabled } = useMoney();
+	const phone = useIsPhone();
+	// desktop number fields keep whatever the browser accepted, exponents included
+	const num = (v: string) => (phone ? numeric(v) : v);
 	const [cls, setCls] = useState<IncomeClass>(initial?.incomeClass ?? "income");
 	const [payout, setPayout] = useState<Payout>(
 		(initial?.payout as Payout) ?? "cash",
@@ -1360,25 +1504,160 @@ function InvestmentForm({
 		onSubmit(d);
 	}
 
+	const disabled = !name.trim() || !maturityOk;
+	const fields = {
+		name: (
+			<Field key="name" label="Name">
+				<Input
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					placeholder="Wint T1"
+					required
+					{...(phone ? NEXT_FIELD : {})}
+				/>
+			</Field>
+		),
+		type: (
+			<Field key="type" label="Type">
+				<NativeSelect
+					value={type}
+					onChange={(v) => setType(v as InvestmentType)}
+					sheetTitle="Type"
+					options={INVESTMENT_TYPES.map((t) => ({
+						value: t,
+						label: TYPE_LABEL[t],
+					}))}
+				/>
+			</Field>
+		),
+		group: (
+			<Field key="group" label="Group (optional)">
+				<SuggestInput
+					value={group}
+					onChange={setGroup}
+					suggestions={holdingSuggestions.groups}
+					placeholder="Bonds, FDs…"
+				/>
+			</Field>
+		),
+		platform: (
+			<Field key="platform" label="Platform">
+				<SuggestInput
+					value={platform}
+					onChange={setPlatform}
+					suggestions={holdingSuggestions.platforms}
+					placeholder="Wint Wealth, SBI…"
+				/>
+			</Field>
+		),
+		currency: (
+			<Field key="currency" label="Currency">
+				<NativeSelect
+					value={currency}
+					onChange={setCurrency}
+					sheetTitle="Currency"
+					options={enabled.map((c) => ({
+						value: c.code,
+						label: `${c.symbol} ${c.code}`,
+					}))}
+				/>
+			</Field>
+		),
+		value: (
+			<Field key="value" label="Value">
+				<Input
+					{...decimalInput(phone)}
+					min={0}
+					step="any"
+					value={value}
+					onChange={(e) => setValue(num(e.target.value))}
+					className="tnum"
+					placeholder="100000"
+				/>
+			</Field>
+		),
+		rate: (
+			<Field key="rate" label="Rate % / yr, pre-tax">
+				<Input
+					{...decimalInput(phone)}
+					step="any"
+					value={ratePct}
+					onChange={(e) => setRatePct(num(e.target.value))}
+					className="tnum"
+					placeholder="11"
+				/>
+			</Field>
+		),
+		monthly: cls === "income" && (
+			<Field key="monthly" label="…or ₹ interest / mo">
+				<Input
+					{...decimalInput(phone)}
+					min={0}
+					step="any"
+					value={monthly}
+					onChange={(e) => setMonthly(num(e.target.value))}
+					className="tnum"
+					placeholder="explicit payout"
+				/>
+			</Field>
+		),
+		maturity: (
+			<Field key="maturity" label="Maturity">
+				<DateInput value={maturity} onChange={setMaturity} />
+			</Field>
+		),
+	};
+	// The two-column grid reads across in pairs; a single phone column reads down, so the figures that
+	// decide the income (value, rate) come straight after the name instead of fifth and sixth.
+	const order: (keyof typeof fields)[] = phone
+		? [
+				"name",
+				"value",
+				"rate",
+				"monthly",
+				"maturity",
+				"type",
+				"currency",
+				"group",
+				"platform",
+			]
+		: [
+				"name",
+				"type",
+				"group",
+				"platform",
+				"currency",
+				"value",
+				"rate",
+				"monthly",
+				"maturity",
+			];
+
 	return (
-		<form onSubmit={submit} className="flex flex-col gap-2.5">
-			<FormActions
-				pending={pending}
-				submitLabel={submitLabel}
-				disabled={!name.trim() || !maturityOk}
-				onCancel={onCancel}
-				onDelete={onDelete}
-			/>
-			<div className="flex flex-wrap gap-2">
-				<Pill active={cls === "income"} onClick={() => setCls("income")}>
-					Income
-				</Pill>
-				<Pill active={cls === "growth"} onClick={() => setCls("growth")}>
-					Growth
-				</Pill>
+		<form onSubmit={submit} className="flex flex-col gap-4 md:gap-2.5">
+			{!phone && (
+				<FormActions
+					pending={pending}
+					submitLabel={submitLabel}
+					disabled={disabled}
+					onCancel={onCancel}
+					onDelete={onDelete}
+				/>
+			)}
+			{/* On a phone each choice is a full-width two-way segment; on a desktop the four pills share a
+			    line. `md:contents` drops the wrappers there, so the desktop row is the same flat row it was. */}
+			<div className="flex flex-wrap gap-2 max-md:flex-col">
+				<div className="flex gap-2 md:contents">
+					<Pill active={cls === "income"} onClick={() => setCls("income")}>
+						Income
+					</Pill>
+					<Pill active={cls === "growth"} onClick={() => setCls("growth")}>
+						Growth
+					</Pill>
+				</div>
 				{cls === "income" && (
-					<>
-						<span className="w-2" />
+					<div className="flex gap-2 md:contents">
+						<span className="w-2 max-md:hidden" />
 						<Pill active={payout === "cash"} onClick={() => setPayout("cash")}>
 							Cash payout
 						</Pill>
@@ -1388,92 +1667,21 @@ function InvestmentForm({
 						>
 							Accrues
 						</Pill>
-					</>
+					</div>
 				)}
 			</div>
-			<div className="grid grid-cols-2 gap-2">
-				<Field label="Name">
-					<Input
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						placeholder="Wint T1"
-						required
-					/>
-				</Field>
-				<Field label="Type">
-					<NativeSelect
-						value={type}
-						onChange={(v) => setType(v as InvestmentType)}
-						options={INVESTMENT_TYPES.map((t) => ({
-							value: t,
-							label: TYPE_LABEL[t],
-						}))}
-					/>
-				</Field>
-				<Field label="Group (optional)">
-					<SuggestInput
-						value={group}
-						onChange={setGroup}
-						suggestions={holdingSuggestions.groups}
-						placeholder="Bonds, FDs…"
-					/>
-				</Field>
-				<Field label="Platform">
-					<SuggestInput
-						value={platform}
-						onChange={setPlatform}
-						suggestions={holdingSuggestions.platforms}
-						placeholder="Wint Wealth, SBI…"
-					/>
-				</Field>
-				<Field label="Currency">
-					<NativeSelect
-						value={currency}
-						onChange={setCurrency}
-						options={enabled.map((c) => ({
-							value: c.code,
-							label: `${c.symbol} ${c.code}`,
-						}))}
-					/>
-				</Field>
-				<Field label="Value">
-					<Input
-						type="number"
-						min={0}
-						step="any"
-						value={value}
-						onChange={(e) => setValue(e.target.value)}
-						className="tnum"
-						placeholder="100000"
-					/>
-				</Field>
-				<Field label="Rate % / yr, pre-tax">
-					<Input
-						type="number"
-						step="any"
-						value={ratePct}
-						onChange={(e) => setRatePct(e.target.value)}
-						className="tnum"
-						placeholder="11"
-					/>
-				</Field>
-				{cls === "income" && (
-					<Field label="…or ₹ interest / mo">
-						<Input
-							type="number"
-							min={0}
-							step="any"
-							value={monthly}
-							onChange={(e) => setMonthly(e.target.value)}
-							className="tnum"
-							placeholder="explicit payout"
-						/>
-					</Field>
-				)}
-				<Field label="Maturity">
-					<DateInput value={maturity} onChange={setMaturity} />
-				</Field>
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
+				{order.map((k) => fields[k])}
 			</div>
+			{phone && (
+				<PhoneFormActions
+					pending={pending}
+					submitLabel={submitLabel}
+					disabled={disabled}
+					deleteLabel="Delete holding"
+					onDelete={onDelete}
+				/>
+			)}
 		</form>
 	);
 }
@@ -1494,6 +1702,9 @@ function ExpenseForm({
 	onDelete?: () => void;
 }) {
 	const { enabled } = useMoney();
+	const phone = useIsPhone();
+	// desktop number fields keep whatever the browser accepted, exponents included
+	const num = (v: string) => (phone ? numeric(v) : v);
 	const [name, setName] = useState(initial?.name ?? "");
 	const [amount, setAmount] = useState(str(initial?.amount));
 	const [currency, setCurrency] = useState(initial?.currency ?? "INR");
@@ -1529,77 +1740,126 @@ function ExpenseForm({
 		onSubmit(d);
 	}
 
+	const disabled = !name.trim() || !amount || start == null || end == null;
+	const fields = {
+		name: (
+			<Field key="name" label="Name">
+				<Input
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					placeholder="Rent"
+					required
+					{...(phone ? NEXT_FIELD : {})}
+				/>
+			</Field>
+		),
+		category: (
+			<Field key="category" label="Category">
+				<NativeSelect
+					value={category}
+					onChange={setCategory}
+					sheetTitle="Category"
+					options={EXPENSE_CATEGORY_OPTIONS}
+				/>
+			</Field>
+		),
+		paidWith: (
+			<Field key="paidWith" label="Paid with — optional">
+				<SuggestInput
+					value={paidWith}
+					onChange={setPaidWith}
+					suggestions={paidWithSuggestions}
+					placeholder="card, UPI AutoPay…"
+					maxLength={80}
+				/>
+			</Field>
+		),
+		currency: (
+			<Field key="currency" label="Currency">
+				<NativeSelect
+					value={currency}
+					onChange={setCurrency}
+					sheetTitle="Currency"
+					options={enabled.map((c) => ({
+						value: c.code,
+						label: `${c.symbol} ${c.code}`,
+					}))}
+				/>
+			</Field>
+		),
+		amount: (
+			<Field key="amount" label="Amount">
+				<Input
+					{...decimalInput(phone)}
+					value={amount}
+					onChange={(e) => setAmount(num(e.target.value))}
+					className="tnum"
+					placeholder="12000"
+				/>
+			</Field>
+		),
+		cadence: (
+			<Field key="cadence" label="Cadence">
+				<NativeSelect
+					value={cadence}
+					onChange={(v) => setCadence(v as ExpenseCadence)}
+					sheetTitle="Cadence"
+					options={EXPENSE_CADENCES.map((c) => ({
+						value: c,
+						label: c.replace("_", "-"),
+					}))}
+				/>
+			</Field>
+		),
+		// Both dates are optional. Without a start date the expense still counts in full — it simply has no
+		// schedule to show. An end date in the past stops it counting at all.
+		start: (
+			<Field key="start" label="First payment — optional">
+				<DateInput value={start} onChange={setStart} max={end || undefined} />
+			</Field>
+		),
+		end: (
+			<Field key="end" label="Last payment — optional">
+				<DateInput value={end} onChange={setEnd} min={start || undefined} />
+			</Field>
+		),
+	};
+	// Read down a single phone column, what it costs and how often come straight after the name.
+	const order: (keyof typeof fields)[] = phone
+		? [
+				"name",
+				"amount",
+				"cadence",
+				"category",
+				"paidWith",
+				"currency",
+				"start",
+				"end",
+			]
+		: [
+				"name",
+				"category",
+				"paidWith",
+				"currency",
+				"amount",
+				"cadence",
+				"start",
+				"end",
+			];
+
 	return (
-		<form onSubmit={submit} className="flex flex-col gap-2.5">
-			<FormActions
-				pending={pending}
-				submitLabel={submitLabel}
-				disabled={!name.trim() || !amount || start == null || end == null}
-				onCancel={onCancel}
-				onDelete={onDelete}
-			/>
-			<div className="grid grid-cols-2 gap-2">
-				<Field label="Name">
-					<Input
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						placeholder="Rent"
-						required
-					/>
-				</Field>
-				<Field label="Category">
-					<NativeSelect
-						value={category}
-						onChange={setCategory}
-						options={EXPENSE_CATEGORY_OPTIONS}
-					/>
-				</Field>
-				<Field label="Paid with — optional">
-					<SuggestInput
-						value={paidWith}
-						onChange={setPaidWith}
-						suggestions={paidWithSuggestions}
-						placeholder="card, UPI AutoPay…"
-						maxLength={80}
-					/>
-				</Field>
-				<Field label="Currency">
-					<NativeSelect
-						value={currency}
-						onChange={setCurrency}
-						options={enabled.map((c) => ({
-							value: c.code,
-							label: `${c.symbol} ${c.code}`,
-						}))}
-					/>
-				</Field>
-				<Field label="Amount">
-					<Input
-						type="number"
-						value={amount}
-						onChange={(e) => setAmount(e.target.value)}
-						className="tnum"
-						placeholder="12000"
-					/>
-				</Field>
-				<Field label="Cadence">
-					<NativeSelect
-						value={cadence}
-						onChange={(v) => setCadence(v as ExpenseCadence)}
-						options={EXPENSE_CADENCES.map((c) => ({
-							value: c,
-							label: c.replace("_", "-"),
-						}))}
-					/>
-				</Field>
-				{/* Both dates are optional. Without a start date the expense still counts in full — it simply
-				    has no schedule to show. An end date in the past stops it counting at all. */}
-				<Field label="First payment — optional">
-					<DateInput value={start} onChange={setStart} max={end || undefined} />
-				</Field>
-				<Field label="Last payment — optional">
-					<DateInput value={end} onChange={setEnd} min={start || undefined} />
-				</Field>
+		<form onSubmit={submit} className="flex flex-col gap-4 md:gap-2.5">
+			{!phone && (
+				<FormActions
+					pending={pending}
+					submitLabel={submitLabel}
+					disabled={disabled}
+					onCancel={onCancel}
+					onDelete={onDelete}
+				/>
+			)}
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
+				{order.map((k) => fields[k])}
 			</div>
 			<ExpenseFootnote
 				exp={{
@@ -1611,6 +1871,15 @@ function ExpenseForm({
 					endDate: end || undefined,
 				}}
 			/>
+			{phone && (
+				<PhoneFormActions
+					pending={pending}
+					submitLabel={submitLabel}
+					disabled={disabled}
+					deleteLabel="Delete expense"
+					onDelete={onDelete}
+				/>
+			)}
 		</form>
 	);
 }
@@ -1738,6 +2007,49 @@ function Depth({
 	);
 }
 
+/**
+ * A phone editor's actions: Delete as its own row at the end of the form, well apart from Save, and Save
+ * full width in a bar pinned to the bottom of the sheet, where the thumb already is and where it stays in
+ * reach while the keyboard is up. No Cancel: the sheet's close button and a swipe down already do that.
+ */
+function PhoneFormActions({
+	pending,
+	submitLabel,
+	disabled,
+	deleteLabel,
+	onDelete,
+}: {
+	pending: boolean;
+	submitLabel: string;
+	disabled: boolean;
+	deleteLabel: string;
+	onDelete?: () => void;
+}) {
+	return (
+		<>
+			{onDelete && (
+				<ArmedDelete
+					onConfirm={onDelete}
+					label={deleteLabel}
+					size="sm"
+					className="mt-1 h-12 w-full rounded-xl border border-border text-[var(--uncovered)] text-sm"
+				/>
+			)}
+			{/* The sheet's bottom padding is pulled back under the bar (margin for the flow, a negative
+			    `bottom` because sticky stops at the scroller's padding edge), so it sits flush on the edge. */}
+			<div className="sticky -bottom-[max(1.25rem,env(safe-area-inset-bottom))] z-10 -mx-5 -mb-[max(1.25rem,env(safe-area-inset-bottom))] border-border border-t bg-card px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+				<Button
+					type="submit"
+					disabled={pending || disabled}
+					className="h-12 w-full rounded-xl text-base"
+				>
+					<Check className="size-4" /> {submitLabel}
+				</Button>
+			</div>
+		</>
+	);
+}
+
 function FormActions({
 	pending,
 	submitLabel,
@@ -1768,6 +2080,46 @@ function FormActions({
 					</Button>
 				)}
 			</div>
+		</div>
+	);
+}
+
+/** "1 holding", "9 expenses" */
+const countLabel = (n: number, noun: string) =>
+	`${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/**
+ * The bar over a list on a phone: how many there are on the left, the list's actions on the right, and Add
+ * as a 44px primary pill. At the top rather than after the last row, so adding never means scrolling past
+ * everything already there.
+ */
+function PhoneListBar({
+	caption,
+	addLabel,
+	onAdd,
+	children,
+}: {
+	caption: string;
+	/** the accessible name; the pill itself just says Add, the tab above already says what to */
+	addLabel: string;
+	onAdd: () => void;
+	children?: ReactNode;
+}) {
+	return (
+		<div className="flex items-center gap-2 pb-2">
+			<span className="min-w-0 flex-1 truncate text-muted-foreground text-sm">
+				{caption}
+			</span>
+			{children}
+			<button
+				type="button"
+				onClick={onAdd}
+				aria-label={addLabel}
+				className="pressable flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-primary pr-4 pl-3.5 font-medium text-primary-foreground text-sm"
+			>
+				<Plus className="size-4" />
+				Add
+			</button>
 		</div>
 	);
 }
@@ -1816,7 +2168,8 @@ function Pill({
 		<button
 			type="button"
 			onClick={onClick}
-			className={`rounded-full border px-3 py-1 text-sm transition-colors ${active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:bg-secondary"}`}
+			aria-pressed={active}
+			className={`rounded-full border px-3 py-1 text-sm transition-colors max-md:h-11 max-md:flex-1 max-md:px-4 ${active ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:bg-secondary max-md:active:bg-secondary"}`}
 		>
 			{children}
 		</button>
@@ -1827,20 +2180,67 @@ function NativeSelect({
 	value,
 	onChange,
 	options,
+	sheetTitle,
 }: {
 	value: string;
 	onChange: (v: string) => void;
 	options: { value: string; label: string }[];
+	/** what the picker sheet is called on a phone — the field's label */
+	sheetTitle?: string;
 }) {
 	return (
 		<Select
 			value={value}
 			onValueChange={onChange}
 			options={options}
+			sheetTitle={sheetTitle}
+			aria-label={sheetTitle}
 			className="h-9 rounded-md"
 		/>
 	);
 }
+
+/**
+ * An amount or rate field. On a phone it is a text field with the decimal keypad rather than
+ * `type="number"`: the number type brings spinners, swallows a pasted "1,00,000" as empty, and on iOS opens
+ * the full keyboard. On a desktop it stays the number field it was, arrow keys and all.
+ */
+function decimalInput(phone: boolean) {
+	return phone
+		? ({ type: "text", inputMode: "decimal", ...NEXT_FIELD } as const)
+		: ({ type: "number" } as const);
+}
+
+/** Digits, one decimal point and a leading minus — what a typed or pasted figure is reduced to. */
+function numeric(v: string): string {
+	const cleaned = v.replace(/[^\d.-]/g, "");
+	const [whole = "", ...rest] = cleaned.split(".");
+	const sign = whole.startsWith("-") ? "-" : "";
+	const digits = whole.replace(/-/g, "");
+	return `${sign}${digits}${rest.length ? `.${rest.join("")}` : ""}`;
+}
+
+/**
+ * The keyboard's return key says "Next" and does that: it moves to the next text field in the form rather
+ * than submitting it, which is what Enter in a single-line field would otherwise do. Saving is the button.
+ */
+const NEXT_FIELD = {
+	enterKeyHint: "next",
+	onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+		if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+		const form = e.currentTarget.form;
+		if (!form) return;
+		const inputs = [
+			...form.querySelectorAll<HTMLInputElement>(
+				"input:not([type=hidden]):not([tabindex='-1']):not(:disabled)",
+			),
+		];
+		const next = inputs[inputs.indexOf(e.currentTarget) + 1];
+		if (!next) return;
+		e.preventDefault();
+		next.focus();
+	},
+} as const;
 
 function str(n: number | undefined): string {
 	return n != null ? String(n) : "";

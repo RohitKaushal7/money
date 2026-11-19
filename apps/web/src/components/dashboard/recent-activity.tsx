@@ -1,4 +1,8 @@
 import { CATEGORY_BY_KEY } from "@money/shared";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
+import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
+import { DayGroupedTxnList } from "@/components/txn-list";
 import { useMoney } from "@/lib/currency";
 import { formatDate } from "@/lib/format";
 import { SectionHead } from "./trend-chart";
@@ -27,7 +31,41 @@ interface RecentActivityProps {
 
 export function RecentActivity({ rows }: RecentActivityProps) {
 	const m = useMoney();
+	const phone = useIsPhone();
 	const items = rows.slice(0, 12);
+	if (phone) {
+		// The same rows as Transactions, read-only here: editing lives one tap away on the full list.
+		return (
+			<section className="flex flex-col gap-2">
+				<SectionHead
+					title="Recent activity"
+					aside={
+						<Link
+							to="/transactions"
+							className="pressable -mr-2 flex h-11 items-center gap-0.5 rounded-full pr-1 pl-3 text-primary text-sm"
+						>
+							See all <ChevronRight className="size-4" />
+						</Link>
+					}
+				/>
+				<DayGroupedTxnList
+					rows={items.map((t) => {
+						const category = t.categoryKey ?? "uncategorized";
+						return {
+							id: t.txnId,
+							date: t.date,
+							narration: t.narration,
+							amount: t.amount,
+							kind: t.kind,
+							categoryKey: category,
+							categoryLabel: CATEGORY_BY_KEY.get(category)?.label ?? category,
+						};
+					})}
+					formatAmount={m.fmt}
+				/>
+			</section>
+		);
+	}
 	return (
 		<section className="flex flex-col gap-5">
 			<SectionHead title="Recent activity" />

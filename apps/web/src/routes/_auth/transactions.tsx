@@ -1,23 +1,35 @@
 import { Button } from "@money/ui/components/button";
 import { Select } from "@money/ui/components/select";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	ChevronLeft,
 	ChevronRight,
 	ListPlus,
-	Plus,
 	RefreshCw,
 	RotateCcw,
 	Scissors,
 	Search,
-	Trash2,
-	X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { TabBar } from "@/components/tab-bar";
+import {
+	PhoneTxnActions,
+	PhoneTxnFilters,
+	TxnSheet,
+} from "@/components/transactions/phone";
+import {
+	IN,
+	isRowPending,
+	PENDING_C,
+	SplitEditor,
+	type Txn,
+	tint,
+} from "@/components/transactions/split-editor";
+import { DayGroupedTxnList, wholeOrPaise } from "@/components/txn-list";
 import {
 	groupByKind,
 	KIND_COLOR,
@@ -28,6 +40,7 @@ import {
 } from "@/lib/categories";
 import { csvFilename, downloadCsv } from "@/lib/download";
 import { formatDate, useFormat } from "@/lib/format";
+import { haptics } from "@/lib/haptics";
 import { client, orpc } from "@/utils/orpc";
 import { CategoriesTab } from "./-categories-tab";
 import { type RulePrefill, RulesTab } from "./-rules-tab";
@@ -49,34 +62,6 @@ export const Route = createFileRoute("/_auth/transactions")({
 });
 
 const PAGE = 100;
-const IN = "var(--covered)";
-const PENDING_C = "oklch(0.74 0.15 66)"; // amber — an edit not yet baked
-const tint = (c: string, pct: number) =>
-	`color-mix(in oklab, ${c} ${pct}%, transparent)`;
-
-/** contribution/coupon/… tags that link a manual split line to an investment cashflow (spec §4). */
-const CASHFLOW_TYPES = [
-	{ value: "", label: "— flow —" },
-	{ value: "coupon", label: "Coupon (interest)" },
-	{ value: "redemption", label: "Principal returned" },
-	{ value: "dividend", label: "Dividend" },
-	{ value: "contribution", label: "Contribution" },
-	{ value: "maturity", label: "Maturity" },
-];
-
-interface Txn {
-	txnId: string;
-	date: string;
-	narration: string;
-	amount: number;
-	balance: number;
-	bakedCategoryKey: string;
-	categoryKey: string;
-	kind: string;
-	hasOverride: boolean;
-	overrideNote: string | null;
-	manualSplitCount: number;
-}
 
 function TransactionsPage() {
 	const qc = useQueryClient();
@@ -92,6 +77,13 @@ function TransactionsPage() {
 	const [splitOpen, setSplitOpen] = useState<string | null>(null);
 	const [tab, setTab] = useState<TxnTab>("transactions");
 	const [rulePrefill, setRulePrefill] = useState<RulePrefill | null>(null);
+	const phone = useIsPhone();
+	const { formatINR } = useFormat();
+	// The phone's open transaction. A snapshot as well as the id, so the sheet keeps its contents while it
+	// slides away, and still shows the row after an edit takes it out of a filtered list.
+	const [sheetTxn, setSheetTxn] = useState<Txn | null>(null);
+	const [sheetOpen, setSheetOpen] = useState(false);
+	const catsQ = useCategories();
 
 	// debounce the search box; any filter change resets to the first page
 	useEffect(() => {
@@ -120,12 +112,17 @@ function TransactionsPage() {
 		}),
 	);
 	const rows = (txnQ.data?.transactions ?? []) as Txn[];
+	const openTxn = sheetTxn
+		? (rows.find((r) => r.txnId === sheetTxn.txnId) ?? sheetTxn)
+		: null;
+	const catLabel = new Map((catsQ.data ?? []).map((c) => [c.key, c.label]));
 	const total = txnQ.data?.total ?? 0;
 	const pending = txnQ.data?.pendingRetag ?? 0;
 
 	const retag = useMutation({
 		mutationFn: () => client.ingest.retag(),
 		onSuccess: (r) => {
+			haptics.saved();
 			toast.success(
 				`Re-tagged — ${r.uncategorized} of ${r.transactions} still uncategorised.`,
 			);
@@ -159,6 +156,11 @@ function TransactionsPage() {
 		}
 	};
 
+	const createRule = (t: Txn) => {
+		setRulePrefill({ pattern: t.narration, assignCategoryKey: t.categoryKey });
+		setTab("rules");
+	};
+
 	const onFilter =
 		<T,>(setter: (v: T) => void) =>
 		(v: T) => {
@@ -168,18 +170,24 @@ function TransactionsPage() {
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-4xl flex-col gap-6 px-5 py-10 sm:px-8 sm:py-14">
-				<header className="flex flex-wrap items-start justify-between gap-3">
+			<div className="mx-auto flex max-w-4xl flex-col gap-6 px-5 pt-3 pb-8 max-md:gap-5 sm:px-8 sm:py-14">
+				<header className="flex flex-wrap items-start justify-between gap-3 max-md:flex-nowrap max-md:items-center">
 					<div className="flex flex-col gap-1">
 						<h1 className="font-display font-medium text-3xl tracking-tight">
 							Transactions
 						</h1>
-						<p className="max-w-xl text-muted-foreground">
+						<p className="max-w-xl text-muted-foreground max-md:hidden">
 							Every statement row, newest first. Fix a category inline or split
 							a mixed payout — then re-tag to apply it to your reports.
 						</p>
 					</div>
-					<div className="flex flex-wrap items-center gap-2">
+					<PhoneTxnActions
+						exporting={exporting}
+						onExport={exportCsv}
+						retagging={retag.isPending}
+						onRetag={() => retag.mutate()}
+					/>
+					<div className="flex flex-wrap items-center gap-2 max-md:hidden">
 						<Button
 							size="sm"
 							variant="outline"
@@ -226,9 +234,9 @@ function TransactionsPage() {
 				)}
 				{tab === "categories" && <CategoriesTab />}
 
-				{tab === "transactions" && (
+				{tab === "transactions" && phone && (
 					<>
-						<Filters
+						<PhoneTxnFilters
 							search={searchInput}
 							onSearch={setSearchInput}
 							month={month}
@@ -239,23 +247,13 @@ function TransactionsPage() {
 							uncatOnly={uncatOnly}
 							onUncatOnly={onFilter(setUncatOnly)}
 							uncategorized={summaryQ.data?.uncategorized ?? 0}
-							onDateFrom={onFilter(setDateFrom)}
-							onDateTo={onFilter(setDateTo)}
+							onRange={(r) => {
+								setDateFrom(r.from ?? "");
+								setDateTo(r.to ?? "");
+								setOffset(0);
+							}}
 						/>
-
-						<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
-							{KIND_ORDER.map((k) => (
-								<span key={k} className="flex items-center gap-1.5">
-									<span
-										className="size-2 rounded-full"
-										style={{ background: KIND_COLOR[k] }}
-									/>
-									{KIND_LABEL[k]}
-								</span>
-							))}
-						</div>
-
-						<section className="flex flex-col">
+						<section className="-mt-2 flex flex-col">
 							{txnQ.isLoading && (
 								<p className="py-6 text-muted-foreground text-sm">Loading…</p>
 							)}
@@ -264,27 +262,105 @@ function TransactionsPage() {
 									No transactions match these filters.
 								</p>
 							)}
-							<ul className="flex flex-col">
-								{rows.map((t) => (
-									<TxnRow
-										key={t.txnId}
-										txn={t}
-										open={splitOpen === t.txnId}
-										onToggleSplit={() =>
-											setSplitOpen((cur) => (cur === t.txnId ? null : t.txnId))
-										}
-										onChanged={() => qc.invalidateQueries()}
-										onCreateRule={() => {
-											setRulePrefill({
-												pattern: t.narration,
-												assignCategoryKey: t.categoryKey,
-											});
-											setTab("rules");
-										}}
-									/>
-								))}
-							</ul>
+							<DayGroupedTxnList
+								rows={rows.map((t) => ({
+									id: t.txnId,
+									date: t.date,
+									narration: t.narration,
+									amount: t.amount,
+									kind: t.kind,
+									categoryKey: t.categoryKey,
+									categoryLabel: catLabel.get(t.categoryKey) ?? t.categoryKey,
+									pending: isRowPending(t),
+									note:
+										t.manualSplitCount > 0
+											? `Split · ${t.manualSplitCount} lines`
+											: undefined,
+								}))}
+								formatAmount={(abs) => wholeOrPaise(abs, formatINR)}
+								selectedId={sheetOpen ? openTxn?.txnId : null}
+								onSelect={(id) => {
+									const t = rows.find((r) => r.txnId === id);
+									if (!t) return;
+									setSheetTxn(t);
+									setSheetOpen(true);
+								}}
+							/>
 						</section>
+						<TxnSheet
+							txn={openTxn}
+							open={sheetOpen}
+							onOpenChange={setSheetOpen}
+							onChanged={() => qc.invalidateQueries()}
+							onCreateRule={(t) => {
+								setSheetOpen(false);
+								createRule(t);
+							}}
+						/>
+					</>
+				)}
+
+				{tab === "transactions" && (
+					<>
+						{!phone && (
+							<>
+								<Filters
+									search={searchInput}
+									onSearch={setSearchInput}
+									month={month}
+									onMonth={onFilter(setMonth)}
+									months={months}
+									kind={kind}
+									onKind={onFilter(setKind)}
+									uncatOnly={uncatOnly}
+									onUncatOnly={onFilter(setUncatOnly)}
+									uncategorized={summaryQ.data?.uncategorized ?? 0}
+									onDateFrom={onFilter(setDateFrom)}
+									onDateTo={onFilter(setDateTo)}
+								/>
+
+								<div className="-mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
+									{KIND_ORDER.map((k) => (
+										<span key={k} className="flex items-center gap-1.5">
+											<span
+												className="size-2 rounded-full"
+												style={{ background: KIND_COLOR[k] }}
+											/>
+											{KIND_LABEL[k]}
+										</span>
+									))}
+								</div>
+
+								<section className="flex flex-col">
+									{txnQ.isLoading && (
+										<p className="py-6 text-muted-foreground text-sm">
+											Loading…
+										</p>
+									)}
+									{!txnQ.isLoading && rows.length === 0 && (
+										<p className="py-6 text-muted-foreground text-sm">
+											No transactions match these filters.
+										</p>
+									)}
+									<ul className="flex flex-col">
+										{rows.map((t) => (
+											<TxnRow
+												key={t.txnId}
+												txn={t}
+												open={splitOpen === t.txnId}
+												onToggleSplit={() =>
+													setSplitOpen((cur) =>
+														cur === t.txnId ? null : t.txnId,
+													)
+												}
+												onChanged={() => qc.invalidateQueries()}
+												onCreateRule={() => createRule(t)}
+											/>
+										))}
+									</ul>
+								</section>
+							</>
+						)}
 
 						<Pager
 							offset={offset}
@@ -440,9 +516,7 @@ function TxnRow({
 	const clearOverride = useMutation(orpc.overrides.clear.mutationOptions());
 	const isSplit = txn.manualSplitCount > 0;
 	// an edit that DuckDB hasn't baked yet (drives the amber dot)
-	const rowPending = isSplit
-		? true
-		: txn.hasOverride && txn.categoryKey !== txn.bakedCategoryKey;
+	const rowPending = isRowPending(txn);
 	const credit = txn.amount >= 0;
 
 	const busy = setOverride.isPending || clearOverride.isPending;
@@ -545,209 +619,6 @@ function TxnRow({
 	);
 }
 
-// ── split editor ──────────────────────────────────────────────────────────────────────────────────────
-interface Line {
-	amount: string;
-	categoryKey: string;
-	cashflowType: string;
-}
-
-function SplitEditor({
-	txn,
-	onClose,
-	onChanged,
-}: {
-	txn: Txn;
-	onClose: () => void;
-	onChanged: () => void;
-}) {
-	const { formatINR } = useFormat();
-	const existingQ = useQuery(
-		orpc.splits.get.queryOptions({ input: { txnId: txn.txnId } }),
-	);
-	const setSplit = useMutation(orpc.splits.set.mutationOptions());
-	const clearSplit = useMutation(orpc.splits.clear.mutationOptions());
-	const catsQ = useCategories();
-	const groups = groupByKind(catsQ.data ?? []);
-	const [lines, setLines] = useState<Line[] | null>(null);
-
-	// seed the editor once the existing lines load (or default to the whole amount on one line)
-	useEffect(() => {
-		if (lines != null || existingQ.data == null) return;
-		if (existingQ.data.length > 0) {
-			setLines(
-				existingQ.data.map((l) => ({
-					amount: String(l.amount),
-					categoryKey: l.categoryKey,
-					cashflowType: l.cashflowType ?? "",
-				})),
-			);
-		} else {
-			setLines([
-				{
-					amount: txn.amount.toFixed(2),
-					categoryKey:
-						txn.categoryKey === "uncategorized" ? "" : txn.categoryKey,
-					cashflowType: "",
-				},
-			]);
-		}
-	}, [existingQ.data, lines, txn.amount, txn.categoryKey]);
-
-	if (lines == null) {
-		return (
-			<div className="px-6 pb-4 text-muted-foreground text-xs">Loading…</div>
-		);
-	}
-
-	const sum = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
-	const remainder = txn.amount - sum;
-	const balanced = Math.abs(remainder) < 0.01;
-	const allTagged = lines.every((l) => l.categoryKey !== "");
-	const canSave = balanced && allTagged && lines.length >= 1;
-
-	const update = (i: number, patch: Partial<Line>) =>
-		setLines((ls) =>
-			(ls ?? []).map((l, j) => (j === i ? { ...l, ...patch } : l)),
-		);
-	const add = () =>
-		setLines((ls) => [
-			...(ls ?? []),
-			{ amount: remainder.toFixed(2), categoryKey: "", cashflowType: "" },
-		]);
-	const remove = (i: number) =>
-		setLines((ls) => (ls ?? []).filter((_, j) => j !== i));
-
-	const save = () =>
-		setSplit.mutate(
-			{
-				txnId: txn.txnId,
-				lines: lines.map((l) => ({
-					amount: Number(l.amount),
-					categoryKey: l.categoryKey,
-					cashflowType: l.cashflowType || undefined,
-				})),
-			},
-			{
-				onSuccess: () => {
-					toast.success("Split saved — re-tag to apply.");
-					onChanged();
-					onClose();
-				},
-				onError: (e) => toast.error(e.message),
-			},
-		);
-	const clear = () =>
-		clearSplit.mutate(
-			{ txnId: txn.txnId },
-			{
-				onSuccess: () => {
-					toast.success("Split removed.");
-					onChanged();
-					onClose();
-				},
-				onError: (e) => toast.error(e.message),
-			},
-		);
-
-	const busy = setSplit.isPending || clearSplit.isPending;
-
-	return (
-		<div className="mb-3 ml-6 flex flex-col gap-3 rounded-lg border border-border bg-card/40 px-4 py-4">
-			<div className="flex items-center justify-between">
-				<p className="font-medium text-sm">
-					Split {formatINR(txn.amount, { decimals: true })} into lines
-				</p>
-				<button
-					type="button"
-					onClick={onClose}
-					className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60"
-				>
-					<X className="size-4" />
-				</button>
-			</div>
-
-			<div className="flex flex-col gap-2">
-				{lines.map((l, i) => (
-					<div key={i} className="flex flex-wrap items-center gap-2">
-						<input
-							type="number"
-							step="0.01"
-							value={l.amount}
-							onChange={(e) => update(i, { amount: e.target.value })}
-							className="tnum h-9 w-28 rounded-md border border-input bg-background px-2 text-right text-foreground text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-						/>
-						<Select
-							aria-label="Line category"
-							value={l.categoryKey}
-							onValueChange={(v) => update(i, { categoryKey: v })}
-							placeholder="— category —"
-							groups={groups.map((g) => ({
-								label: g.label,
-								color: kindColor(g.kind),
-								options: g.cats.map((c) => ({ value: c.key, label: c.label })),
-							}))}
-							className="h-9 min-w-[10rem] flex-1 rounded-md"
-						/>
-						<Select
-							aria-label="Cashflow type"
-							value={l.cashflowType}
-							onValueChange={(v) => update(i, { cashflowType: v })}
-							options={CASHFLOW_TYPES}
-							className="h-9 w-40 rounded-md"
-						/>
-						<button
-							type="button"
-							onClick={() => remove(i)}
-							disabled={lines.length === 1}
-							className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:opacity-40"
-						>
-							<Trash2 className="size-3.5" />
-						</button>
-					</div>
-				))}
-			</div>
-
-			<div className="flex items-center justify-between">
-				<Button variant="ghost" size="sm" onClick={add}>
-					<Plus className="size-4" /> Add line
-				</Button>
-				<p className="tnum text-xs">
-					<span className="text-muted-foreground">Remainder </span>
-					<span style={{ color: balanced ? IN : PENDING_C }}>
-						{formatINR(remainder, { decimals: true })}
-					</span>
-				</p>
-			</div>
-
-			<div className="flex items-center justify-end gap-2">
-				{existingQ.data && existingQ.data.length > 0 && (
-					<Button
-						variant="ghost"
-						size="sm"
-						onClick={clear}
-						disabled={busy}
-						className="mr-auto text-muted-foreground"
-					>
-						<Trash2 className="size-4" /> Remove split
-					</Button>
-				)}
-				<Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
-					Cancel
-				</Button>
-				<Button size="sm" onClick={save} disabled={!canSave || busy}>
-					{busy ? "Saving…" : "Save split"}
-				</Button>
-			</div>
-			{!balanced && (
-				<p className="text-right text-muted-foreground text-xs">
-					Lines must sum to {formatINR(txn.amount, { decimals: true })}.
-				</p>
-			)}
-		</div>
-	);
-}
-
 // ── pager ─────────────────────────────────────────────────────────────────────────────────────────────
 function Pager({
 	offset,
@@ -778,6 +649,7 @@ function Pager({
 					size="sm"
 					onClick={onPrev}
 					disabled={offset === 0}
+					className="max-md:h-11 max-md:px-4"
 				>
 					<ChevronLeft className="size-4" /> Prev
 				</Button>
@@ -786,6 +658,7 @@ function Pager({
 					size="sm"
 					onClick={onNext}
 					disabled={offset + page >= total}
+					className="max-md:h-11 max-md:px-4"
 				>
 					Next <ChevronRight className="size-4" />
 				</Button>

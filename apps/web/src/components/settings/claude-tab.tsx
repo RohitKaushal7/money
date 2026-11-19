@@ -6,7 +6,12 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArmedDelete } from "@/components/armed-delete";
 import { DateInput } from "@/components/date-input";
-import { Field, Section, TextInput } from "@/components/settings/section";
+import {
+	Field,
+	PHONE_FORM,
+	Section,
+	TextInput,
+} from "@/components/settings/section";
 import { useIsAdmin } from "@/lib/admin";
 import { useMoney } from "@/lib/currency";
 import {
@@ -47,6 +52,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 			type="button"
 			size="sm"
 			variant="outline"
+			className="max-md:min-h-11"
 			aria-label={label}
 			onClick={async () => {
 				try {
@@ -120,7 +126,7 @@ function Tokens() {
 			</div>
 
 			<form
-				className="flex flex-col gap-3"
+				className={`flex flex-col gap-3 ${PHONE_FORM}`}
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (!canCreate) return;
@@ -139,6 +145,7 @@ function Tokens() {
 							onChange={(e) => setName(e.target.value)}
 							placeholder="Laptop Claude Code"
 							maxLength={80}
+							enterKeyHint="done"
 							className="w-full sm:w-56"
 						/>
 					</Field>
@@ -147,27 +154,36 @@ function Tokens() {
 							value={expires}
 							onChange={setExpires}
 							min={todayISODate()}
-							className="w-40"
-							inputClassName="h-auto rounded-md border-border bg-background py-1.5 text-sm md:text-sm"
+							className="w-40 max-md:w-full"
+							inputClassName="h-auto rounded-md border-border bg-background py-1.5 text-sm md:text-sm max-md:h-11 max-md:rounded-lg max-md:text-base"
 						/>
 					</Field>
 				</div>
-				<fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+				<fieldset className="flex flex-wrap gap-x-5 gap-y-2 max-md:flex-col max-md:gap-0">
 					<legend className="sr-only">Access</legend>
 					{(Object.keys(SCOPE_LABEL) as Scope[]).map((s) => (
-						<label key={s} className="flex items-center gap-2 text-sm">
+						<label
+							key={s}
+							className="flex items-center gap-2 text-sm max-md:min-h-11 max-md:gap-3 max-md:text-base"
+						>
 							<input
 								type="radio"
 								name="token-scope"
 								checked={scope === s}
 								onChange={() => setScope(s)}
+								className="max-md:size-5"
 							/>
 							{SCOPE_LABEL[s]}
 						</label>
 					))}
 				</fieldset>
 				<div>
-					<Button type="submit" size="sm" disabled={!canCreate}>
+					<Button
+						type="submit"
+						size="sm"
+						className="max-md:min-h-11 max-md:w-full"
+						disabled={!canCreate}
+					>
 						{create.isPending ? "Creating…" : "Create token"}
 					</Button>
 				</div>
@@ -177,7 +193,7 @@ function Tokens() {
 				<div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/40 p-4">
 					<p className="font-medium text-sm">You won't see this token again.</p>
 					<div className="flex flex-col gap-1.5">
-						<span className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+						<span className="text-muted-foreground text-xs uppercase tracking-wider md:text-[0.65rem]">
 							Token
 						</span>
 						<code className="break-all rounded-md border border-border bg-background px-2 py-1.5 text-xs">
@@ -188,7 +204,7 @@ function Tokens() {
 						</div>
 					</div>
 					<div className="flex flex-col gap-1.5">
-						<span className="text-[0.65rem] text-muted-foreground uppercase tracking-wider">
+						<span className="text-muted-foreground text-xs uppercase tracking-wider md:text-[0.65rem]">
 							Add it to Claude Code
 						</span>
 						<code className="break-all rounded-md border border-border bg-background px-2 py-1.5 text-xs">
@@ -203,6 +219,7 @@ function Tokens() {
 							type="button"
 							size="sm"
 							variant="ghost"
+							className="max-md:min-h-11"
 							onClick={() => {
 								setFresh(null);
 								// The mutation keeps its result too; drop it so the token is gone from memory.
@@ -219,7 +236,7 @@ function Tokens() {
 				<p className="text-muted-foreground text-sm">No tokens yet.</p>
 			)}
 			{list.data && list.data.length > 0 && (
-				<ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+				<ul className="flex flex-col divide-y divide-border rounded-xl border border-border max-md:overflow-hidden max-md:rounded-2xl max-md:bg-card">
 					{list.data.map((t) => {
 						const revoked = t.revokedAt != null;
 						const expiresMs = asMs(t.expiresAt);
@@ -268,7 +285,7 @@ function Tokens() {
 										title="Revoke token"
 										disabled={revoke.isPending}
 										onConfirm={() => revoke.mutate({ id: t.id })}
-										className="shrink-0"
+										className="shrink-0 max-md:min-h-11"
 									/>
 								)}
 							</li>
@@ -435,7 +452,7 @@ function RecentChanges() {
 				<p className="text-muted-foreground text-sm">Nothing changed yet.</p>
 			)}
 			{q.data && q.data.length > 0 && (
-				<ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+				<ul className="flex flex-col divide-y divide-border rounded-xl border border-border max-md:overflow-hidden max-md:rounded-2xl max-md:bg-card">
 					{q.data.map((c) => {
 						const undone = c.undoneAt != null;
 						const undoable = c.entity != null && !undone;
@@ -473,7 +490,7 @@ function RecentChanges() {
 										type="button"
 										size="sm"
 										variant="outline"
-										className="shrink-0"
+										className="shrink-0 max-md:min-h-11"
 										disabled={undo.isPending}
 										onClick={() => undo.mutate({ id: c.id })}
 									>

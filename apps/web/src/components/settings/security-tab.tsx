@@ -2,8 +2,15 @@ import { Button } from "@money/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Field, Section, TextInput } from "@/components/settings/section";
+import {
+	Field,
+	PHONE_BUTTON,
+	PHONE_FORM,
+	Section,
+	TextInput,
+} from "@/components/settings/section";
 import { authClient } from "@/lib/auth-client";
+import { enterToNextField } from "@/lib/enter-next";
 import { orpc } from "@/utils/orpc";
 
 /** Better-Auth's own floor. Nothing gained by inventing a stricter rule the sign-up form doesn't apply. */
@@ -81,16 +88,23 @@ function ScreenLock() {
 		>
 			<p className="max-w-lg text-muted-foreground text-sm">
 				A 4-digit PIN, asked for every time the app loads fresh — so someone
-				opening it on your unlocked laptop sees nothing. Press{" "}
-				<kbd className="rounded border border-border px-1 py-0.5 text-[0.7rem]">
-					⇧L
-				</kbd>{" "}
-				to lock right now. It's a second layer, not a replacement for your
-				password.
+				opening it on your unlocked laptop sees nothing.{" "}
+				{/* A phone has no ⇧L; its lock lives on the More screen. */}
+				<span className="max-md:hidden">
+					Press{" "}
+					<kbd className="rounded border border-border px-1 py-0.5 text-[0.7rem]">
+						⇧L
+					</kbd>{" "}
+					to lock right now.
+				</span>
+				<span className="md:hidden">
+					Lock it any time from More → Lock now.
+				</span>{" "}
+				It's a second layer, not a replacement for your password.
 			</p>
 
 			<form
-				className="flex flex-col gap-3"
+				className={`flex flex-col gap-3 ${PHONE_FORM}`}
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (canSave && !busy) save.mutate({ password, pin });
@@ -101,6 +115,8 @@ function ScreenLock() {
 						<TextInput
 							type="password"
 							autoComplete="current-password"
+							enterKeyHint="next"
+							onKeyDown={enterToNextField}
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}
 							className="w-48"
@@ -111,6 +127,8 @@ function ScreenLock() {
 							type="password"
 							inputMode="numeric"
 							autoComplete="off"
+							enterKeyHint="next"
+							onKeyDown={enterToNextField}
 							value={pin}
 							onChange={(e) => setPin(digits(e.target.value))}
 							className="tnum w-24 tracking-[0.3em]"
@@ -121,13 +139,19 @@ function ScreenLock() {
 							type="password"
 							inputMode="numeric"
 							autoComplete="off"
+							enterKeyHint="done"
 							value={confirm}
 							onChange={(e) => setConfirm(digits(e.target.value))}
 							className="tnum w-24 tracking-[0.3em]"
 							aria-invalid={mismatch || undefined}
 						/>
 					</Field>
-					<Button type="submit" size="sm" disabled={!canSave || busy}>
+					<Button
+						type="submit"
+						size="sm"
+						className={PHONE_BUTTON}
+						disabled={!canSave || busy}
+					>
 						{configured ? "Change PIN" : "Turn on"}
 					</Button>
 					{configured && (
@@ -135,6 +159,7 @@ function ScreenLock() {
 							type="button"
 							size="sm"
 							variant="outline"
+							className={PHONE_BUTTON}
 							disabled={password.length === 0 || busy}
 							title="Requires your password"
 							onClick={() => clear.mutate({ password })}
@@ -199,7 +224,7 @@ function ChangePassword() {
 				admin to set a new one — there's no reset email.
 			</p>
 			<form
-				className="flex flex-col gap-3"
+				className={`flex flex-col gap-3 ${PHONE_FORM}`}
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (ready) change.mutate();
@@ -221,6 +246,8 @@ function ChangePassword() {
 						<TextInput
 							type="password"
 							autoComplete="current-password"
+							enterKeyHint="next"
+							onKeyDown={enterToNextField}
 							value={current}
 							onChange={(e) => setCurrent(e.target.value)}
 							className="w-48"
@@ -230,6 +257,8 @@ function ChangePassword() {
 						<TextInput
 							type="password"
 							autoComplete="new-password"
+							enterKeyHint="next"
+							onKeyDown={enterToNextField}
 							value={next}
 							onChange={(e) => setNext(e.target.value)}
 							className="w-48"
@@ -240,13 +269,19 @@ function ChangePassword() {
 						<TextInput
 							type="password"
 							autoComplete="new-password"
+							enterKeyHint="done"
 							value={confirm}
 							onChange={(e) => setConfirm(e.target.value)}
 							className="w-48"
 							aria-invalid={mismatch || undefined}
 						/>
 					</Field>
-					<Button type="submit" size="sm" disabled={!ready}>
+					<Button
+						type="submit"
+						size="sm"
+						className={PHONE_BUTTON}
+						disabled={!ready}
+					>
 						{change.isPending ? "Changing…" : "Change password"}
 					</Button>
 				</div>

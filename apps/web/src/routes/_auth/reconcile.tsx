@@ -7,6 +7,7 @@ import type {
 } from "@money/shared";
 import { CATEGORIES, FY_START_MONTH, reconcileByFy } from "@money/shared";
 import { Select } from "@money/ui/components/select";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -125,10 +126,10 @@ function SummaryBar({ res }: { res: ReconcileResult }) {
 		{ s: "differs", n: summary.differsCount },
 	];
 	return (
-		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
+		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6 max-md:px-5">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					<p className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 						{settled
 							? gap < 0
 								? "Short this month"
@@ -170,7 +171,7 @@ function SummaryBar({ res }: { res: ReconcileResult }) {
 						return (
 							<span
 								key={s}
-								className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+								className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs max-md:px-3 max-md:py-1.5 max-md:text-sm"
 								style={{
 									color: meta.color,
 									background: tint(meta.color, 12),
@@ -212,6 +213,9 @@ function Progress({ value, settled }: { value: number; settled: boolean }) {
  * Twelve months of expected-vs-landed, so a month can be read against its neighbours rather than in
  * isolation. Bars are the landed share of expectation; the current month is outlined rather than filled,
  * because it is still being written. Clicking a bar selects that month.
+ *
+ * On a phone the bars are display only: twelve of them in 350px are 22px-wide targets, too thin to hit on
+ * purpose and easy to hit by accident while scrolling. The month chips above are the picker there.
  */
 function History({
 	selected,
@@ -221,6 +225,7 @@ function History({
 	onSelect: (m: string) => void;
 }) {
 	const { formatINR } = useFormat();
+	const isPhone = useIsPhone();
 	// 24 months in one query: the chart shows the last 12, the FY rollup needs a full previous April–March
 	// underneath it. From any month in an Indian FY, reaching the start of the previous one is at most 24
 	// months back.
@@ -238,7 +243,7 @@ function History({
 	return (
 		<section className="flex flex-col gap-3">
 			<div className="flex items-baseline justify-between">
-				<h2 className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+				<h2 className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 					Landed vs expected · 12 months
 				</h2>
 				<span className="text-muted-foreground text-xs">
@@ -259,12 +264,17 @@ function History({
 							: ratio >= 0.5
 								? DIFFERS_C
 								: OUT;
+					const Bar = isPhone ? "div" : "button";
 					return (
-						<button
+						<Bar
 							key={r.month}
-							type="button"
-							onClick={() => onSelect(r.month)}
-							title={`${formatMonth(r.month)} — ${formatINR(r.actualAmount)} of ${formatINR(r.expectedAmount)}`}
+							{...(isPhone
+								? { "aria-hidden": true }
+								: {
+										type: "button" as const,
+										onClick: () => onSelect(r.month),
+										title: `${formatMonth(r.month)} — ${formatINR(r.actualAmount)} of ${formatINR(r.expectedAmount)}`,
+									})}
 							className="group relative flex h-full flex-1 flex-col justify-end rounded-sm outline-offset-2 focus-visible:outline-2"
 						>
 							{/* expectation: the height the bar is aiming for */}
@@ -284,17 +294,21 @@ function History({
 									opacity: isSel ? 1 : 0.55,
 								}}
 							/>
-						</button>
+						</Bar>
 					);
 				})}
 			</div>
-			<div className="flex gap-1.5 text-[0.6rem] text-muted-foreground">
+			{/* "Jan '26" twelve times over doesn't fit a phone at a legible size, so it gets the initial alone,
+			    the way a phone's own charts label months; the selected month is spelled out in the chip above. */}
+			<div className="flex gap-1.5 text-muted-foreground max-md:text-xs md:text-[0.6rem]">
 				{rows.map((r) => (
 					<span
 						key={r.month}
-						className={`flex-1 text-center ${r.month === selected ? "text-foreground" : ""}`}
+						className={`flex-1 text-center ${r.month === selected ? "text-foreground max-md:font-medium" : ""}`}
 					>
-						{formatMonth(r.month).replace(" '", " '")}
+						{isPhone
+							? formatMonth(r.month).charAt(0)
+							: formatMonth(r.month).replace(" '", " '")}
 					</span>
 				))}
 			</div>
@@ -422,6 +436,7 @@ function FyBars({ summaries }: { summaries: ReconcileSummary[] }) {
  */
 function EventRow({ ev }: { ev: ReconciledEvent }) {
 	const { formatINR } = useFormat();
+	const isPhone = useIsPhone();
 	const meta = STATUS[ev.status];
 	const [open, setOpen] = useState(false);
 	const landed = ev.matches.length > 0;
@@ -438,7 +453,7 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 				type="button"
 				onClick={() => landed && setOpen((o) => !o)}
 				disabled={!landed}
-				className="flex w-full items-center gap-3 py-3 text-left enabled:hover:bg-secondary/20"
+				className="flex w-full items-center gap-3 py-3 text-left enabled:hover:bg-secondary/20 max-md:min-h-16 max-md:enabled:active:bg-secondary/40"
 			>
 				<span
 					className="flex size-7 shrink-0 items-center justify-center rounded-full"
@@ -457,7 +472,21 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 					</p>
 				</div>
 
-				<div className="tnum flex shrink-0 items-baseline gap-2 text-sm">
+				{/* Phone: four columns don't fit beside the name, so landed leads and the expectation and gap sit
+				    under it, in the same expected → gap order as the summary. */}
+				<div className="tnum flex shrink-0 flex-col items-end md:hidden">
+					<span className="font-medium">
+						{landed ? formatINR(ev.actualAmount) : "—"}
+					</span>
+					<span className="text-muted-foreground text-xs">
+						of {formatINR(ev.expectedAmount)} ·{" "}
+						<span style={{ color: deltaTone }}>
+							{ev.delta >= 0 ? "+" : "−"}
+							{formatINR(Math.abs(ev.delta))}
+						</span>
+					</span>
+				</div>
+				<div className="tnum flex shrink-0 items-baseline gap-2 text-sm max-md:hidden">
 					<span className="text-muted-foreground">
 						{formatINR(ev.expectedAmount)}
 					</span>
@@ -483,19 +512,33 @@ function EventRow({ ev }: { ev: ReconciledEvent }) {
 
 			{open && (
 				<ul className="flex flex-col gap-1 pb-3 pl-10 text-sm">
-					{ev.matches.map((c) => (
-						<li key={c.txnId} className="flex items-baseline gap-3">
-							<span className="tnum w-20 shrink-0 text-muted-foreground text-xs">
-								{formatDate(c.date)}
-							</span>
-							<span className="tnum w-20 shrink-0 text-right">
-								{formatINR(c.amount)}
-							</span>
-							<span className="truncate text-muted-foreground text-xs">
-								{c.narration}
-							</span>
-						</li>
-					))}
+					{ev.matches.map((c) =>
+						isPhone ? (
+							// The narration is what identifies a credit, so on a phone it gets the width and the date
+							// moves under it, instead of three fixed columns squeezing it to nothing.
+							<li key={c.txnId} className="flex items-center gap-3 py-1">
+								<div className="min-w-0 flex-1">
+									<p className="truncate">{c.narration}</p>
+									<p className="tnum text-muted-foreground text-xs">
+										{formatDate(c.date)}
+									</p>
+								</div>
+								<span className="tnum shrink-0">{formatINR(c.amount)}</span>
+							</li>
+						) : (
+							<li key={c.txnId} className="flex items-baseline gap-3">
+								<span className="tnum w-20 shrink-0 text-muted-foreground text-xs">
+									{formatDate(c.date)}
+								</span>
+								<span className="tnum w-20 shrink-0 text-right">
+									{formatINR(c.amount)}
+								</span>
+								<span className="truncate text-muted-foreground text-xs">
+									{c.narration}
+								</span>
+							</li>
+						),
+					)}
 				</ul>
 			)}
 		</li>
@@ -552,7 +595,7 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 				{items.map((s) => (
 					<li
 						key={s.txnId}
-						className="flex items-center gap-3 border-border border-b py-3"
+						className="flex items-center gap-3 border-border border-b py-3 max-md:flex-wrap"
 					>
 						<div className="min-w-0 flex-1">
 							<p className="truncate font-medium">
@@ -587,7 +630,8 @@ function Suggestions({ items }: { items: ReconcileSuggestion[] }) {
 									],
 								},
 							]}
-							className="h-9 w-auto shrink-0 rounded-md"
+							// Full width on its own line on a phone, so the source name keeps the row's width.
+							className="h-9 w-auto shrink-0 rounded-md max-md:h-11 max-md:w-full max-md:rounded-xl"
 						/>
 					</li>
 				))}
@@ -620,15 +664,26 @@ function MonthStrip({
 }) {
 	const list = (months.length > 0 ? months : [value]).slice(0, 24).reverse();
 	// Newest sits on the right, so the strip loads scrolled to the left — with the selected month off
-	// screen. Pull it into view on mount and whenever the selection changes (e.g. clicking a history bar
-	// for an older month). `block: "nearest"` keeps this from scrolling the page vertically.
+	// screen. Pull it into view on mount, when the month list arrives (the first render only has a
+	// placeholder month), and whenever the selection changes (e.g. clicking a history bar for an older
+	// month). The strip's own scrollLeft is set rather than `scrollIntoView`, which would also scroll the
+	// page up to the strip when a bar further down was the thing clicked.
+	const stripRef = useRef<HTMLDivElement>(null);
 	const activeRef = useRef<HTMLButtonElement>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the deps are the triggers, not values read inside
 	useEffect(() => {
-		activeRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
-	}, []);
+		const strip = stripRef.current;
+		const chip = activeRef.current;
+		if (!strip || !chip) return;
+		strip.scrollLeft =
+			chip.offsetLeft -
+			strip.offsetLeft -
+			(strip.clientWidth - chip.offsetWidth) / 2;
+	}, [value, list.length]);
 
 	return (
 		<div
+			ref={stripRef}
 			className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
 			role="tablist"
 			aria-label="Month"
@@ -643,7 +698,7 @@ function MonthStrip({
 						role="tab"
 						aria-selected={active}
 						onClick={() => onChange(m)}
-						className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition-colors ${
+						className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition-colors max-md:h-11 max-md:px-4 max-md:py-0 ${
 							active
 								? "bg-foreground font-medium text-background"
 								: "border border-border text-muted-foreground hover:text-foreground"

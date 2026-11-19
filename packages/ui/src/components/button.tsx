@@ -3,7 +3,7 @@ import { cn } from "@money/ui/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const buttonVariants = cva(
-	"group/button inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-lg border border-transparent bg-clip-padding font-medium pointer-coarse:text-sm text-xs outline-none transition-all focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px pointer-coarse:active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+	"group/button inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-lg border border-transparent bg-clip-padding font-medium text-xs touch:text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px touch:active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
@@ -20,15 +20,15 @@ const buttonVariants = cva(
 			},
 			size: {
 				default:
-					"h-8 pointer-coarse:h-11 gap-1.5 pointer-coarse:px-4 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-				xs: "h-6 pointer-coarse:h-9 gap-1 rounded-md pointer-coarse:px-3 px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-				sm: "h-7 pointer-coarse:h-10 gap-1 rounded-md pointer-coarse:px-3.5 px-2.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-				lg: "h-9 pointer-coarse:h-12 gap-1.5 pointer-coarse:px-5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-				icon: "pointer-coarse:size-11 size-8",
+					"h-8 touch:h-11 gap-1.5 px-2.5 touch:px-4 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+				xs: "h-6 touch:h-9 gap-1 rounded-md px-2 touch:px-3 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+				sm: "h-7 touch:h-10 gap-1 rounded-md px-2.5 touch:px-3.5 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+				lg: "h-9 touch:h-12 gap-1.5 px-2.5 touch:px-5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+				icon: "size-8 touch:size-11",
 				"icon-xs":
-					"pointer-coarse:size-9 size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-				"icon-sm": "pointer-coarse:size-10 size-7 rounded-md",
-				"icon-lg": "pointer-coarse:size-12 size-9",
+					"size-6 touch:size-9 rounded-md [&_svg:not([class*='size-'])]:size-3",
+				"icon-sm": "size-7 touch:size-10 rounded-md",
+				"icon-lg": "size-9 touch:size-12",
 			},
 		},
 		defaultVariants: {

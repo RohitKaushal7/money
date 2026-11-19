@@ -4,7 +4,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { Laptop, Smartphone } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Field, Section, TextInput } from "@/components/settings/section";
+import {
+	Field,
+	PHONE_BUTTON,
+	PHONE_FORM,
+	Section,
+	TextInput,
+} from "@/components/settings/section";
 import { authClient } from "@/lib/auth-client";
 import { formatDate } from "@/lib/format";
 import { signOutAndClear } from "@/lib/session";
@@ -49,7 +55,7 @@ function Profile() {
 	return (
 		<Section title="Profile">
 			<form
-				className="flex flex-wrap items-end gap-3"
+				className={`flex flex-wrap items-end gap-3 ${PHONE_FORM}`}
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (dirty) save.mutate();
@@ -58,20 +64,27 @@ function Profile() {
 				<Field label="Name">
 					<TextInput
 						value={name}
+						autoComplete="name"
+						enterKeyHint="done"
 						onChange={(e) => setDraft(e.target.value)}
 						className="w-56"
 					/>
 				</Field>
 				<Field label="Email">
-					<div className="flex h-[34px] w-64 items-center rounded-md border border-border border-dashed bg-muted/40 px-2 text-muted-foreground text-sm">
+					<div className="flex h-[34px] w-64 items-center rounded-md border border-border border-dashed bg-muted/40 px-2 text-muted-foreground text-sm max-md:h-11 max-md:w-full max-md:rounded-lg max-md:px-3 max-md:text-base">
 						{user?.email ?? "—"}
 					</div>
 				</Field>
-				<Button type="submit" size="sm" disabled={!dirty || save.isPending}>
+				<Button
+					type="submit"
+					size="sm"
+					className={PHONE_BUTTON}
+					disabled={!dirty || save.isPending}
+				>
 					{save.isPending ? "Saving…" : "Save"}
 				</Button>
 			</form>
-			<p className="text-muted-foreground text-xs">
+			<p className="text-muted-foreground text-xs max-md:px-1 max-md:text-sm">
 				Email can't be changed here — there's no verification mail to send. Ask
 				an admin.
 			</p>
@@ -158,6 +171,7 @@ function Sessions() {
 				<Button
 					variant="outline"
 					size="sm"
+					className="max-md:min-h-11"
 					disabled={signOut.isPending}
 					onClick={() => signOut.mutate()}
 				>
@@ -170,7 +184,7 @@ function Sessions() {
 			) : rows.length === 0 ? (
 				<p className="text-muted-foreground text-sm">No other sessions.</p>
 			) : (
-				<ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+				<ul className="flex flex-col divide-y divide-border rounded-lg border border-border max-md:overflow-hidden max-md:rounded-2xl max-md:bg-card">
 					{rows.map((s) => {
 						const { label, mobile } = describeDevice(s.userAgent);
 						const isCurrent = s.token === currentToken;
@@ -178,22 +192,30 @@ function Sessions() {
 						return (
 							<li
 								key={s.id}
-								className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm"
+								className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm max-md:min-h-14 max-md:flex-nowrap max-md:px-4"
 							>
-								<Icon className="size-4 shrink-0 text-muted-foreground" />
-								<span className="font-medium">{label}</span>
-								{isCurrent && (
-									<span className="rounded-full bg-[var(--covered)]/15 px-2 py-0.5 text-[0.7rem] text-[var(--covered)]">
-										this device
+								<Icon className="size-4 shrink-0 text-muted-foreground max-md:size-5" />
+								{/* One block on a phone, so the device and its expiry stack instead of wrapping apart. */}
+								<span className="contents max-md:flex max-md:min-w-0 max-md:flex-1 max-md:flex-col">
+									<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+										<span className="font-medium max-md:text-base">
+											{label}
+										</span>
+										{isCurrent && (
+											<span className="rounded-full bg-[var(--covered)]/15 px-2 py-0.5 text-[var(--covered)] text-xs md:text-[0.7rem]">
+												this device
+											</span>
+										)}
 									</span>
-								)}
-								<span className="tnum ml-auto text-muted-foreground text-xs">
-									expires {formatDate(s.expiresAt)}
+									<span className="tnum ml-auto text-muted-foreground text-xs max-md:ml-0 max-md:text-sm">
+										expires {formatDate(s.expiresAt)}
+									</span>
 								</span>
 								{!isCurrent && (
 									<Button
 										variant="ghost"
 										size="xs"
+										className="max-md:min-h-11 max-md:px-3 max-md:text-sm"
 										disabled={revoke.isPending}
 										onClick={() => revoke.mutate(s.token)}
 									>

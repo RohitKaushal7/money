@@ -1,4 +1,5 @@
-import type { MoneyFlow as MoneyFlowData } from "@money/shared";
+import type { FlowLeaf, MoneyFlow as MoneyFlowData } from "@money/shared";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { DateRange } from "@/components/date-range-picker";
@@ -305,6 +306,7 @@ export function MoneyFlow({ range }: { range: DateRange }) {
 	const f = q.data as MoneyFlowData | undefined;
 	const layout = useMemo(() => (f?.hasData ? buildLayout(f) : null), [f]);
 	const [tip, setTip] = useState<Tip | null>(null);
+	const phone = useIsPhone();
 
 	if (q.isLoading)
 		return <p className="py-4 text-muted-foreground text-sm">Loading…</p>;
@@ -325,128 +327,132 @@ export function MoneyFlow({ range }: { range: DateRange }) {
 
 	return (
 		<section className="flex flex-col gap-4">
-			<div>
-				<svg
-					viewBox={`0 0 1160 ${HSVG}`}
-					className="block h-auto w-full"
-					preserveAspectRatio="xMidYMid meet"
-					role="img"
-					aria-label="Money flow: income allocated to spending, investments and savings"
-					onMouseLeave={() => setTip(null)}
-				>
-					<title>Money flow — income allocation</title>
-					{layout.links.map((l, i) => {
-						const s = layout.nodes.find((n) => n.id === l.s);
-						const t = layout.nodes.find((n) => n.id === l.t);
-						if (!s || !t) return null;
-						return (
-							// biome-ignore lint/a11y/noStaticElementInteractions: hover surfaces a value already labelled on both nodes
-							<path
-								key={`${l.s}-${l.t}-${i}`}
-								d={ribbon(s.x + NODEW / 2, l.sy, t.x - NODEW / 2, l.ty, l.th)}
-								fill={l.color}
-								fillOpacity={0.34}
-								className="cursor-default transition-[fill-opacity]"
-								onMouseMove={(e) =>
-									setTip({
-										text: `${short(s.label)} → ${short(t.label)}`,
-										sub: `${fmt(l.v)}/mo`,
-										x: e.clientX,
-										y: e.clientY,
-									})
-								}
-							/>
-						);
-					})}
-
-					{layout.nodes.map((n) => {
-						const anchor: "start" | "middle" | "end" =
-							n.col === 4 ? "start" : n.col === 2 ? "middle" : "end";
-						const tx =
-							n.col === 4
-								? n.x + NODEW / 2 + 9
-								: n.col === 2
-									? n.x
-									: n.x - NODEW / 2 - 9;
-						const p = pct(n.value);
-						return (
-							// biome-ignore lint/a11y/noStaticElementInteractions: hover surfaces the same figure shown as a label
-							<g
-								key={n.id}
-								onMouseMove={(e) =>
-									setTip({
-										text: n.label,
-										sub: `${fmt(n.value)}/mo · ${p}% of income`,
-										x: e.clientX,
-										y: e.clientY,
-									})
-								}
-							>
-								<rect
-									x={n.x - NODEW / 2}
-									y={n.y0}
-									width={NODEW}
-									height={Math.max(1, n.h)}
-									rx={3}
-									fill={n.color}
-									fillOpacity={n.hub ? 0.55 : 0.92}
+			{phone ? (
+				<FlowList f={f} />
+			) : (
+				<div>
+					<svg
+						viewBox={`0 0 1160 ${HSVG}`}
+						className="block h-auto w-full"
+						preserveAspectRatio="xMidYMid meet"
+						role="img"
+						aria-label="Money flow: income allocated to spending, investments and savings"
+						onMouseLeave={() => setTip(null)}
+					>
+						<title>Money flow — income allocation</title>
+						{layout.links.map((l, i) => {
+							const s = layout.nodes.find((n) => n.id === l.s);
+							const t = layout.nodes.find((n) => n.id === l.t);
+							if (!s || !t) return null;
+							return (
+								// biome-ignore lint/a11y/noStaticElementInteractions: hover surfaces a value already labelled on both nodes
+								<path
+									key={`${l.s}-${l.t}-${i}`}
+									d={ribbon(s.x + NODEW / 2, l.sy, t.x - NODEW / 2, l.ty, l.th)}
+									fill={l.color}
+									fillOpacity={0.34}
+									className="cursor-default transition-[fill-opacity]"
+									onMouseMove={(e) =>
+										setTip({
+											text: `${short(s.label)} → ${short(t.label)}`,
+											sub: `${fmt(l.v)}/mo`,
+											x: e.clientX,
+											y: e.clientY,
+										})
+									}
 								/>
-								{Math.abs(n.labelY - n.cy) > 7 && (
-									<path
-										d={`M${anchor === "end" ? n.x - NODEW / 2 - 4 : n.x + NODEW / 2 + 4},${n.cy} L${anchor === "end" ? tx + 4 : tx - 4},${n.labelY + 4}`}
-										fill="none"
-										stroke="var(--border)"
-										strokeWidth={1}
+							);
+						})}
+
+						{layout.nodes.map((n) => {
+							const anchor: "start" | "middle" | "end" =
+								n.col === 4 ? "start" : n.col === 2 ? "middle" : "end";
+							const tx =
+								n.col === 4
+									? n.x + NODEW / 2 + 9
+									: n.col === 2
+										? n.x
+										: n.x - NODEW / 2 - 9;
+							const p = pct(n.value);
+							return (
+								// biome-ignore lint/a11y/noStaticElementInteractions: hover surfaces the same figure shown as a label
+								<g
+									key={n.id}
+									onMouseMove={(e) =>
+										setTip({
+											text: n.label,
+											sub: `${fmt(n.value)}/mo · ${p}% of income`,
+											x: e.clientX,
+											y: e.clientY,
+										})
+									}
+								>
+									<rect
+										x={n.x - NODEW / 2}
+										y={n.y0}
+										width={NODEW}
+										height={Math.max(1, n.h)}
+										rx={3}
+										fill={n.color}
+										fillOpacity={n.hub ? 0.55 : 0.92}
 									/>
-								)}
-								{n.hub ? (
-									<>
-										<text
-											x={tx}
-											y={n.y0 - 16}
-											textAnchor={anchor}
-											className="fill-foreground font-semibold text-[14px]"
-											style={HALO}
-										>
-											{n.label}
-										</text>
-										<text
-											x={tx}
-											y={n.y0 - 2}
-											textAnchor={anchor}
-											className="fill-muted-foreground text-[11.5px]"
-											style={HALO}
-										>
-											{fmtc(n.value)}/mo
-										</text>
-									</>
-								) : (
-									<>
-										<text
-											x={tx}
-											y={n.labelY - 3}
-											textAnchor={anchor}
-											className="fill-foreground font-semibold"
-											style={{ ...HALO, fontSize: n.col === 3 ? 13.5 : 12.5 }}
-										>
-											{n.label}
-										</text>
-										<text
-											x={tx}
-											y={n.labelY + 12}
-											textAnchor={anchor}
-											className="fill-muted-foreground text-[11.5px]"
-											style={HALO}
-										>
-											{fmtc(n.value)} · {p}%
-										</text>
-									</>
-								)}
-							</g>
-						);
-					})}
-				</svg>
-			</div>
+									{Math.abs(n.labelY - n.cy) > 7 && (
+										<path
+											d={`M${anchor === "end" ? n.x - NODEW / 2 - 4 : n.x + NODEW / 2 + 4},${n.cy} L${anchor === "end" ? tx + 4 : tx - 4},${n.labelY + 4}`}
+											fill="none"
+											stroke="var(--border)"
+											strokeWidth={1}
+										/>
+									)}
+									{n.hub ? (
+										<>
+											<text
+												x={tx}
+												y={n.y0 - 16}
+												textAnchor={anchor}
+												className="fill-foreground font-semibold text-[14px]"
+												style={HALO}
+											>
+												{n.label}
+											</text>
+											<text
+												x={tx}
+												y={n.y0 - 2}
+												textAnchor={anchor}
+												className="fill-muted-foreground text-[11.5px]"
+												style={HALO}
+											>
+												{fmtc(n.value)}/mo
+											</text>
+										</>
+									) : (
+										<>
+											<text
+												x={tx}
+												y={n.labelY - 3}
+												textAnchor={anchor}
+												className="fill-foreground font-semibold"
+												style={{ ...HALO, fontSize: n.col === 3 ? 13.5 : 12.5 }}
+											>
+												{n.label}
+											</text>
+											<text
+												x={tx}
+												y={n.labelY + 12}
+												textAnchor={anchor}
+												className="fill-muted-foreground text-[11.5px]"
+												style={HALO}
+											>
+												{fmtc(n.value)} · {p}%
+											</text>
+										</>
+									)}
+								</g>
+							);
+						})}
+					</svg>
+				</div>
+			)}
 
 			<p className="px-1 text-muted-foreground text-sm leading-relaxed">
 				{f.reserves > 0 ? (
@@ -515,5 +521,195 @@ function Key({ color, label }: { color: string; label: string }) {
 			/>
 			{label}
 		</span>
+	);
+}
+
+interface FlowGroup {
+	id: string;
+	label: string;
+	value: number;
+	color: string;
+	leaves: FlowLeaf[];
+}
+
+/**
+ * The phone's Flow. The Sankey's 1160-unit canvas scales to a third of its size at phone width, which puts
+ * its 12px labels near 4px, and its leaf columns have no room to spread. So a phone gets the same flow as
+ * two ranked lists, in and out, each a group (Active, Expenses, …) over its leaves, with a bar per row on
+ * one scale so a ₹57 interest line and the salary still compare at a glance. Same role colours, same
+ * "% of income" as the Sankey's labels, and every value is printed rather than behind a hover.
+ */
+function FlowList({ f }: { f: MoneyFlowData }) {
+	const { fmtc } = useMoney();
+	const hubTotal = f.incomeTotal + f.reserves;
+	// One scale for every bar in both lists: the bigger side of the hub.
+	const scale = Math.max(
+		hubTotal,
+		f.expenseTotal + f.investTotal + f.savings,
+		1,
+	);
+	const pct = (v: number) =>
+		f.incomeTotal > 0 ? Math.round((v / f.incomeTotal) * 100) : 0;
+
+	const into: FlowGroup[] = [];
+	if (f.incomeActiveTotal > 0)
+		into.push({
+			id: "active",
+			label: "Active",
+			value: f.incomeActiveTotal,
+			color: BLUE,
+			leaves: f.incomeActive,
+		});
+	if (f.incomePassiveTotal > 0)
+		into.push({
+			id: "passive",
+			label: "Passive",
+			value: f.incomePassiveTotal,
+			color: GREEN,
+			leaves: f.incomePassive,
+		});
+	if (f.reserves > 0)
+		into.push({
+			id: "reserves",
+			label: "From reserves",
+			value: f.reserves,
+			color: RED,
+			leaves: [],
+		});
+	const out: FlowGroup[] = [];
+	if (f.expenseTotal > 0)
+		out.push({
+			id: "exp",
+			label: "Expenses",
+			value: f.expenseTotal,
+			color: AMBER,
+			leaves: f.expenses,
+		});
+	if (f.investTotal > 0)
+		out.push({
+			id: "inv",
+			label: "Investments",
+			value: f.investTotal,
+			color: PURPLE,
+			leaves: f.investments,
+		});
+	if (f.savings > 0)
+		out.push({
+			id: "sav",
+			label: "Savings",
+			value: f.savings,
+			color: GREEN,
+			leaves: [],
+		});
+
+	return (
+		<div className="flex flex-col gap-6">
+			<div className="flex items-baseline justify-between gap-3 border-border border-b pb-3">
+				<span className="font-medium">
+					{f.reserves > 0 ? "Total in" : "Income"}
+				</span>
+				<span className="tnum font-display font-medium text-2xl">
+					{fmtc(hubTotal)}
+					<span className="ml-1 font-normal font-sans text-muted-foreground text-sm">
+						/mo
+					</span>
+				</span>
+			</div>
+			<FlowSection title="Coming in" groups={into} scale={scale} pct={pct} />
+			<FlowSection title="Going out" groups={out} scale={scale} pct={pct} />
+		</div>
+	);
+}
+
+function FlowSection({
+	title,
+	groups,
+	scale,
+	pct,
+}: {
+	title: string;
+	groups: FlowGroup[];
+	scale: number;
+	pct: (v: number) => number;
+}) {
+	const { fmtc } = useMoney();
+	if (groups.length === 0) return null;
+	return (
+		<section className="flex flex-col gap-4">
+			<h3 className="text-muted-foreground text-sm">{title}</h3>
+			{groups.map((g) => (
+				<div key={g.id} className="flex flex-col gap-2">
+					<FlowRow
+						label={g.label}
+						value={`${fmtc(g.value)}/mo`}
+						share={`${pct(g.value)}%`}
+						width={g.value / scale}
+						color={g.color}
+						strong
+					/>
+					{g.leaves.length > 0 && (
+						<ul className="ml-3 flex flex-col gap-2.5 border-border border-l pl-3">
+							{g.leaves.map((l) => (
+								<li key={l.key}>
+									<FlowRow
+										label={short(l.label)}
+										value={fmtc(l.value)}
+										share={`${pct(l.value)}%`}
+										width={l.value / scale}
+										color={g.color}
+									/>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			))}
+		</section>
+	);
+}
+
+/** A label and its figure on one line, the bar under them drawn to the list's shared scale. */
+function FlowRow({
+	label,
+	value,
+	share,
+	width,
+	color,
+	strong,
+}: {
+	label: string;
+	value: string;
+	share: string;
+	width: number;
+	color: string;
+	strong?: boolean;
+}) {
+	return (
+		<div className="flex flex-col gap-1">
+			<div className="flex items-baseline justify-between gap-3">
+				<span
+					className={`min-w-0 truncate ${strong ? "font-medium" : "text-sm"}`}
+				>
+					{label}
+				</span>
+				<span className="tnum shrink-0 text-sm">
+					<span className={strong ? "font-medium" : undefined}>{value}</span>
+					<span className="ml-1.5 text-muted-foreground text-xs">{share}</span>
+				</span>
+			</div>
+			<div
+				className={`rounded-full bg-muted ${strong ? "h-2" : "h-1.5"}`}
+				aria-hidden
+			>
+				<span
+					className="block h-full rounded-full"
+					style={{
+						width: `${Math.max(1, Math.min(100, width * 100))}%`,
+						backgroundColor: color,
+						opacity: strong ? 0.92 : 0.7,
+					}}
+				/>
+			</div>
+		</div>
 	);
 }

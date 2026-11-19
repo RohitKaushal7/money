@@ -42,7 +42,7 @@ function DashboardPage() {
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-5xl flex-col gap-14 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-5xl flex-col gap-14 px-5 pt-3 pb-10 max-md:gap-10 sm:px-8 sm:py-14">
 				<Masthead
 					uncategorized={
 						statementReady ? (summary.data?.uncategorized ?? 0) : 0
@@ -73,7 +73,7 @@ function DashboardPage() {
 				{/* ACTUALS — what actually happened, from your SBI statement */}
 				<section className="flex flex-col gap-8">
 					<div className="flex flex-wrap items-center justify-between gap-3">
-						<h2 className="font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em]">
+						<h2 className="font-medium text-[0.7rem] text-muted-foreground uppercase tracking-[0.22em] max-md:text-sm max-md:normal-case max-md:tracking-normal">
 							Actuals · from your statement
 						</h2>
 						{statementReady && (
@@ -126,7 +126,7 @@ function Masthead({
 				)}
 				<Link
 					to="/plan"
-					className="rounded-full border border-border px-3.5 py-1.5 font-medium text-xs transition-colors hover:bg-secondary"
+					className="pressable inline-flex touch:h-11 items-center rounded-full border border-border px-3.5 py-1.5 font-medium text-xs transition-colors hover:bg-secondary max-md:h-11 max-md:px-4 max-md:text-sm"
 				>
 					Manage plan →
 				</Link>

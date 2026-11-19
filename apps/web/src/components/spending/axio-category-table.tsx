@@ -20,17 +20,25 @@ export function AxioCategoryTable({ spend }: { spend: AxioSpendRow[] }) {
 				{rows.map((r) => (
 					<div
 						key={r.category}
-						className="tnum flex items-center gap-3 py-2 text-sm"
+						className="tnum flex items-center gap-3 py-2 text-sm max-md:min-h-14"
 					>
 						<span
 							className="size-2.5 shrink-0 rounded-[3px]"
 							style={{ backgroundColor: colors.get(r.category) }}
 						/>
-						<span className="flex-1 truncate">{r.category}</span>
-						<span className="w-12 text-right text-muted-foreground text-xs">
+						<span className="flex min-w-0 flex-1 flex-col">
+							<span className="truncate">{r.category}</span>
+							{/* On a phone the share and count sit under the name, named, instead of in two
+							    unlabelled narrow columns. */}
+							<span className="text-muted-foreground text-xs md:hidden">
+								{grand > 0 ? Math.round((r.total / grand) * 100) : 0}% ·{" "}
+								{r.count} txn{r.count === 1 ? "" : "s"}
+							</span>
+						</span>
+						<span className="w-12 text-right text-muted-foreground text-xs max-md:hidden">
 							{grand > 0 ? Math.round((r.total / grand) * 100) : 0}%
 						</span>
-						<span className="w-10 text-right text-muted-foreground text-xs">
+						<span className="w-10 text-right text-muted-foreground text-xs max-md:hidden">
 							{r.count}
 						</span>
 						<span className="w-24 text-right font-medium">{fmt(r.total)}</span>

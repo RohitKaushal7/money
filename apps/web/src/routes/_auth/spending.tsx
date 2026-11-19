@@ -17,6 +17,7 @@ import {
 import { SpendingExplorer } from "@/components/spending/explorer";
 import { MoneyFlow } from "@/components/spending/money-flow";
 import { SpendingHistory } from "@/components/spending/spending-history";
+import { TabBar } from "@/components/tab-bar";
 import { useMoney } from "@/lib/currency";
 import { formatDate, formatMonth } from "@/lib/format";
 import { orpc } from "@/utils/orpc";
@@ -44,13 +45,14 @@ function SpendingPage() {
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-4xl flex-col gap-8 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-4xl flex-col gap-8 px-4 pt-6 pb-10 max-md:gap-6 sm:px-8 sm:py-14">
 				<header className="flex flex-wrap items-start justify-between gap-3">
 					<div className="flex flex-col gap-1">
 						<h1 className="font-display font-medium text-3xl tracking-tight">
 							Spending
 						</h1>
-						<p className="max-w-xl text-muted-foreground">
+						{/* The phone opens on the numbers; the explainer is for the desktop's spare width. */}
+						<p className="max-w-xl text-muted-foreground max-md:hidden">
 							How much is going out, and which categories are creeping up — each
 							month against its own recent norm and your plan budget.
 						</p>
@@ -58,7 +60,7 @@ function SpendingPage() {
 					<DateRangePicker defaultPreset="last-24m" onChange={setRange} />
 				</header>
 
-				<TabBar tab={tab} onChange={setTab} />
+				<TabBar tabs={TABS} active={tab} onSelect={setTab} />
 
 				{tab === "overview" && (
 					<>
@@ -99,34 +101,11 @@ function SpendingPage() {
 	);
 }
 
-function TabBar({
-	tab,
-	onChange,
-}: {
-	tab: "overview" | "flow" | "explorer";
-	onChange: (t: "overview" | "flow" | "explorer") => void;
-}) {
-	const item = (id: "overview" | "flow" | "explorer", label: string) => (
-		<button
-			type="button"
-			onClick={() => onChange(id)}
-			className={`cursor-pointer border-b-2 px-1 pb-2 font-medium text-sm transition-colors ${
-				tab === id
-					? "border-foreground text-foreground"
-					: "border-transparent text-muted-foreground hover:text-foreground"
-			}`}
-		>
-			{label}
-		</button>
-	);
-	return (
-		<div className="flex gap-6 border-border border-b">
-			{item("overview", "Overview")}
-			{item("flow", "Flow")}
-			{item("explorer", "Explorer")}
-		</div>
-	);
-}
+const TABS = [
+	{ key: "overview", label: "Overview" },
+	{ key: "flow", label: "Flow" },
+	{ key: "explorer", label: "Explorer" },
+] as const;
 
 // ── summary ─────────────────────────────────────────────────────────────────────────────────────────
 /**
@@ -151,13 +130,13 @@ function SummaryBar({
 	const diff = insights.latestRecurring - res.totalBudget;
 	const overBudget = diff > 0;
 	return (
-		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-6 py-6">
+		<section className="flex flex-col gap-5 rounded-2xl border border-border bg-card/40 px-4 py-5 sm:px-6 sm:py-6">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					<p className="text-muted-foreground text-xs md:text-[0.65rem] md:uppercase md:tracking-[0.2em]">
 						Out in {formatMonth(latestMonth)}
 						{insights.latestIsPartial && (
-							<span className="ml-2 normal-case tracking-normal">
+							<span className="ml-2 tracking-normal md:normal-case">
 								· {insights.daysElapsed} of {insights.daysInMonth} days
 							</span>
 						)}
@@ -182,7 +161,7 @@ function SummaryBar({
 				</div>
 				{hasBudget && (
 					<div className="text-right">
-						<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+						<p className="text-muted-foreground text-xs md:text-[0.65rem] md:uppercase md:tracking-[0.2em]">
 							Monthly budget
 						</p>
 						<p className="tnum font-display font-medium text-2xl text-muted-foreground leading-none">
@@ -240,7 +219,7 @@ function LevelStrip({
 	if (recentMean <= 0) return null;
 
 	return (
-		<section className="flex flex-col gap-6 rounded-2xl border border-border px-6 py-6">
+		<section className="flex flex-col gap-6 rounded-2xl border border-border px-4 py-5 sm:px-6 sm:py-6">
 			<div className="grid gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
 				{gap ? (
 					<Figure
@@ -366,7 +345,7 @@ function Figure({
 }) {
 	return (
 		<div className="flex flex-col">
-			<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+			<p className="text-muted-foreground text-xs md:text-[0.65rem] md:uppercase md:tracking-[0.2em]">
 				{label}
 			</p>
 			<p
@@ -495,7 +474,7 @@ function Blindspot({
 			.{" "}
 			<Link
 				to="/import"
-				className="underline underline-offset-2 hover:text-foreground"
+				className="underline underline-offset-2 hover:text-foreground max-md:mt-1 max-md:flex max-md:min-h-11 max-md:items-center"
 				style={{ color: OUT }}
 			>
 				Import more statements →
@@ -525,7 +504,7 @@ function MoverRow({
 			<button
 				type="button"
 				onClick={() => setOpen((o) => !o)}
-				className="flex w-full items-center gap-4 py-3.5 text-left transition-colors hover:bg-secondary/30"
+				className="flex w-full items-center gap-4 py-3.5 text-left transition-colors hover:bg-secondary/30 max-md:gap-3 max-md:active:bg-secondary/30"
 			>
 				<ChevronRight
 					className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
@@ -538,7 +517,7 @@ function MoverRow({
 					</p>
 				</div>
 				<Sparkline values={cat.byMonth} budget={cat.budget} months={months} />
-				<div className="w-28 shrink-0 text-right">
+				<div className="shrink-0 text-right md:w-28">
 					<p className="tnum font-medium">{fmt(cat.latest)}</p>
 					<TrendChip cat={cat} />
 				</div>
@@ -593,7 +572,7 @@ function Sparkline({
 							}}
 						/>
 						{active && (
-							<div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[0.65rem] shadow-md">
+							<div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs shadow-md md:text-[0.65rem]">
 								<span className="text-muted-foreground">
 									{formatMonth(months[i] ?? "")}
 								</span>{" "}
@@ -636,7 +615,7 @@ function TrendChip({ cat }: { cat: SpendingCategory }) {
 			</span>
 			{cat.overBudgetPct != null && (
 				<span
-					className="text-[0.65rem]"
+					className="text-xs md:text-[0.65rem]"
 					style={{ color: cat.overBudgetPct > 0 ? OUT : IN }}
 				>
 					{cat.overBudgetPct > 0
@@ -658,7 +637,7 @@ function Drill({ categoryKey }: { categoryKey: string }) {
 	);
 	const txns = q.data ?? [];
 	return (
-		<div className="mb-2 ml-8 flex flex-col rounded-lg bg-secondary/25 px-3 py-1">
+		<div className="mb-2 flex flex-col rounded-lg bg-secondary/25 px-3 py-1 md:ml-8">
 			{q.isLoading && (
 				<p className="py-2 text-muted-foreground text-xs">Loading…</p>
 			)}
@@ -691,8 +670,8 @@ function BudgetedNoActual({
 }) {
 	const { fmtc } = useMoney();
 	return (
-		<section className="rounded-2xl border border-border border-dashed bg-card/30 px-6 py-5">
-			<p className="mb-2 text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+		<section className="rounded-2xl border border-border border-dashed bg-card/30 px-4 py-5 sm:px-6">
+			<p className="mb-2 text-muted-foreground text-xs md:text-[0.65rem] md:uppercase md:tracking-[0.2em]">
 				Budgeted · nothing categorised yet
 			</p>
 			<ul className="flex flex-wrap gap-x-6 gap-y-1.5">
@@ -728,7 +707,7 @@ function Muted({ children }: { children: React.ReactNode }) {
 
 function EmptyState() {
 	return (
-		<div className="flex flex-col items-start gap-4 rounded-2xl border border-border border-dashed px-8 py-16">
+		<div className="flex flex-col items-start gap-4 rounded-2xl border border-border border-dashed px-5 py-12 sm:px-8 sm:py-16">
 			<p className="font-display font-medium text-2xl">
 				No spending to show yet
 			</p>

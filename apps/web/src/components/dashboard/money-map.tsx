@@ -56,11 +56,20 @@ export function MoneyMap({ rows }: MoneyMapProps) {
 			<ul className="flex flex-col gap-4">
 				{items.map((item) => {
 					const label = CATEGORY_BY_KEY.get(item.key)?.label ?? item.key;
+					// "Credit-card bill (consolidated spend proxy)" → "Credit-card bill" on a phone; the
+					// parenthetical is a footnote, and the full name stays in the tooltip.
+					const short = label.replace(/\s*\(.*\)\s*$/, "") || label;
 					const share = Math.round((item.amount / total) * 100);
 					return (
 						<li key={item.key} className="flex flex-col gap-1.5">
 							<div className="flex items-baseline justify-between gap-4">
-								<span className="truncate font-medium text-sm">{label}</span>
+								<span
+									className="min-w-0 truncate font-medium text-sm"
+									title={label}
+								>
+									<span className="md:hidden">{short}</span>
+									<span className="max-md:hidden">{label}</span>
+								</span>
 								<span className="tnum shrink-0 font-display text-base">
 									{m.fmt(item.amount)}
 								</span>

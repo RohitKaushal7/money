@@ -8,6 +8,7 @@ import z from "zod";
 
 import { Logo } from "@/components/logo";
 import { authClient } from "@/lib/auth-client";
+import { enterToNextField } from "@/lib/enter-next";
 import { client } from "@/utils/orpc";
 
 export const Route = createFileRoute("/setup")({
@@ -56,7 +57,7 @@ function SetupPage() {
 	});
 
 	return (
-		<div className="mx-auto mt-10 w-full max-w-md p-6">
+		<div className="mx-auto mt-10 w-full max-w-md p-6 max-md:mt-0 max-md:flex max-md:min-h-svh max-md:flex-col max-md:justify-center max-md:px-5 max-md:pt-[max(1.5rem,env(safe-area-inset-top))] max-md:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
 			<div className="mb-6 flex flex-col items-center gap-3">
 				<Logo className="size-12" />
 				<h1 className="text-center font-display font-semibold text-3xl tracking-tight">
@@ -78,13 +79,20 @@ function SetupPage() {
 				<form.Field name="name">
 					{(field) => (
 						<div className="space-y-2">
-							<Label htmlFor={field.name}>Name</Label>
+							<Label htmlFor={field.name} className="max-md:text-sm">
+								Name
+							</Label>
 							<Input
 								id={field.name}
 								name={field.name}
 								value={field.state.value}
 								onBlur={field.handleBlur}
 								onChange={(e) => field.handleChange(e.target.value)}
+								autoComplete="name"
+								autoCapitalize="words"
+								enterKeyHint="next"
+								onKeyDown={enterToNextField}
+								className="max-md:h-12 max-md:rounded-xl max-md:px-4 max-md:text-base"
 							/>
 							{field.state.meta.errors.map((error) => (
 								<p key={error?.message} className="text-red-500">
@@ -98,7 +106,9 @@ function SetupPage() {
 				<form.Field name="email">
 					{(field) => (
 						<div className="space-y-2">
-							<Label htmlFor={field.name}>Email</Label>
+							<Label htmlFor={field.name} className="max-md:text-sm">
+								Email
+							</Label>
 							<Input
 								id={field.name}
 								name={field.name}
@@ -106,6 +116,14 @@ function SetupPage() {
 								value={field.state.value}
 								onBlur={field.handleBlur}
 								onChange={(e) => field.handleChange(e.target.value)}
+								autoComplete="email"
+								autoCapitalize="none"
+								autoCorrect="off"
+								spellCheck={false}
+								inputMode="email"
+								enterKeyHint="next"
+								onKeyDown={enterToNextField}
+								className="max-md:h-12 max-md:rounded-xl max-md:px-4 max-md:text-base"
 							/>
 							{field.state.meta.errors.map((error) => (
 								<p key={error?.message} className="text-red-500">
@@ -119,7 +137,9 @@ function SetupPage() {
 				<form.Field name="password">
 					{(field) => (
 						<div className="space-y-2">
-							<Label htmlFor={field.name}>Password</Label>
+							<Label htmlFor={field.name} className="max-md:text-sm">
+								Password
+							</Label>
 							<Input
 								id={field.name}
 								name={field.name}
@@ -127,6 +147,9 @@ function SetupPage() {
 								value={field.state.value}
 								onBlur={field.handleBlur}
 								onChange={(e) => field.handleChange(e.target.value)}
+								autoComplete="new-password"
+								enterKeyHint="go"
+								className="max-md:h-12 max-md:rounded-xl max-md:px-4 max-md:text-base"
 							/>
 							{field.state.meta.errors.map((error) => (
 								<p key={error?.message} className="text-red-500">
@@ -146,7 +169,7 @@ function SetupPage() {
 					{({ canSubmit, isSubmitting }) => (
 						<Button
 							type="submit"
-							className="w-full"
+							className="w-full max-md:h-12 max-md:rounded-xl max-md:text-base"
 							disabled={!canSubmit || isSubmitting}
 						>
 							{isSubmitting ? "Creating…" : "Create account"}

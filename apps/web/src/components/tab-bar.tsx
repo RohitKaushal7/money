@@ -2,9 +2,9 @@ import { haptics } from "@/lib/haptics";
 
 /**
  * The app's one tab bar. On desktop an underlined strip, not pills. On a phone it becomes a segmented
- * control: a 44px pill group whose current segment is a raised chip, the shape a thumb expects, and wide
- * enough per segment to hit without aiming. If the labels don't fit the width, the group scrolls sideways
- * rather than wrapping.
+ * control: a 48px pill group of 40px segments, the current one a raised chip, the shape a thumb expects.
+ * Segments share the width equally; a label that still can't fit truncates rather than wrapping or pushing
+ * the group off-screen.
  *
  * Shared so pages can't drift into slightly different tabs. Generic over the key so each caller keeps its
  * own literal union and a typo in a key is a compile error rather than a tab that silently never activates.
@@ -35,7 +35,7 @@ export function TabBar<K extends string>({
 						if (t.key !== active) haptics.selected();
 						onSelect(t.key);
 					}}
-					className={`shrink-0 whitespace-nowrap text-sm transition-colors max-md:h-9 max-md:flex-1 max-md:rounded-full max-md:px-4 md:-mb-px md:border-b-2 md:px-3 md:py-2 ${
+					className={`shrink-0 whitespace-nowrap text-sm transition-colors max-md:h-10 max-md:min-w-0 max-md:flex-1 max-md:basis-0 max-md:truncate max-md:rounded-full max-md:px-2.5 md:-mb-px md:border-b-2 md:px-3 md:py-2 ${
 						t.key === active
 							? "font-medium text-foreground max-md:bg-card max-md:shadow-sm md:border-foreground"
 							: "text-muted-foreground hover:text-foreground md:border-transparent"

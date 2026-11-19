@@ -1,13 +1,18 @@
 import { Button } from "@money/ui/components/button";
 import { Input } from "@money/ui/components/input";
 import { Select } from "@money/ui/components/select";
+import { Sheet, SheetRow } from "@money/ui/components/sheet";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { KeyRound, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ListGroup, ROW_CLASS, RowChevron } from "@/components/list-group";
 import { authClient } from "@/lib/auth-client";
+import { enterToNextField } from "@/lib/enter-next";
 import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format";
+import { haptics } from "@/lib/haptics";
 import { orpc } from "@/utils/orpc";
 
 export const Route = createFileRoute("/_auth/admin")({
@@ -95,10 +100,13 @@ function AdminPage() {
 	const lastLogins = lastLoginQuery.data ?? {};
 
 	const users = usersQuery.data ?? [];
+	const phone = useIsPhone();
+	const [openId, setOpenId] = useState<string | null>(null);
+	const openUser = users.find((u) => u.id === openId) ?? null;
 
 	return (
 		<main className="h-full overflow-y-auto">
-			<div className="mx-auto flex max-w-5xl flex-col gap-10 px-5 py-10 sm:px-8 sm:py-14">
+			<div className="mx-auto flex max-w-5xl flex-col gap-10 px-5 py-10 max-md:gap-7 max-md:px-4 max-md:pt-6 sm:px-8 sm:py-14">
 				<header className="flex flex-wrap items-end justify-between gap-3">
 					<div className="flex flex-col gap-1">
 						<h1 className="flex items-center gap-2 font-display font-medium text-3xl tracking-tight">
@@ -121,14 +129,53 @@ function AdminPage() {
 
 				<CreateUser onCreated={invalidate} />
 
-				<section className="flex flex-col gap-4">
-					<h2 className="border-border border-b-2 pb-2 font-display font-medium text-xl">
+				<section className="flex flex-col gap-4 max-md:gap-2">
+					<h2 className="border-border border-b-2 pb-2 font-display font-medium text-xl max-md:border-b-0 max-md:px-1 max-md:pb-0">
 						Users
 					</h2>
 					{usersQuery.isPending ? (
 						<p className="text-muted-foreground text-sm">Loading…</p>
 					) : users.length === 0 ? (
 						<p className="text-muted-foreground text-sm">No users yet.</p>
+					) : phone ? (
+						// A table can't fit a phone, so each user is a row that opens a sheet of what you can do.
+						<ListGroup>
+							{users.map((u) => {
+								const role = (u as { role?: string | null }).role ?? "user";
+								const banned = Boolean(
+									(u as { banned?: boolean | null }).banned,
+								);
+								return (
+									<button
+										key={u.id}
+										type="button"
+										onClick={() => setOpenId(u.id)}
+										className={ROW_CLASS}
+									>
+										<span className="flex min-w-0 flex-1 flex-col">
+											<span className="truncate text-base">
+												{u.name}
+												{u.id === selfId && (
+													<span className="ml-2 text-muted-foreground text-sm">
+														(you)
+													</span>
+												)}
+											</span>
+											<span className="truncate text-muted-foreground text-sm">
+												{u.email}
+											</span>
+											<span className="flex flex-wrap items-center gap-x-2 text-muted-foreground text-xs">
+												<StatusChip banned={banned} />
+												<span>{role}</span>
+												<span aria-hidden="true">·</span>
+												<LastLogin at={lastLogins[u.id] ?? null} />
+											</span>
+										</span>
+										<RowChevron />
+									</button>
+								);
+							})}
+						</ListGroup>
 					) : (
 						<div className="overflow-x-auto">
 							<table className="w-full min-w-[40rem] border-collapse text-sm">
@@ -236,7 +283,181 @@ function AdminPage() {
 					)}
 				</section>
 			</div>
+			{phone && (
+				<UserSheet
+					user={openUser}
+					isSelf={openUser?.id === selfId}
+					lastLogin={openUser ? (lastLogins[openUser.id] ?? null) : null}
+					onClose={() => setOpenId(null)}
+					retagPending={retag.isPending}
+					onRetag={(uid) => retag.mutate({ uid })}
+					bannedPending={setBanned.isPending}
+					onSetBanned={(userId, banned) => setBanned.mutate({ userId, banned })}
+					removePending={removeUser.isPending}
+					onRemove={(userId) => {
+						removeUser.mutate(userId);
+						setOpenId(null);
+					}}
+				/>
+			)}
 		</main>
+	);
+}
+
+function StatusChip({ banned }: { banned: boolean }) {
+	return banned ? (
+		<span className="rounded-full bg-[var(--uncovered)]/15 px-2 py-0.5 text-[var(--uncovered)] text-xs">
+			disabled
+		</span>
+	) : (
+		<span className="rounded-full bg-[var(--covered)]/15 px-2 py-0.5 text-[var(--covered)] text-xs">
+			active
+		</span>
+	);
+}
+
+type AdminUser = {
+	id: string;
+	name: string;
+	email: string;
+	createdAt: Date | string;
+};
+
+/**
+ * One user's details and every action on them, as a sheet: the phone's replacement for the table's row of
+ * small buttons. The two that can't be taken back (a new password, deleting them) take two taps here too,
+ * the second on the same row, which turns red and says what it will do.
+ */
+function UserSheet({
+	user,
+	isSelf,
+	lastLogin,
+	onClose,
+	retagPending,
+	onRetag,
+	bannedPending,
+	onSetBanned,
+	removePending,
+	onRemove,
+}: {
+	user: AdminUser | null;
+	isSelf: boolean;
+	lastLogin: number | null;
+	onClose: () => void;
+	retagPending: boolean;
+	onRetag: (uid: string) => void;
+	bannedPending: boolean;
+	onSetBanned: (userId: string, banned: boolean) => void;
+	removePending: boolean;
+	onRemove: (userId: string) => void;
+}) {
+	// The last user shown stays on screen while the sheet slides away, rather than blanking mid-animation.
+	const shown = useRef(user);
+	if (user) shown.current = user;
+	const u = shown.current;
+	const [armed, setArmed] = useState<"reset" | "delete" | null>(null);
+	const reset = useResetPassword(u?.id ?? "", u?.email ?? "", () =>
+		setArmed(null),
+	);
+	// A fresh sheet starts disarmed, so a half-finished delete never carries over to the next person.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on the user changing, not on every render
+	useEffect(() => setArmed(null), [user?.id]);
+
+	const role = (u as { role?: string | null } | null)?.role ?? "user";
+	const banned = Boolean((u as { banned?: boolean | null } | null)?.banned);
+	const arm = (which: "reset" | "delete") => {
+		haptics.armed();
+		setArmed(which);
+	};
+
+	return (
+		<Sheet
+			open={user != null}
+			onOpenChange={(o) => {
+				if (!o) onClose();
+			}}
+			title={u?.name ?? ""}
+			description={u?.email}
+		>
+			{u && (
+				<>
+					<dl className="grid grid-cols-2 gap-3 rounded-2xl bg-secondary/50 p-4 text-sm">
+						<div className="flex flex-col gap-0.5">
+							<dt className="text-muted-foreground">Role</dt>
+							<dd>{role}</dd>
+						</div>
+						<div className="flex flex-col items-start gap-0.5">
+							<dt className="text-muted-foreground">Status</dt>
+							<dd>
+								<StatusChip banned={banned} />
+							</dd>
+						</div>
+						<div className="flex flex-col gap-0.5">
+							<dt className="text-muted-foreground">Joined</dt>
+							<dd className="tnum">{formatDate(u.createdAt)}</dd>
+						</div>
+						<div className="flex flex-col gap-0.5">
+							<dt className="text-muted-foreground">Last login</dt>
+							<dd>
+								<LastLogin at={lastLogin} />
+							</dd>
+						</div>
+					</dl>
+					<div className="flex flex-col">
+						<SheetRow
+							disabled={retagPending}
+							onClick={() => onRetag(u.id)}
+							trailing={
+								<RefreshCw
+									className={`size-5 shrink-0 text-muted-foreground ${retagPending ? "animate-spin" : ""}`}
+								/>
+							}
+						>
+							Re-tag their ledger
+						</SheetRow>
+						{!isSelf && (
+							<SheetRow
+								disabled={bannedPending}
+								onClick={() => onSetBanned(u.id, !banned)}
+							>
+								{banned ? "Enable their account" : "Disable their account"}
+							</SheetRow>
+						)}
+						<SheetRow
+							destructive={armed === "reset"}
+							disabled={reset.isPending}
+							onClick={() =>
+								armed === "reset" ? reset.mutate() : arm("reset")
+							}
+							trailing={
+								<KeyRound className="size-5 shrink-0 text-muted-foreground" />
+							}
+						>
+							{reset.isPending
+								? "Setting…"
+								: armed === "reset"
+									? "Tap again: signs them out everywhere"
+									: "Set a new temporary password"}
+						</SheetRow>
+						{!isSelf && (
+							<SheetRow
+								destructive
+								disabled={removePending}
+								onClick={() =>
+									armed === "delete" ? onRemove(u.id) : arm("delete")
+								}
+								trailing={<Trash2 className="size-5 shrink-0" />}
+								className={armed === "delete" ? "bg-destructive/10" : ""}
+							>
+								{armed === "delete"
+									? "Tap again: delete them and all their data"
+									: "Delete user and their data"}
+							</SheetRow>
+						)}
+					</div>
+				</>
+			)}
+		</Sheet>
 	);
 }
 
@@ -263,16 +484,8 @@ function LastLogin({ at }: { at: number | null }) {
  * invite flow: same generator, same share-once toast, same "tell them on the call" framing. Two clicks,
  * because resetting the wrong row signs that person out of every device they own.
  */
-function ResetPasswordButton({
-	userId,
-	email,
-}: {
-	userId: string;
-	email: string;
-}) {
-	const [armed, setArmed] = useState(false);
-
-	const reset = useMutation({
+function useResetPassword(userId: string, email: string, onDone: () => void) {
+	return useMutation({
 		mutationFn: async () => {
 			const newPassword = genPassword();
 			const res = await authClient.admin.setUserPassword({
@@ -283,7 +496,7 @@ function ResetPasswordButton({
 			return newPassword;
 		},
 		onSuccess: (newPassword) => {
-			setArmed(false);
+			onDone();
 			toast.success(`New password for ${email}`, {
 				description: `${newPassword} — share it on the call. They can change it in Settings → Security.`,
 				duration: 60000,
@@ -291,6 +504,17 @@ function ResetPasswordButton({
 		},
 		onError: (e: Error) => toast.error(e.message),
 	});
+}
+
+function ResetPasswordButton({
+	userId,
+	email,
+}: {
+	userId: string;
+	email: string;
+}) {
+	const [armed, setArmed] = useState(false);
+	const reset = useResetPassword(userId, email, () => setArmed(false));
 
 	if (!armed) {
 		return (
@@ -399,12 +623,12 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 	});
 
 	return (
-		<section className="flex flex-col gap-4">
-			<h2 className="border-border border-b-2 pb-2 font-display font-medium text-xl">
+		<section className="flex flex-col gap-4 max-md:gap-2">
+			<h2 className="border-border border-b-2 pb-2 font-display font-medium text-xl max-md:border-b-0 max-md:px-1 max-md:pb-0">
 				Invite a user
 			</h2>
 			<form
-				className="flex flex-wrap items-end gap-3"
+				className="flex flex-wrap items-end gap-3 max-md:flex-col max-md:items-stretch max-md:rounded-2xl max-md:border max-md:border-border max-md:bg-card max-md:p-4"
 				onSubmit={(e) => {
 					e.preventDefault();
 					if (!email || !name) {
@@ -419,7 +643,10 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 					});
 				}}
 			>
-				<label htmlFor="invite-email" className="flex flex-col gap-1 text-xs">
+				<label
+					htmlFor="invite-email"
+					className="flex flex-col gap-1 text-xs max-md:gap-1.5 max-md:text-sm"
+				>
 					<span className="text-muted-foreground">Email</span>
 					<Input
 						id="invite-email"
@@ -427,20 +654,35 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 						value={email}
 						onChange={(e) => setEmail(e.target.value)}
 						placeholder="friend@example.com"
-						className="w-56"
+						autoComplete="off"
+						autoCapitalize="none"
+						autoCorrect="off"
+						spellCheck={false}
+						enterKeyHint="next"
+						onKeyDown={enterToNextField}
+						className="w-56 max-md:h-11 max-md:w-full max-md:text-base"
 					/>
 				</label>
-				<label htmlFor="invite-name" className="flex flex-col gap-1 text-xs">
+				<label
+					htmlFor="invite-name"
+					className="flex flex-col gap-1 text-xs max-md:gap-1.5 max-md:text-sm"
+				>
 					<span className="text-muted-foreground">Name</span>
 					<Input
 						id="invite-name"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 						placeholder="Asha"
-						className="w-40"
+						autoComplete="off"
+						enterKeyHint="next"
+						onKeyDown={enterToNextField}
+						className="w-40 max-md:h-11 max-md:w-full max-md:text-base"
 					/>
 				</label>
-				<label htmlFor="invite-role" className="flex flex-col gap-1 text-xs">
+				<label
+					htmlFor="invite-role"
+					className="flex flex-col gap-1 text-xs max-md:gap-1.5 max-md:text-sm"
+				>
 					<span className="text-muted-foreground">Role</span>
 					<Select
 						id="invite-role"
@@ -451,12 +693,12 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 							{ value: "user", label: "user" },
 							{ value: "admin", label: "admin" },
 						]}
-						className="w-40"
+						className="w-40 max-md:h-11 max-md:w-full max-md:text-base"
 					/>
 				</label>
 				<label
 					htmlFor="invite-password"
-					className="flex flex-col gap-1 text-xs"
+					className="flex flex-col gap-1 text-xs max-md:gap-1.5 max-md:text-sm"
 				>
 					<span className="text-muted-foreground">Password (optional)</span>
 					<Input
@@ -464,10 +706,19 @@ function CreateUser({ onCreated }: { onCreated: () => void }) {
 						value={password}
 						onChange={(e) => setPassword(e.target.value)}
 						placeholder="random if blank"
-						className="w-44"
+						autoComplete="off"
+						autoCapitalize="none"
+						autoCorrect="off"
+						spellCheck={false}
+						enterKeyHint="go"
+						className="w-44 max-md:h-11 max-md:w-full max-md:text-base"
 					/>
 				</label>
-				<Button type="submit" disabled={create.isPending}>
+				<Button
+					type="submit"
+					className="max-md:mt-1 max-md:min-h-11"
+					disabled={create.isPending}
+				>
 					{create.isPending ? "Inviting…" : "Invite"}
 				</Button>
 			</form>

@@ -26,7 +26,8 @@ function AuthLayout() {
 				<Sidebar />
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 					<PhoneTopBar />
-					<div className="min-h-0 flex-1">
+					{/* named so a page change animates only the page, never the bars around it (index.css) */}
+					<div className="min-h-0 flex-1 [view-transition-name:page]">
 						<Outlet />
 					</div>
 					<TabBarNav />

@@ -94,7 +94,7 @@ function DialogContent({
 					</div>
 					<DialogPrimitive.Close
 						aria-label="Close"
-						className="-mt-1 pointer-coarse:-mt-2.5 -mr-1 pointer-coarse:-mr-2.5 flex pointer-coarse:size-11 shrink-0 cursor-pointer items-center justify-center pointer-coarse:rounded-full rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+						className="-mt-1 touch:-mt-2.5 -mr-1 touch:-mr-2.5 flex touch:size-11 shrink-0 cursor-pointer items-center justify-center rounded-md touch:rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
 					>
 						<XIcon className="size-4" />
 					</DialogPrimitive.Close>

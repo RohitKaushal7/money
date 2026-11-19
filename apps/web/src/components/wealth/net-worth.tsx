@@ -5,8 +5,11 @@ import {
 	networthSeries,
 	todayISODate,
 } from "@money/shared";
+import { Button } from "@money/ui/components/button";
+import { Sheet } from "@money/ui/components/sheet";
+import { useIsPhone } from "@money/ui/hooks/use-media-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronDown, Plus, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import {
 	Area,
@@ -25,9 +28,11 @@ import {
 	type DateRange,
 	DateRangePicker,
 } from "@/components/date-range-picker";
+import { TabBar } from "@/components/tab-bar";
 import { FreedomView } from "@/components/wealth/freedom";
 import { RunwayView } from "@/components/wealth/runway";
 import { useMoney } from "@/lib/currency";
+import { haptics } from "@/lib/haptics";
 import { usePreference } from "@/lib/preferences";
 import { orpc } from "@/utils/orpc";
 
@@ -50,6 +55,7 @@ function fmtAxis(iso: string): string {
 export function NetWorthOverTime() {
 	const q = useQuery(orpc.networth.list.queryOptions());
 	const m = useMoney();
+	const isPhone = useIsPhone();
 	const [range, setRange] = useState<DateRange>({});
 	const [mode, setMode] = usePreference("wealth.chartMode");
 	const s = q.data as NetworthSeries | undefined;
@@ -81,7 +87,7 @@ export function NetWorthOverTime() {
 		<section className="flex flex-col gap-6">
 			<div className="flex flex-wrap items-end justify-between gap-4">
 				<div>
-					<p className="text-[0.65rem] text-muted-foreground uppercase tracking-[0.2em]">
+					<p className="text-muted-foreground text-xs uppercase tracking-[0.2em] md:text-[0.65rem]">
 						Net worth over time
 					</p>
 					<div className="mt-1 flex items-baseline gap-3">
@@ -114,14 +120,31 @@ export function NetWorthOverTime() {
 						</p>
 					)}
 				</div>
-				<div className="flex flex-col items-end gap-2">
-					<Controls />
-					<div className="flex items-center gap-2">
-						<ModeSwitch mode={mode} onChange={setMode} />
-						<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+				{!isPhone && (
+					<div className="flex flex-col items-end gap-2">
+						<Controls />
+						<div className="flex items-center gap-2">
+							<ModeSwitch mode={mode} onChange={setMode} />
+							<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+						</div>
 					</div>
-				</div>
+				)}
 			</div>
+
+			{/* On a phone the actions sit under the number rather than beside it: there is no "beside" at 390px,
+			    and logging is what you came here to do, so it gets a full-width thumb target. */}
+			{isPhone && (
+				<div className="-mt-2 flex flex-col gap-3">
+					<PhoneControls />
+					<TabBar
+						tabs={MODE_TABS}
+						active={mode}
+						onSelect={setMode}
+						className="w-full"
+					/>
+					<DateRangePicker defaultPreset="last-12m" onChange={setRange} />
+				</div>
+			)}
 
 			{hasPoints ? (
 				<>
@@ -145,6 +168,12 @@ export function NetWorthOverTime() {
 
 type Mode = "history" | "runway" | "freedom";
 
+const MODE_TABS = [
+	{ key: "history", label: "History" },
+	{ key: "runway", label: "Runway" },
+	{ key: "freedom", label: "Freedom" },
+] as const satisfies readonly { key: Mode; label: string }[];
+
 /**
  * Where the chart looks: back at what happened, forward at the money draining, or forward at it growing
  * past the point of needing to.
@@ -158,13 +187,7 @@ function ModeSwitch({
 }) {
 	return (
 		<div className="flex gap-1 rounded-full bg-muted/50 p-1 text-xs">
-			{(
-				[
-					["history", "History"],
-					["runway", "Runway"],
-					["freedom", "Freedom"],
-				] as const
-			).map(([k, label]) => (
+			{MODE_TABS.map(({ key: k, label }) => (
 				<button
 					key={k}
 					type="button"
@@ -192,6 +215,11 @@ type ChartDatum = {
 
 function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 	const m = useMoney();
+	// 12px is the phone's type floor; desktop keeps its 11px axis.
+	const tick = {
+		fontSize: useIsPhone() ? 12 : 11,
+		fill: "var(--muted-foreground)",
+	};
 	const data: ChartDatum[] = points.map((p) => ({
 		asOf: p.asOf,
 		t: new Date(p.asOf).getTime(),
@@ -218,7 +246,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 						scale="time"
 						domain={["dataMin", "dataMax"]}
 						tickFormatter={(v: number) => fmtAxis(new Date(v).toISOString())}
-						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+						tick={tick}
 						tickLine={false}
 						axisLine={{ stroke: "var(--border)" }}
 						minTickGap={40}
@@ -226,7 +254,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 					<YAxis
 						yAxisId="value"
 						tickFormatter={(v: number) => m.fmtc(v)}
-						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+						tick={tick}
 						tickLine={false}
 						axisLine={false}
 						width={52}
@@ -236,7 +264,7 @@ function NetWorthChart({ points }: { points: NetworthPoint[] }) {
 						yAxisId="growth"
 						orientation="right"
 						tickFormatter={(v: number) => `${Math.round(v)}%`}
-						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+						tick={tick}
 						tickLine={false}
 						axisLine={false}
 						width={40}
@@ -302,12 +330,15 @@ function NetWorthTip({
 function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 	const qc = useQueryClient();
 	const m = useMoney();
+	const isPhone = useIsPhone();
 	const remove = useMutation({
 		...orpc.networth.remove.mutationOptions(),
 		onSuccess: () => qc.invalidateQueries(),
 	});
 	// newest first — a log reads top-down from "now"
 	const rows = [...points].reverse();
+
+	if (isPhone) return <PhoneLog rows={rows} />;
 
 	return (
 		<div className="overflow-hidden rounded-xl border border-border">
@@ -363,7 +394,11 @@ function NetWorthLog({ points }: { points: NetworthPoint[] }) {
 	);
 }
 
-function Controls() {
+/**
+ * "Log today" and "Add entry", shared by the desktop controls and the phone ones so the two can't disagree
+ * about what a valid entry is.
+ */
+function useEntryForm() {
 	const qc = useQueryClient();
 	const invalidate = () => qc.invalidateQueries();
 	const [open, setOpen] = useState(false);
@@ -384,11 +419,41 @@ function Controls() {
 		},
 	});
 
-	const submit = () => {
+	const parsed = Number(value.replace(/,/g, ""));
+	const valid =
+		!!date && value.trim() !== "" && Number.isFinite(parsed) && parsed >= 0;
+	const submit = (onDone?: () => void) => {
 		const v = Number(value.replace(/,/g, ""));
 		if (!date || !Number.isFinite(v) || v < 0) return;
-		add.mutate({ asOf: date, value: v });
+		add.mutate({ asOf: date, value: v }, { onSuccess: onDone });
 	};
+
+	return {
+		open,
+		setOpen,
+		date,
+		setDate,
+		value,
+		setValue,
+		valid,
+		logToday,
+		add,
+		submit,
+	};
+}
+
+function Controls() {
+	const {
+		open,
+		setOpen,
+		date,
+		setDate,
+		value,
+		setValue,
+		logToday,
+		add,
+		submit,
+	} = useEntryForm();
 
 	return (
 		<div className="flex flex-col items-end gap-2">
@@ -430,7 +495,7 @@ function Controls() {
 					/>
 					<button
 						type="button"
-						onClick={submit}
+						onClick={() => submit()}
 						disabled={add.isPending}
 						className="rounded-md bg-foreground px-3 py-1 font-medium text-background text-sm disabled:opacity-50"
 					>
@@ -442,6 +507,324 @@ function Controls() {
 	);
 }
 
+/**
+ * The phone's version of the controls. Logging today is the screen's one primary action, so it is a full,
+ * filled button; a back-dated entry is the rarer secondary, and its form opens in a sheet instead of
+ * unfolding inline where the keyboard would cover it.
+ */
+function PhoneControls() {
+	const f = useEntryForm();
+	return (
+		<>
+			<div className="flex gap-2">
+				<Button
+					size="lg"
+					className="h-12 flex-1 rounded-xl text-base"
+					onClick={() =>
+						f.logToday.mutate(undefined, { onSuccess: () => haptics.saved() })
+					}
+					disabled={f.logToday.isPending}
+				>
+					{f.logToday.isPending ? "Logging…" : "Log today"}
+				</Button>
+				<Button
+					size="lg"
+					variant="secondary"
+					className="h-12 rounded-xl px-4 text-base"
+					onClick={() => f.setOpen(true)}
+				>
+					<Plus className="size-4" /> Add entry
+				</Button>
+			</div>
+			<Sheet
+				open={f.open}
+				onOpenChange={f.setOpen}
+				title="Add an entry"
+				description="A net-worth point for a past date. An entry on a date that already has one replaces it."
+				footer={
+					<Button
+						size="lg"
+						className="h-12 w-full rounded-xl text-base"
+						disabled={!f.valid || f.add.isPending}
+						onClick={() => f.submit(() => haptics.saved())}
+					>
+						{f.add.isPending ? "Saving…" : "Save entry"}
+					</Button>
+				}
+			>
+				<EntryField label="Date">
+					<DateInput
+						aria-label="Date"
+						value={f.date}
+						onChange={f.setDate}
+						max={todayISODate()}
+						inputClassName="h-12 rounded-xl text-base md:text-base"
+					/>
+				</EntryField>
+				<EntryField label="Net worth">
+					<ValueInput
+						value={f.value}
+						onChange={f.setValue}
+						onEnter={() => f.submit(() => haptics.saved())}
+					/>
+				</EntryField>
+			</Sheet>
+		</>
+	);
+}
+
+function EntryField({
+	label,
+	children,
+}: {
+	label: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<span className="text-muted-foreground text-sm">{label}</span>
+			{children}
+		</div>
+	);
+}
+
+/** 16px so iOS doesn't zoom into it, decimal keypad, rupee sign outside the value so it never gets parsed. */
+function ValueInput({
+	value,
+	onChange,
+	onEnter,
+}: {
+	value: string;
+	onChange: (v: string) => void;
+	onEnter: () => void;
+}) {
+	return (
+		<label className="flex h-12 items-center gap-2 rounded-xl border border-input px-3 focus-within:border-ring dark:bg-input/30">
+			<span className="text-muted-foreground">₹</span>
+			<input
+				type="text"
+				inputMode="decimal"
+				enterKeyHint="done"
+				placeholder="0"
+				aria-label="Net worth, rupees"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				onKeyDown={(e) => e.key === "Enter" && onEnter()}
+				className="tnum h-full min-w-0 flex-1 bg-transparent text-base outline-none"
+			/>
+		</label>
+	);
+}
+
+/** Rows shown before "Show all": enough to see the recent trend without burying the holdings below. */
+const PHONE_LOG_ROWS = 6;
+
+/**
+ * The log as phone list rows: date on the left, value and growth on the right, the whole row a target.
+ * The delete lives in the row's sheet, not on the row, so a 24px trash icon isn't sitting under the thumb on
+ * every line of a scrolling list.
+ */
+function PhoneLog({ rows }: { rows: NetworthPoint[] }) {
+	const m = useMoney();
+	const [all, setAll] = useState(false);
+	const [openAsOf, setOpenAsOf] = useState<string | null>(null);
+	const shown = all ? rows : rows.slice(0, PHONE_LOG_ROWS);
+	const selected = rows.find((r) => r.asOf === openAsOf) ?? null;
+
+	return (
+		<div className="overflow-hidden rounded-2xl border border-border">
+			<ul className="divide-y divide-border">
+				{shown.map((p) => {
+					const up = (p.growth ?? 0) >= 0;
+					return (
+						<li key={p.asOf}>
+							<button
+								type="button"
+								onClick={() => setOpenAsOf(p.asOf)}
+								className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left active:bg-secondary/60"
+							>
+								<span className="flex min-w-0 flex-1 items-center gap-2">
+									<span className="tnum">{formatDate(p.asOf)}</span>
+									{p.source === "computed" && (
+										<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+											auto
+										</span>
+									)}
+								</span>
+								<span className="flex shrink-0 flex-col items-end">
+									<span className="tnum font-medium">{m.fmt(p.value)}</span>
+									<span
+										className="tnum text-xs"
+										style={{
+											color:
+												p.growth == null
+													? "var(--muted-foreground)"
+													: up
+														? COVERED
+														: UNCOVERED,
+										}}
+									>
+										{p.growth == null ? "—" : `${signedPct(p.growth)} /yr`}
+									</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+			{rows.length > PHONE_LOG_ROWS && (
+				<button
+					type="button"
+					onClick={() => setAll((a) => !a)}
+					className="flex min-h-12 w-full items-center justify-center gap-1.5 border-border border-t text-muted-foreground text-sm active:bg-secondary/60"
+				>
+					{all ? "Show fewer" : `Show all ${rows.length} entries`}
+					<ChevronDown
+						className={`size-4 transition-transform ${all ? "rotate-180" : ""}`}
+					/>
+				</button>
+			)}
+			<EntrySheet
+				point={selected}
+				onOpenChange={(o) => !o && setOpenAsOf(null)}
+			/>
+		</div>
+	);
+}
+
+/** One entry: what it is, a correction of its value, and the two-tap delete. */
+function EntrySheet({
+	point,
+	onOpenChange,
+}: {
+	point: NetworthPoint | null;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const qc = useQueryClient();
+	const m = useMoney();
+	const [value, setValue] = useState("");
+	// Keep the last point on screen while the sheet animates shut, rather than blanking it mid-swipe. Keyed
+	// on date and value, not identity: the series is rebuilt every render, and a background refetch must not
+	// wipe a correction you're halfway through typing.
+	const [last, setLast] = useState<NetworthPoint | null>(null);
+	if (point && (point.asOf !== last?.asOf || point.value !== last.value)) {
+		setLast(point);
+		setValue(String(point.value));
+	}
+	const close = () => onOpenChange(false);
+	const remove = useMutation({
+		...orpc.networth.remove.mutationOptions(),
+		onSuccess: () => {
+			qc.invalidateQueries();
+			close();
+		},
+	});
+	// `add` upserts on the date, so saving here corrects this entry rather than adding a second one.
+	const correct = useMutation({
+		...orpc.networth.add.mutationOptions(),
+		onSuccess: () => {
+			haptics.saved();
+			qc.invalidateQueries();
+			close();
+		},
+	});
+
+	const p = point ?? last;
+	const v = Number(value.replace(/,/g, ""));
+	const changed =
+		p != null &&
+		value.trim() !== "" &&
+		Number.isFinite(v) &&
+		v >= 0 &&
+		v !== p.value;
+	const save = () => {
+		if (!p || !changed) return;
+		// A hand-corrected point is a manual one; the auto note would no longer describe it.
+		correct.mutate({
+			asOf: p.asOf,
+			value: v,
+			note: p.source === "manual" ? (p.note ?? undefined) : undefined,
+		});
+	};
+	const up = (p?.growth ?? 0) >= 0;
+
+	return (
+		<Sheet
+			open={point != null}
+			onOpenChange={onOpenChange}
+			title={p ? formatDate(p.asOf) : ""}
+			description={
+				p?.source === "computed"
+					? "Logged automatically: cash on hand plus every holding's current value."
+					: "Entered by hand."
+			}
+		>
+			{p && (
+				<>
+					<div className="flex items-baseline justify-between gap-3">
+						<span className="tnum font-display font-medium text-4xl leading-none">
+							{m.fmt(p.value)}
+						</span>
+						<span
+							className="tnum text-sm"
+							style={{
+								color:
+									p.growth == null
+										? "var(--muted-foreground)"
+										: up
+											? COVERED
+											: UNCOVERED,
+							}}
+						>
+							{p.growth == null
+								? "first in range"
+								: `${signedPct(p.growth)} /yr`}
+						</span>
+					</div>
+					{p.days != null && p.growth != null && (
+						<p className="text-muted-foreground text-sm">
+							Annualised growth over the {p.days} days since the previous entry.
+						</p>
+					)}
+					{p.note && p.source === "manual" && (
+						<p className="text-muted-foreground text-sm">{p.note}</p>
+					)}
+
+					<div className="mt-2 flex flex-col gap-2 border-border border-t pt-4">
+						<span className="text-muted-foreground text-sm">
+							Correct the value
+						</span>
+						<div className="flex gap-2">
+							<div className="min-w-0 flex-1">
+								<ValueInput value={value} onChange={setValue} onEnter={save} />
+							</div>
+							<Button
+								size="lg"
+								className="h-12 rounded-xl px-5 text-base"
+								disabled={!changed || correct.isPending}
+								onClick={save}
+							>
+								Save
+							</Button>
+						</div>
+					</div>
+
+					<div className="mt-2 border-border border-t pt-4">
+						<ArmedDelete
+							size="sm"
+							label="Delete entry"
+							title={`Delete ${formatDate(p.asOf)}`}
+							disabled={remove.isPending || p.id == null}
+							onConfirm={() => p.id != null && remove.mutate({ id: p.id })}
+							className="h-12 w-full rounded-xl text-base"
+						/>
+					</div>
+				</>
+			)}
+		</Sheet>
+	);
+}
+
 function EmptyNetWorth() {
 	const qc = useQueryClient();
 	const logToday = useMutation({
@@ -449,7 +832,7 @@ function EmptyNetWorth() {
 		onSuccess: () => qc.invalidateQueries(),
 	});
 	return (
-		<section className="flex flex-col items-start gap-4 rounded-2xl border border-border border-dashed px-8 py-14">
+		<section className="flex flex-col items-start gap-4 rounded-2xl border border-border border-dashed px-8 py-14 max-md:px-5 max-md:py-10">
 			<p className="font-display font-medium text-xl">No net-worth log yet</p>
 			<p className="max-w-md text-muted-foreground text-sm">
 				Log a point to start the trend — each new point shows the annualised
@@ -460,7 +843,7 @@ function EmptyNetWorth() {
 				type="button"
 				onClick={() => logToday.mutate(undefined)}
 				disabled={logToday.isPending}
-				className="rounded-lg bg-foreground px-4 py-2 font-medium text-background text-sm disabled:opacity-50"
+				className="rounded-lg bg-foreground px-4 py-2 font-medium text-background text-sm disabled:opacity-50 max-md:h-12 max-md:w-full max-md:rounded-xl max-md:text-base"
 			>
 				{logToday.isPending ? "Logging…" : "Log today's net worth →"}
 			</button>

@@ -45,7 +45,7 @@ type SelectProps = {
 };
 
 const TRIGGER =
-	"flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 text-foreground text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-popup-open:border-ring dark:bg-input/30 pointer-coarse:h-11 pointer-coarse:px-3 pointer-coarse:text-base";
+	"flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-2.5 text-foreground text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-popup-open:border-ring dark:bg-input/30 touch:h-11 touch:px-3 touch:text-base";
 
 function flatItems(
 	options?: SelectOption[],

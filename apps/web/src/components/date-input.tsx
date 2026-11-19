@@ -91,7 +91,7 @@ export function DateInput({
 					setText(e.target.value);
 					emit(parse(e.target.value));
 				}}
-				className={cn("tnum w-full pointer-coarse:pr-11 pr-8", inputClassName)}
+				className={cn("tnum w-full pr-8 touch:pr-11", inputClassName)}
 			/>
 			<button
 				type="button"
@@ -107,9 +107,9 @@ export function DateInput({
 						el.focus();
 					}
 				}}
-				className="absolute inset-y-0 right-0 flex pointer-coarse:w-11 w-8 items-center justify-center text-muted-foreground hover:text-foreground"
+				className="absolute inset-y-0 right-0 flex touch:w-11 w-8 items-center justify-center text-muted-foreground hover:text-foreground"
 			>
-				<CalendarDays className="pointer-coarse:size-4 size-3.5" />
+				<CalendarDays className="size-3.5 touch:size-4" />
 			</button>
 			{/* The native picker, invisible, anchored under the button so its popup opens there. */}
 			<input
@@ -124,7 +124,7 @@ export function DateInput({
 					setText(formatDate(iso));
 					emit(parse(iso));
 				}}
-				className="pointer-events-none absolute right-0 bottom-0 h-0 pointer-coarse:w-11 w-8 opacity-0"
+				className="pointer-events-none absolute right-0 bottom-0 h-0 touch:w-11 w-8 opacity-0"
 			/>
 		</div>
 	);
