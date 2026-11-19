@@ -1,6 +1,7 @@
 import { Button } from "@money/ui/components/button";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { haptics } from "@/lib/haptics";
 
 /** Long enough to read the warning and reach for it, short enough that a stray tap expires unused. */
 const DISARM_MS = 4000;
@@ -48,6 +49,7 @@ export function ArmedDelete({
 			aria-label={armed ? "Tap again to delete" : title}
 			onClick={() => {
 				if (!armed) {
+					haptics.armed();
 					setArmed(true);
 					return;
 				}
@@ -60,7 +62,7 @@ export function ArmedDelete({
 			onBlur={() => setArmed(false)}
 			className={`${armed ? "" : "text-muted-foreground hover:text-[var(--uncovered)]"} ${className}`}
 		>
-			<Trash2 className="size-3.5" />
+			<Trash2 className="pointer-coarse:size-4 size-3.5" />
 			{armed ? (
 				<span className="whitespace-nowrap">Tap again to delete</span>
 			) : (

@@ -20,7 +20,7 @@ export function TaxModeChip({ className }: { className?: string }) {
 			type="button"
 			onClick={() => setKpi.mutate({ enabled: !afterTax })}
 			title="Toggle pre-tax / post-tax passive income"
-			className={`rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] normal-case tracking-normal transition-colors hover:bg-secondary/70 ${className ?? ""}`}
+			className={`relative whitespace-nowrap rounded-full bg-secondary px-1.5 py-0.5 text-[0.6rem] normal-case tracking-normal transition-colors after:absolute after:-inset-3 hover:bg-secondary/70 max-md:px-2.5 max-md:py-1 max-md:text-xs ${className ?? ""}`}
 		>
 			{afterTax ? "post-tax" : "pre-tax"}
 		</button>

@@ -107,7 +107,7 @@ export function DateRangePicker({
 				value={preset}
 				onValueChange={(v) => setPreset(v as RangePreset)}
 				options={PRESETS.map((p) => ({ value: p.key, label: p.label }))}
-				className="h-9 w-auto min-w-[9rem] rounded-md"
+				className="h-9 w-auto min-w-[9rem] rounded-full max-md:px-4"
 			/>
 			{preset === "custom" && (
 				<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
