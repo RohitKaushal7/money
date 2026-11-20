@@ -144,11 +144,13 @@ function monthLabel(month: string): string {
  * The trend, or an honest admission that there isn't one yet. History is captured going forward only —
  * the plan never stored past state — so the first month has nothing to compare against.
  *
- * **Scaled from 0 to 1.0×, never to itself.** A sparkline that autoscales to its own min/max makes a
- * series running 0.48→0.72 fill the full height and read as "topped out", and a flat series hug the floor
- * and read as zero, either way contradicting the numeral and the progress bar beside it. The floor is
- * always 0 and the top always reaches 1.0, so the curve's height IS the coverage and its distance from the
- * dashed line IS the remaining gap to freedom. Past 1.0× the top grows to fit; the dashed line stays at 1.0.
+ * **The top always reaches 1.0×, the floor sits 0.2 under the lowest month.** A sparkline that autoscales
+ * to its own min/max makes a series running 0.48→0.72 fill the full height and read as "topped out", and a
+ * flat series hug the floor and read as zero, either way contradicting the numeral beside it. The top is
+ * max(1, peak), so the curve's distance from the dashed 1.0× line IS the remaining gap to freedom; past
+ * 1.0× the top grows and the dashed line stays at 1.0. The floor is max(0, lowest − 0.2) rather than 0,
+ * because month-to-month changes are small and a 0-based axis flattens them into a straight line; the
+ * 0.2 of headroom keeps even the lowest month off the bottom edge.
  */
 function CoverageTrend({
 	history,
@@ -175,9 +177,9 @@ function CoverageTrend({
 	const W = 420;
 	const H = 128;
 	const padY = 10;
-	const lo = 0;
+	const lo = Math.max(0, Math.min(...series) - 0.2);
 	const hi = Math.max(1, ...series);
-	const span = hi - lo;
+	const span = hi - lo || 1;
 	const x = (i: number) => (i * W) / (series.length - 1);
 	const y = (v: number) => padY + (1 - (v - lo) / span) * (H - padY * 2);
 
